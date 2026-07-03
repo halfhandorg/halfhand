@@ -1,0 +1,21 @@
+# === Deep Build Artifacts ===
+target/
+.cargo/
+
+# === Self-Reference ===
+# Stops Claude from recursively reading its own worktree artifacts
+.claude/
+
+# === Secrets & Credentials ===
+.env
+.env.*
+*.pem
+*.key
+id_ed25519*
+id_rsa*
+
+# === IDE & System Junk ===
+.vscode/
+.idea/
+.DS_Store
+.sqlite

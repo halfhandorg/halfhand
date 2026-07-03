@@ -1,0 +1,23 @@
+# === Massive Cache & Workspace Invalidation ===
+# Absolutely essential to block the 50GB worktree folder
+.claude/
+target/
+../target-shared/
+
+# === Git & Source Control ===
+.git
+.gitignore
+.github
+
+# === Local Secrets (Never bake into images) ===
+.env
+.env.*
+*.pem
+*.key
+
+# === Development Configuration ===
+.vscode/
+.idea/
+.claudeignore
+.dockerignore
+DockerFile
