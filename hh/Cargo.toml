@@ -16,8 +16,8 @@ name = "hh"
 path = "src/main.rs"
 
 [dependencies]
-hh-core = { path = "../hh-core" }
-hh-record = { path = "../hh-record" }
+hh-core = { workspace = true }
+hh-record = { workspace = true }
 # Justification: CLI parsing (SRS §6).
 clap = { version = "4", features = ["derive"] }
 # Justification: error context in the binary (CLAUDE.md / NFR-5).

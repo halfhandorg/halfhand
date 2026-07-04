@@ -15,7 +15,7 @@ workspace = true
 path = "src/lib.rs"
 
 [dependencies]
-hh-core = { path = "../hh-core" }
+hh-core = { workspace = true }
 # Justification (SRS §6): the recorder spawns the agent in a PTY.
 portable-pty = "0.8"
 # Justification (SRS §6/FR-1.4): recursive filesystem watcher for file changes.

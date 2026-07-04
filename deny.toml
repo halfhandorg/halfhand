@@ -6,7 +6,13 @@ version = 2
 db-path = "$CARGO_HOME/advisory-dbs"
 db-urls = ["https://github.com/rustsec/advisory-db"]
 yanked = "deny"
-ignore = []
+# RUSTSEC-2017-0008: the `serial` crate is unmaintained (last release 2017). It
+# is pulled in transitively by `portable-pty` 0.8.1 (the SRS §6-blessed PTY
+# crate), which uses it for serial-port PTY support. This is an
+# "unmaintained" notice, not a security vulnerability, and we never call into
+# `serial` ourselves; replacing portable-pty is out of scope for v0.1. Tracked
+# for revisit when portable-pty drops the dependency.
+ignore = ["RUSTSEC-2017-0008"]
 
 [licenses]
 # Halfhand is MIT (SRS §1). Allow permissive licenses compatible with MIT
@@ -24,6 +30,11 @@ allow = [
     "Zlib",
     "CC0-1.0",
     "0BSD",
+    # MPL-2.0 is weak (file-level) copyleft from `option-ext`, a transitive dep
+    # of `directories` (SRS §6) used by hh-core. We do not modify any MPL-2.0
+    # file, so the source-disclosure obligation never triggers; it is
+    # compatible with MIT distribution. Reviewed and accepted for v0.1.
+    "MPL-2.0",
 ]
 # Confidence threshold for license detection.
 confidence-threshold = 0.8

@@ -8,7 +8,15 @@ edition = "2021"
 rust-version = "1.75"
 license = "MIT"
 authors = ["Saadman Rafat"]
-repository = "https://github.com/saadman/halfhand"
+repository = "https://github.com/halfhandorg/halfhand"
+
+# Shared internal deps: path + version so cargo-deny's `bans.wildcards` check
+# (which flags deps with no pinned version) doesn't reject our own workspace
+# crates, and so the crates are publishable with correct inter-crate version
+# constraints. Members reference these via `{ workspace = true }`.
+[workspace.dependencies]
+hh-core = { path = "hh-core", version = "0.1.0-beta.1" }
+hh-record = { path = "hh-record", version = "0.1.0-beta.1" }
 
 [workspace.lints.clippy]
 pedantic = { level = "warn", priority = -1 }
