@@ -1,0 +1,39 @@
+[package]
+name = "halfhand"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+authors.workspace = true
+repository.workspace = true
+description = "Local-first CLI flight recorder for AI agents"
+
+[lints]
+workspace = true
+
+[[bin]]
+name = "hh"
+path = "src/main.rs"
+
+[dependencies]
+hh-core = { path = "../hh-core" }
+hh-record = { path = "../hh-record" }
+# Justification: CLI parsing (SRS §6).
+clap = { version = "4", features = ["derive"] }
+# Justification: error context in the binary (CLAUDE.md / NFR-5).
+anyhow = "1"
+# Justification: colored output, respecting NO_COLOR (SRS §6 / NFR-7).
+owo-colors = "4"
+
+[build-dependencies]
+# Justification: embed git sha into --version (NFR-8). No network.
+built = { version = "0.7", features = ["git2"] }
+
+[dev-dependencies]
+# Justification: integration tests create throwaway data dirs (CLAUDE.md:
+# never the real data dir — set HH_DATA_DIR).
+tempfile = "3"
+# Justification: integration tests assert on the on-disk SQLite schema
+# directly (DR-2: hh.db is a public, documented interface), without going
+# through hh-core's Store (which would re-run migrations and hide the schema).
+rusqlite = { version = "0.31", features = ["bundled"] }

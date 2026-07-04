@@ -1,0 +1,34 @@
+[workspace]
+resolver = "2"
+members = ["hh-core", "hh-record", "hh"]
+
+[workspace.package]
+version = "0.1.0-beta.1"
+edition = "2021"
+rust-version = "1.75"
+license = "MIT"
+authors = ["Saadman Rafat"]
+repository = "https://github.com/saadman/halfhand"
+
+[workspace.lints.clippy]
+pedantic = { level = "warn", priority = -1 }
+# Justification: naming types `Store`, `BlobStore` etc. in a module named
+# `store`/`blob` reads better than `store::Store`; the repetition is intentional.
+module_name_repetitions = "allow"
+# Justification: most builders/fallible functions already return Result; tagging
+# every one with #[must_use] is noise that does not catch real bugs here.
+must_use_candidate = "allow"
+# Justification: full rustdoc on every public item is enforced by missing_docs
+# (deny) in hh-core; the separate "Errors"/"Panics" doc sections pedantic wants
+# are covered inline where relevant, not on every fn.
+missing_errors_doc = "allow"
+missing_panics_doc = "allow"
+# Justification: the docs reference many tech proper nouns (SQLite, BLAKE3,
+# zstd, JSON, TOML, PTY, MCP, UUIDv7, …) as plain text, not doc-links. Backticking
+# every occurrence is noise that does not improve the rendered docs.
+doc_markdown = "allow"
+
+[profile.release]
+lto = "thin"
+strip = true
+codegen-units = 1

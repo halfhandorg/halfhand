@@ -1,0 +1,76 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+env:
+  CARGO_TERM_COLOR: always
+  RUSTFLAGS: "-D warnings"
+  # NFR-2: no network. Keep toolchain updates pinned via the rust-toolchain
+  # file rather than fetching latest at runtime.
+  CARGO_UNSTABLE_SPARSE_REGISTRY: "true"
+
+jobs:
+  fmt:
+    name: rustfmt
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt
+      - name: cargo fmt --check
+        run: cargo fmt --all -- --check
+
+  clippy:
+    name: clippy
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: clippy
+      - name: cargo clippy --workspace --all-targets
+        run: cargo clippy --workspace --all-targets -- -D warnings
+
+  test:
+    name: test (${{ matrix.os }})
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - name: cargo test --workspace
+        run: cargo test --workspace --locked
+      # NFR-2 enforcement: the binary must link no HTTP client crate. We list
+      # the tree and grep for known offenders; failure here means someone added
+      # a network dependency.
+      - name: no-network-crate check
+        run: |
+          cargo tree --workspace -e features --depth 1 > tree.txt
+          ! grep -Ei '^(ureq|reqwest|hyper|isahc|attohttpc|minreq|surf) ' tree.txt
+
+  build-windows:
+    name: build (windows, build-only per SRS §2.2)
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - name: cargo build --workspace
+        run: cargo build --workspace --locked
+
+  deny:
+    name: cargo-deny
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: EmbarkStudios/cargo-deny-action@v2
+        with:
+          arguments: --workspace check
+          command-arguments: --workspace check

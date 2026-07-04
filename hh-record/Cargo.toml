@@ -1,0 +1,39 @@
+[package]
+name = "hh-record"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+authors.workspace = true
+repository.workspace = true
+description = "Halfhand recorder: PTY runner, FS watcher, MCP proxy"
+
+[lints]
+workspace = true
+
+[lib]
+path = "src/lib.rs"
+
+[dependencies]
+hh-core = { path = "../hh-core" }
+# Justification (SRS §6): the recorder spawns the agent in a PTY.
+portable-pty = "0.8"
+# Justification (SRS §6/FR-1.4): recursive filesystem watcher for file changes.
+notify = "6"
+# Justification (SRS §6): SIGTERM/SIGINT/SIGWINCH handling.
+signal-hook = "0.3"
+# Justification (SRS §6): raw terminal mode + size queries for transparent PTY
+# proxy (FR-1.1). Listed under `hh` in SRS §6 but consumed by the recorder.
+crossterm = "0.27"
+# Justification (SRS §6/FR-1.4): `.gitignore`-aware path filtering for the
+# watcher. Listed under `hh-core` in SRS §6 but consumed here; kept in
+# hh-record to avoid widening hh-core's surface for the skeleton.
+ignore = "0.4"
+# Justification (CLAUDE.md/NFR-5): library error enum.
+thiserror = "1"
+# Justification: serialization of event bodies (re-exported via hh-core, but
+# the recorder builds JSON bodies directly).
+serde_json = "1"
+
+[dev-dependencies]
+tempfile = "3"
