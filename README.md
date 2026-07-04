@@ -1,6 +1,9 @@
-# Halfhand
+# Halfhand 
 
 Halfhand is a local-first CLI flight recorder for AI agents. It captures an agent session on your own machine, stores it in a local SQLite database, and lets you replay or inspect it later without sending the data to a remote service.
+
+
+![](docs/assets/halfhand-cli.png)
 
 The tool is designed for privacy and reproducibility: recordings stay local, and you can point Halfhand at a custom data directory with `HH_DATA_DIR`.
 
