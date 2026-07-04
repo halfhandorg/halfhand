@@ -21,7 +21,11 @@ use hh_core::blob::BlobStore;
 use hh_core::event::{Event, EventKind, NewSession};
 use hh_core::store::{EventWriter, Store};
 use portable_pty::{native_pty_system, CommandBuilder, PtySize};
-use signal_hook::consts::{SIGINT, SIGTERM, SIGWINCH};
+use signal_hook::consts::{SIGINT, SIGTERM};
+// SIGWINCH is Unix-only; Windows console resizes are not delivered as a
+// signal, so resize forwarding is a no-op there (v0.1).
+#[cfg(unix)]
+use signal_hook::consts::SIGWINCH;
 use signal_hook::flag::register as register_flag;
 
 use crate::watcher::{spawn_watcher, WatchOptions};
@@ -190,6 +194,9 @@ pub fn run(store: &Store, opts: &RunOptions) -> crate::Result<RunOutcome> {
     let resize_flag = Arc::new(AtomicBool::new(false));
     // Register signal flags. Best-effort: if a signal can't be registered, we
     // simply don't handle it (the child still runs).
+    // SIGWINCH (terminal resize) is Unix-only; on Windows there is no signal
+    // to register, so the resize flag is simply never set there.
+    #[cfg(unix)]
     let _ = register_flag(SIGWINCH, Arc::clone(&resize_flag));
     let _ = register_flag(SIGTERM, Arc::clone(&stop));
     // SIGINT: in raw mode the user's Ctrl-C goes through the PTY to the child,

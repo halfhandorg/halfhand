@@ -69,8 +69,13 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - uses: dtolnay/rust-toolchain@stable
+      # EmbarkStudios/cargo-deny-action ships its own cargo-deny (and cargo)
+      # in the action image, so no rust-toolchain step is needed here.
+      # `check` with no WHICH runs all categories (advisories, licenses, bans,
+      # sources) against the workspace manifest at ./Cargo.toml. The bundled
+      # cargo-deny does not accept `--workspace` (it checks all members by
+      # default), so we pass the categories explicitly instead.
       - uses: EmbarkStudios/cargo-deny-action@v2
         with:
-          arguments: --workspace check
-          command-arguments: --workspace check
+          command: check
+          arguments: advisories licenses bans sources

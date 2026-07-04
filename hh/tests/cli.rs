@@ -114,7 +114,8 @@ impl Temp {
 /// captured output. stdin is /dev/null so the stdin proxy exits immediately
 /// and the test never blocks on a TTY read.
 fn run_fixture(temp: &Temp, args: &[&str]) -> std::process::Output {
-    hh().args(["run", "--"]).args(args)
+    hh().args(["run", "--"])
+        .args(args)
         .env("HH_DATA_DIR", temp.data.path())
         .current_dir(temp.work.path())
         .stdin(Stdio::null())
@@ -165,15 +166,14 @@ fn run_records_generic_session_with_terminal_and_file_changes() {
     let recorded_cwd_path = std::path::Path::new(&cwd)
         .canonicalize()
         .unwrap_or_else(|_| std::path::PathBuf::from(&cwd));
-    let expected_cwd_path = temp.work.path()
+    let expected_cwd_path = temp
+        .work
+        .path()
         .canonicalize()
         .unwrap_or_else(|_| temp.work.path().to_path_buf());
     assert_eq!(
-        recorded_cwd_path,
-        expected_cwd_path,
-        "cwd mismatch: recorded {:?} vs expected {:?}",
-        recorded_cwd_path,
-        expected_cwd_path
+        recorded_cwd_path, expected_cwd_path,
+        "cwd mismatch: recorded {recorded_cwd_path:?} vs expected {expected_cwd_path:?}",
     );
 
     // Terminal output was captured (FR-1.3): at least one terminal_output
@@ -263,7 +263,8 @@ fn open_db_after_init(data_dir: &Path) -> Connection {
     // Apply migrations by running a throwaway recording, then delete its row
     // so it does not pollute the stale test. The schema persists.
     let temp_work = tempfile::tempdir().unwrap();
-    hh().args(["run", "--", "true"]).env("HH_DATA_DIR", data_dir)
+    hh().args(["run", "--", "true"])
+        .env("HH_DATA_DIR", data_dir)
         .current_dir(temp_work.path())
         .stdin(Stdio::null())
         .output()
