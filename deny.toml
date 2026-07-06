@@ -12,7 +12,12 @@ yanked = "deny"
 # "unmaintained" notice, not a security vulnerability, and we never call into
 # `serial` ourselves; replacing portable-pty is out of scope for v0.1. Tracked
 # for revisit when portable-pty drops the dependency.
-ignore = ["RUSTSEC-2017-0008"]
+#
+# RUSTSEC-2024-0436: `paste` is unmaintained (no safe upgrade exists per the
+# advisory). Pulled in transitively by `ratatui` 0.26.3 (FR-3's TUI engine)
+# for its macro-generated widget code; we never depend on `paste` directly.
+# Tracked for revisit on the next ratatui upgrade.
+ignore = ["RUSTSEC-2017-0008", "RUSTSEC-2024-0436"]
 
 [licenses]
 # Halfhand is MIT (SRS §1). Allow permissive licenses compatible with MIT

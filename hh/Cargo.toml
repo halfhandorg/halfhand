@@ -41,8 +41,10 @@ crossterm = "0.27"
 similar = "2.7"
 # Justification (FR-3.5): bounded LRU cache for the last 50 lazily-fetched
 # event bodies, so scrolling the timeline does not re-hit SQLite/blob storage
-# for rows already visited.
-lru = "0.12"
+# for rows already visited. Pinned >=0.16.3 (RUSTSEC-2026-0002: 0.12's
+# `IterMut` unsound; fixed upstream, we never use `iter_mut` but take the fix
+# anyway since it's a free version bump).
+lru = "0.18"
 
 [build-dependencies]
 # Justification: embed git sha into --version (NFR-8). No network.
