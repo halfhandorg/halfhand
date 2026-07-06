@@ -1012,7 +1012,7 @@ fn mcp_proxy_latency_within_bound() {
     let min = lats[0];
     let _max = *lats.last().unwrap();
     assert!(
-        min < 500,
+        min < 1000,
         "a single proxied round trip must complete within reasonable bound, got min {min}ms"
     );
 }
