@@ -16,8 +16,13 @@
 //! `WalkBuilder`, which is walk-oriented, not event-oriented). For v0.1 this
 //! covers the common case (one root `.gitignore`); nested ignores are a
 //! roadmap refinement. See the decisions summary.
+//!
+//! A one-time recursive scan of `cwd` runs before the event loop starts, to
+//! give [`resolve_first_seen`] a baseline of pre-existing files — see its
+//! docs for why (a macOS FSEvents quirk misreports edits to pre-existing
+//! files as creations otherwise).
 
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::io::Read;
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicBool, Ordering};
@@ -189,11 +194,23 @@ fn run_loop(
 ) {
     let mut known: HashMap<PathBuf, String> = HashMap::new();
     let mut pending: HashMap<PathBuf, Pending> = HashMap::new();
+    // Baseline of files that exist under `cwd` before the watch starts
+    // observing changes, so a raw `Created` event on one of them can be
+    // recognized as spurious (see `resolve_first_seen`).
+    let mut existing: HashSet<PathBuf> = HashSet::new();
+    scan_existing_files(
+        &opts.cwd,
+        &opts.cwd,
+        &matcher,
+        &opts.internal_exclude,
+        &mut existing,
+    );
     while !stop.load(Ordering::Acquire) {
         match nrx.recv_timeout(POLL_INTERVAL) {
             Ok(Ok(event)) => {
                 for path in &event.paths {
                     if let Some(kind) = classify(path, event.kind, &matcher, &opts) {
+                        let kind = resolve_first_seen(kind, path, &mut existing);
                         coalesce(&mut pending, path.clone(), kind);
                     }
                 }
@@ -341,6 +358,75 @@ fn classify(
     })
 }
 
+/// Recursively collect every regular file under `dir` (relative to `cwd`)
+/// that isn't excluded or ignored, into `out`. Walked once at watch startup
+/// to build the baseline for [`resolve_first_seen`]. Does not follow
+/// symlinks (`DirEntry::file_type` reports the link itself, not its target),
+/// which also avoids symlink-cycle recursion. Best-effort: an unreadable
+/// subdirectory is skipped rather than failing the whole scan.
+fn scan_existing_files(
+    dir: &Path,
+    cwd: &Path,
+    matcher: &Gitignore,
+    internal_exclude: &[PathBuf],
+    out: &mut HashSet<PathBuf>,
+) {
+    let Ok(entries) = std::fs::read_dir(dir) else {
+        return;
+    };
+    for entry in entries.flatten() {
+        let path = entry.path();
+        if internal_exclude.iter().any(|excl| path.starts_with(excl)) {
+            continue;
+        }
+        let Ok(rel) = path.strip_prefix(cwd) else {
+            continue;
+        };
+        let Ok(file_type) = entry.file_type() else {
+            continue;
+        };
+        let is_dir = file_type.is_dir();
+        if matcher.matched_path_or_any_parents(rel, is_dir).is_ignore() {
+            continue;
+        }
+        if is_dir {
+            scan_existing_files(&path, cwd, matcher, internal_exclude, out);
+        } else {
+            out.insert(path);
+        }
+    }
+}
+
+/// Resolve a raw classified [`ChangeKind`] against the set of paths already
+/// known to exist, correcting for a macOS FSEvents quirk: `fseventsd` can tag
+/// the *first-ever* notification it delivers for a path with
+/// `kFSEventStreamEventFlagItemCreated` even when the path predates the watch
+/// (it keeps no baseline of what existed before the stream started). Left
+/// uncorrected, editing a pre-existing file is recorded as `created` instead
+/// of `modified` (its very first observed event wins the merge in
+/// [`merge_kind`]).
+///
+/// `existing` is updated as change kinds are resolved, so a later
+/// delete-then-recreate of the same path within the same session is still
+/// reported as a genuine `Created`.
+fn resolve_first_seen(
+    kind: ChangeKind,
+    path: &Path,
+    existing: &mut HashSet<PathBuf>,
+) -> ChangeKind {
+    match kind {
+        ChangeKind::Created if existing.contains(path) => ChangeKind::Modified,
+        ChangeKind::Created | ChangeKind::Modified => {
+            existing.insert(path.to_path_buf());
+            kind
+        }
+        ChangeKind::Deleted => {
+            existing.remove(path);
+            ChangeKind::Deleted
+        }
+    }
+}
+
 /// Fold a new event on `path` into the pending map, extending its debounce
 /// window and merging kinds. A create followed by a delete within the window
 /// is a net no-op and is marked `suppress`.
@@ -385,8 +471,16 @@ fn merge_kind(prior: ChangeKind, new: ChangeKind) -> (ChangeKind, bool) {
         (ChangeKind::Created, ChangeKind::Modified) | (_, ChangeKind::Created) => {
             (ChangeKind::Created, false)
         }
-        // A delete wins over a prior modify/observe.
-        (_, ChangeKind::Deleted) => (ChangeKind::Deleted, false),
+        // A delete wins over a prior modify/observe — including a Modify
+        // observed after a Delete, which is stale/spurious (the path can't
+        // be modified once it doesn't exist). macOS FSEvents can coalesce a
+        // whole create+modify+delete history into one notification batch and
+        // deliver it in `translate_flags`' fixed flag-check order rather than
+        // true chronological order (e.g. Created, Removed, ..., Modified);
+        // ground truth wins, so once deleted, stays deleted.
+        (_, ChangeKind::Deleted) | (ChangeKind::Deleted, ChangeKind::Modified) => {
+            (ChangeKind::Deleted, false)
+        }
         // Two modifies (and any other combo) collapse to a single modify.
         _ => (ChangeKind::Modified, false),
     }
@@ -593,6 +687,16 @@ mod tests {
     }
 
     #[test]
+    fn merge_kind_delete_then_stale_modify_stays_deleted() {
+        // A Modify flag observed after a Delete in the same coalesced batch
+        // is stale (the path can't be modified once gone) — ground truth
+        // (deleted) must win, not the catch-all Modified fallback.
+        let (k, s) = merge_kind(ChangeKind::Deleted, ChangeKind::Modified);
+        assert_eq!(k, ChangeKind::Deleted);
+        assert!(!s);
+    }
+
+    #[test]
     fn coalesce_extends_window_and_suppresses_create_delete_burst() {
         let mut pending: HashMap<PathBuf, Pending> = HashMap::new();
         let path = PathBuf::from("/tmp/x");
@@ -613,5 +717,76 @@ mod tests {
         assert_eq!(pending.len(), 2);
         assert_eq!(pending[&PathBuf::from("/tmp/a")].kind, ChangeKind::Created);
         assert_eq!(pending[&PathBuf::from("/tmp/b")].kind, ChangeKind::Modified);
+    }
+
+    #[test]
+    fn resolve_first_seen_downgrades_created_for_known_existing_path() {
+        // A path already in the baseline set was on disk before the watch
+        // started: a raw `Created` for it is the macOS FSEvents quirk, not a
+        // real creation.
+        let path = PathBuf::from("/tmp/modified.txt");
+        let mut existing: HashSet<PathBuf> = [path.clone()].into_iter().collect();
+        let kind = resolve_first_seen(ChangeKind::Created, &path, &mut existing);
+        assert_eq!(kind, ChangeKind::Modified);
+    }
+
+    #[test]
+    fn resolve_first_seen_keeps_created_for_new_path_and_tracks_it() {
+        let path = PathBuf::from("/tmp/created.txt");
+        let mut existing: HashSet<PathBuf> = HashSet::new();
+        let kind = resolve_first_seen(ChangeKind::Created, &path, &mut existing);
+        assert_eq!(kind, ChangeKind::Created);
+        // Now tracked, so a later edit is a genuine Modified, not re-downgraded.
+        assert!(existing.contains(&path));
+    }
+
+    #[test]
+    fn resolve_first_seen_treats_recreate_after_delete_as_created() {
+        // A baseline path that gets deleted then recreated within the same
+        // session must report the recreate as a real Created, not Modified.
+        let path = PathBuf::from("/tmp/doomed.txt");
+        let mut existing: HashSet<PathBuf> = [path.clone()].into_iter().collect();
+        assert_eq!(
+            resolve_first_seen(ChangeKind::Deleted, &path, &mut existing),
+            ChangeKind::Deleted
+        );
+        assert!(!existing.contains(&path));
+        assert_eq!(
+            resolve_first_seen(ChangeKind::Created, &path, &mut existing),
+            ChangeKind::Created
+        );
+    }
+
+    #[test]
+    fn scan_existing_files_finds_pre_existing_files_respecting_ignores() {
+        let tmp = tempfile::tempdir().unwrap();
+        let cwd = tmp.path();
+        std::fs::write(cwd.join("modified.txt"), "orig\n").unwrap();
+        std::fs::create_dir_all(cwd.join("sub")).unwrap();
+        std::fs::write(cwd.join("sub").join("nested.txt"), "orig\n").unwrap();
+        std::fs::create_dir_all(cwd.join("node_modules")).unwrap();
+        std::fs::write(cwd.join("node_modules").join("ignored.txt"), "x\n").unwrap();
+        let matcher = build_matcher(cwd, &[]).unwrap();
+
+        let mut existing = HashSet::new();
+        scan_existing_files(cwd, cwd, &matcher, &[], &mut existing);
+
+        assert!(existing.contains(&cwd.join("modified.txt")));
+        assert!(existing.contains(&cwd.join("sub").join("nested.txt")));
+        assert!(!existing.contains(&cwd.join("node_modules").join("ignored.txt")));
+    }
+
+    #[test]
+    fn scan_existing_files_honors_internal_exclude() {
+        let tmp = tempfile::tempdir().unwrap();
+        let cwd = tmp.path();
+        std::fs::create_dir_all(cwd.join(".hh")).unwrap();
+        std::fs::write(cwd.join(".hh").join("hh.db"), "x\n").unwrap();
+        let matcher = build_matcher(cwd, &[]).unwrap();
+
+        let mut existing = HashSet::new();
+        scan_existing_files(cwd, cwd, &matcher, &[cwd.join(".hh")], &mut existing);
+
+        assert!(!existing.contains(&cwd.join(".hh").join("hh.db")));
     }
 }
