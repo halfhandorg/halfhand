@@ -1118,7 +1118,17 @@ fn claude_adapter_e2e() {
     // runs), so the dir must already exist; the shim only writes the transcript
     // file into it afterwards (the adapter polls up to 3s for the file). The
     // slug matches the adapter's `slugify` (`/`+`\`+`.`→`-`).
-    let slug: String = work
+    //
+    // Slugify the *canonical* work path, not `work` as constructed: the
+    // adapter's `ctx.cwd` comes from `std::env::current_dir()` inside `hh`,
+    // which resolves symlinks (getcwd(3) semantics), and the shim's
+    // `os.getcwd()` sees the same resolved path. On macOS `TMPDIR` is under
+    // `/var/folders/...`, a symlink to `/private/var/folders/...`; slugifying
+    // the unresolved `work` path here would pre-create a directory the
+    // adapter never looks in, forcing it onto the fallback scan (which races
+    // the shim and can lose, misreporting `adapter_status=degraded`).
+    let canonical_work = work.canonicalize().unwrap_or_else(|_| work.clone());
+    let slug: String = canonical_work
         .to_string_lossy()
         .chars()
         .map(|c| match c {
