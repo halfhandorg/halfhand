@@ -70,11 +70,11 @@ fn every_subcommand_help_has_an_example() {
 
 #[test]
 fn unimplemented_subcommand_returns_not_implemented_exiting_nonzero() {
-    // `hh run` is implemented; use a still-unimplemented subcommand here.
-    let out = hh().args(["replay", "last"]).output().unwrap();
+    // `hh run` and `hh replay` are implemented; `hh inspect` (FR-4) is not yet.
+    let out = hh().args(["inspect", "last"]).output().unwrap();
     assert!(
         !out.status.success(),
-        "expected nonzero exit for unimplemented replay"
+        "expected nonzero exit for unimplemented inspect"
     );
     let stderr = String::from_utf8_lossy(&out.stderr);
     assert!(
@@ -82,6 +82,24 @@ fn unimplemented_subcommand_returns_not_implemented_exiting_nonzero() {
         "expected 'not implemented' in stderr: {stderr}"
     );
     // NFR-7: error includes a hint (suggested next step).
+    assert!(
+        stderr.contains("hint:"),
+        "missing actionable hint: {stderr}"
+    );
+}
+
+/// `hh replay` (FR-3): needs a real terminal (raw mode), so it must refuse
+/// clearly under test harnesses/pipes rather than failing deep inside
+/// crossterm — CLAUDE.md "actionable errors".
+#[test]
+fn replay_without_a_tty_gives_an_actionable_error() {
+    let out = hh().args(["replay", "last"]).output().unwrap();
+    assert!(!out.status.success(), "expected nonzero exit without a TTY");
+    let stderr = String::from_utf8_lossy(&out.stderr);
+    assert!(
+        stderr.contains("interactive terminal"),
+        "expected a TTY-required message in stderr: {stderr}"
+    );
     assert!(
         stderr.contains("hint:"),
         "missing actionable hint: {stderr}"
