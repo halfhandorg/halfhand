@@ -48,6 +48,23 @@ const DEBOUNCE_WINDOW: Duration = Duration::from_millis(100);
 /// window elapses.
 const POLL_INTERVAL: Duration = Duration::from_millis(20);
 
+/// Extra time to keep polling after `stop` is signaled, before the final
+/// flush. `notify`'s FSEvents backend (macOS) requests immediate delivery
+/// (latency 0) but `fseventsd` itself is a coalescing daemon: under load
+/// (e.g. CI VMs) the notification for a write made right before the child
+/// exits can arrive tens to low hundreds of ms late. Without this grace
+/// window, `stop_and_join` (called the instant the child exits) can win the
+/// race and the watcher drops its handle before the OS event ever reaches
+/// `nrx` — silently losing a real file change.
+///
+/// Linux (inotify) and Windows (ReadDirectoryChangesW) deliver essentially
+/// synchronously, so this is scoped to macOS only — it would otherwise add a
+/// flat, unnecessary tail latency to every `hh run` on other platforms.
+#[cfg(target_os = "macos")]
+const SHUTDOWN_GRACE: Duration = Duration::from_millis(300);
+#[cfg(not(target_os = "macos"))]
+const SHUTDOWN_GRACE: Duration = Duration::from_millis(0);
+
 /// Options for the filesystem watcher (FR-1.4).
 #[derive(Debug, Clone)]
 pub struct WatchOptions {
@@ -189,7 +206,18 @@ fn run_loop(
 ) {
     let mut known: HashMap<PathBuf, String> = HashMap::new();
     let mut pending: HashMap<PathBuf, Pending> = HashMap::new();
-    while !stop.load(Ordering::Acquire) {
+    // `stopping_since` is set the first time `stop` is observed true; polling
+    // continues until SHUTDOWN_GRACE has elapsed from that point, giving a
+    // trailing FSEvents notification a bounded window to arrive (see
+    // SHUTDOWN_GRACE) instead of exiting on the very next poll tick.
+    let mut stopping_since: Option<Instant> = None;
+    loop {
+        if stop.load(Ordering::Acquire) {
+            let since = *stopping_since.get_or_insert_with(Instant::now);
+            if since.elapsed() >= SHUTDOWN_GRACE {
+                break;
+            }
+        }
         match nrx.recv_timeout(POLL_INTERVAL) {
             Ok(Ok(event)) => {
                 for path in &event.paths {
