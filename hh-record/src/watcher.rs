@@ -471,8 +471,16 @@ fn merge_kind(prior: ChangeKind, new: ChangeKind) -> (ChangeKind, bool) {
         (ChangeKind::Created, ChangeKind::Modified) | (_, ChangeKind::Created) => {
             (ChangeKind::Created, false)
         }
-        // A delete wins over a prior modify/observe.
-        (_, ChangeKind::Deleted) => (ChangeKind::Deleted, false),
+        // A delete wins over a prior modify/observe — including a Modify
+        // observed after a Delete, which is stale/spurious (the path can't
+        // be modified once it doesn't exist). macOS FSEvents can coalesce a
+        // whole create+modify+delete history into one notification batch and
+        // deliver it in `translate_flags`' fixed flag-check order rather than
+        // true chronological order (e.g. Created, Removed, ..., Modified);
+        // ground truth wins, so once deleted, stays deleted.
+        (_, ChangeKind::Deleted) | (ChangeKind::Deleted, ChangeKind::Modified) => {
+            (ChangeKind::Deleted, false)
+        }
         // Two modifies (and any other combo) collapse to a single modify.
         _ => (ChangeKind::Modified, false),
     }
@@ -675,6 +683,16 @@ mod tests {
     fn merge_kind_delete_then_recreate_is_created() {
         let (k, s) = merge_kind(ChangeKind::Deleted, ChangeKind::Created);
         assert_eq!(k, ChangeKind::Created);
+        assert!(!s);
+    }
+
+    #[test]
+    fn merge_kind_delete_then_stale_modify_stays_deleted() {
+        // A Modify flag observed after a Delete in the same coalesced batch
+        // is stale (the path can't be modified once gone) — ground truth
+        // (deleted) must win, not the catch-all Modified fallback.
+        let (k, s) = merge_kind(ChangeKind::Deleted, ChangeKind::Modified);
+        assert_eq!(k, ChangeKind::Deleted);
         assert!(!s);
     }
 

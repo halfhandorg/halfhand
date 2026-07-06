@@ -12,8 +12,11 @@ Exercises the recorder end-to-end for a generic agent:
 Each filesystem operation is followed by a short sleep so the operations land
 outside the watcher's 100 ms debounce window (see hh-record watcher.rs) — this
 keeps create/modify/delete as separate rows instead of coalescing, and makes
-the fixture robust to per-OS watcher delivery latency. The total runtime is
-~1 s.
+the fixture robust to per-OS watcher delivery latency. doomed.txt's
+create-to-delete gap is wider than the others: macOS's FSEvents backend can
+coalesce a whole create+modify+delete history for one path into a single
+notification batch under CI load, so this path needs real separation, not
+just enough to clear the 100 ms debounce window. The total runtime is ~3 s.
 """
 import os
 import sys
@@ -25,11 +28,13 @@ sys.stdout.flush()
 time.sleep(0.2)
 
 # A file we will delete later. Created early so the create and delete events
-# are well separated in time (survives debounce coalescing) and the delete
+# are well separated in time (survives debounce coalescing, and gives macOS
+# FSEvents room to deliver the create as its own notification rather than
+# folding it into the same batch as the eventual delete) and the delete
 # carries a before_hash (we observed the create earlier in the session).
 with open("doomed.txt", "w") as f:
     f.write("bye-bye\n")
-time.sleep(0.5)
+time.sleep(2.0)
 
 # A brand-new file: exercises `created`.
 with open("created.txt", "w") as f:
