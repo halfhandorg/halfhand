@@ -10,6 +10,7 @@
 //! channel send + reply, serializing appends — which is exactly the
 //! single-writer invariant.
 
+use std::collections::HashMap;
 use std::io::{IsTerminal, Read, Write};
 use std::path::PathBuf;
 use std::process::Command;
@@ -17,8 +18,9 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
+use hh_core::adapter::{Adapter, AdapterContext, AdapterHandle, AdapterOutcome};
 use hh_core::blob::BlobStore;
-use hh_core::event::{Event, EventKind, NewSession};
+use hh_core::event::{AdapterStatus, Event, EventKind, NewSession};
 use hh_core::store::{EventWriter, Store};
 use portable_pty::{native_pty_system, CommandBuilder, PtySize};
 use signal_hook::consts::{SIGINT, SIGTERM};
@@ -39,6 +41,11 @@ const CHUNK_INTERVAL: Duration = Duration::from_millis(50);
 pub struct RunOptions {
     /// The command argv to spawn (program + args).
     pub command: Vec<String>,
+    /// Forced adapter name (`hh run --adapter <name>`), overriding auto-detect
+    /// (FR-1.5). `None` → auto-detect via [`hh_core::select_adapter`]. Today
+    /// only `"claude-code"` is accepted; an unknown name is an actionable error
+    /// from [`run`].
+    pub adapter: Option<String>,
     /// Working directory for the child and the FS watcher.
     pub cwd: PathBuf,
     /// Max file size for FS capture (bytes).
@@ -103,12 +110,38 @@ pub fn run(store: &Store, opts: &RunOptions) -> crate::Result<RunOutcome> {
     let start = Instant::now();
     let started_at = now_unix_ms();
     let session_uuid = hh_core::event::now_v7();
-    let agent_kind = crate::agent::detect_agent(&opts.command);
+    // FR-1.5: select a structured-event adapter (Claude Code today). A forced
+    // `--adapter <name>` overrides detection; an unknown name is actionable.
+    let adapter: Option<Box<dyn Adapter>> = match opts.adapter.as_deref() {
+        Some(name) => match hh_core::resolve_adapter_override(name) {
+            Some(a) => Some(a),
+            None => {
+                return Err(crate::RecordError::Adapter(format!(
+                    "unknown adapter `{name}` (available: claude-code)"
+                )));
+            }
+        },
+        None => hh_core::select_adapter(&opts.command, &opts.cwd),
+    };
+    // The session row reports the adapter's agent kind when one is selected
+    // (covers a forced adapter on a generic command), else command detection.
+    let agent_kind = match adapter.as_ref() {
+        Some(a) => a.agent_kind(),
+        None => crate::agent::detect_agent(&opts.command),
+    };
+    // Optimistic: Active until the adapter reports Degraded at finalize. A
+    // PTY-only session records None and never touches adapter meta.
+    let adapter_status = if adapter.is_some() {
+        AdapterStatus::Active
+    } else {
+        AdapterStatus::None
+    };
     let git = crate::git::GitMeta::capture(&opts.cwd);
     let new_session = NewSession {
         id: session_uuid,
         started_at,
         agent_kind,
+        adapter_status,
         command: opts.command.clone(),
         cwd: opts.cwd.clone(),
         hostname: hostname(),
@@ -139,6 +172,38 @@ pub fn run(store: &Store, opts: &RunOptions) -> crate::Result<RunOutcome> {
         session_id.clone(),
         start,
     )?;
+
+    // --- Structured-event adapter (FR-1.5) -------------------------------
+    // The adapter tails the agent's structured log and yields parsed events;
+    // the drain thread resolves the adapter's `correlate_key` to DB row ids and
+    // appends via the shared writer (single-writer invariant preserved). The
+    // stop flag is set when the child exits so the tailer stops polling and the
+    // drain thread hits EOF. Both share the writer and the blob store already
+    // created above for the watcher.
+    let adapter_stop = Arc::new(AtomicBool::new(false));
+    let (drain_thread, adapter_outcome_handle) = match adapter {
+        Some(adapter) => {
+            let ctx = AdapterContext {
+                session_id: session_id.clone(),
+                started_at_unix_ms: started_at,
+                cwd: opts.cwd.clone(),
+                command: opts.command.clone(),
+                blobs: Arc::clone(&blobs),
+                stop: Arc::clone(&adapter_stop),
+                projects_dir: None,
+            };
+            let AdapterHandle { events, outcome } = adapter
+                .spawn(ctx)
+                .map_err(|e| crate::RecordError::Pty(format!("spawn claude adapter: {e}")))?;
+            let writer_for_drain = Arc::clone(&writer);
+            let drain = std::thread::Builder::new()
+                .name("hh-adapter-drain".into())
+                .spawn(move || run_adapter_drain(events, writer_for_drain))
+                .map_err(|e| crate::RecordError::Pty(format!("spawn adapter drain: {e}")))?;
+            (Some(drain), Some(outcome))
+        }
+        None => (None, None),
+    };
 
     // --- PTY + child (FR-1.1) --------------------------------------------
     let pty_system = native_pty_system();
@@ -276,6 +341,21 @@ pub fn run(store: &Store, opts: &RunOptions) -> crate::Result<RunOutcome> {
     // Stop the FS watcher.
     watcher.stop_and_join();
 
+    // Stop the structured-event adapter: setting the flag ends the tailer's
+    // poll so the drain thread hits EOF. Join the drain thread first (every
+    // parsed event is appended), then the tailer outcome (model/usage/status).
+    adapter_stop.store(true, Ordering::Release);
+    if let Some(t) = drain_thread {
+        let _ = t.join();
+    }
+    let adapter_outcome = match adapter_outcome_handle {
+        Some(h) => Some(
+            h.join()
+                .map_err(|_| crate::RecordError::Pty("claude adapter thread panicked".into()))?,
+        ),
+        None => None,
+    };
+
     // --- Finalize (FR-1.6) ----------------------------------------------
     drop(raw_guard); // restore terminal before printing the epilogue
     let duration_ms = i64::try_from(start.elapsed().as_millis()).unwrap_or(i64::MAX);
@@ -288,15 +368,14 @@ pub fn run(store: &Store, opts: &RunOptions) -> crate::Result<RunOutcome> {
         (Some(code), "error")
     };
 
-    let (event_count, steps, files_changed) =
-        finalize(store, &session_id, &writer, duration_ms, exit_code, status)?;
-    // Close the writer thread (the writer is shared via Arc<Mutex>, so we
-    // close it in place rather than consuming it with `finish()`).
-    writer
-        .lock()
-        .map_err(|e| crate::RecordError::Pty(format!("writer lock poisoned: {e}")))?
-        .close()
-        .map_err(crate::RecordError::from)?;
+    let (event_count, steps, files_changed) = finalize(
+        store,
+        &session_id,
+        &writer,
+        adapter_outcome.as_ref(),
+        exit_code,
+        status,
+    )?;
 
     Ok(RunOutcome {
         session_id,
@@ -392,6 +471,58 @@ fn run_stdin_proxy(
     }
 }
 
+/// The adapter drain thread: consume the adapter's parsed [`Event`] stream,
+/// resolve each event's `correlate_key` (in `body_json`) to a DB row id for
+/// `tool_call`→`tool_result` correlation (FR-1.5), and append via the shared
+/// writer (single-writer invariant preserved: the `Mutex` serializes the send,
+/// the writer task serializes the write).
+///
+/// `needless_pass_by_value`: `events`/`writer` are moved into the spawning
+/// closure and owned for the thread's lifetime; taking them by value keeps the
+/// thread self-contained (see `run_reader`).
+#[allow(clippy::needless_pass_by_value)]
+fn run_adapter_drain(events: std::sync::mpsc::Receiver<Event>, writer: Arc<Mutex<EventWriter>>) {
+    // correlate_key -> event row id, populated when a tool_call is appended so
+    // a later tool_result can point its `correlates` at the call's step.
+    let mut calls: HashMap<String, i64> = HashMap::new();
+    while let Ok(mut ev) = events.recv() {
+        // The adapter emits the key inline (it can't know the DB id yet); we
+        // resolve it here. Cloning the key avoids borrowing body_json while we
+        // mutate `ev.correlates` and move `ev` into `append_event`.
+        let key = ev
+            .body_json
+            .as_ref()
+            .and_then(|b| b.get("correlate_key"))
+            .and_then(serde_json::Value::as_str)
+            .map(str::to_string);
+        match ev.kind {
+            EventKind::ToolCall => {
+                // Append first (the id is assigned by the writer), then register
+                // it under the call's correlate_key for later tool_results.
+                if let Ok(w) = writer.lock() {
+                    if let Ok(id) = w.append_event(ev) {
+                        if let Some(k) = key {
+                            calls.insert(k, id);
+                        }
+                    }
+                }
+                continue;
+            }
+            EventKind::ToolResult => {
+                // A result shares its call's step via `correlates`; an unseen key
+                // (orphan / result-before-call) leaves None → its own step.
+                if let Some(k) = &key {
+                    ev.correlates = calls.get(k).copied();
+                }
+            }
+            _ => {}
+        }
+        if let Ok(w) = writer.lock() {
+            let _ = w.append_event(ev);
+        }
+    }
+}
+
 /// Emit a `terminal_output` event for an output chunk (FR-1.3).
 ///
 /// UTF-8 chunks are stored inline in `body_json` as `{"text":"...","encoding":"utf8"}`
@@ -475,11 +606,16 @@ fn flush_input_chunk(
 }
 
 /// Finalize the session row and return `(event_count, steps, files_changed)`.
+///
+/// Order (FR-1.5 + FR-3.4): flush + close the writer (all events durable, the
+/// writer thread joined → no intra-process contention) → assign step ordinals
+/// → persist the adapter's model/usage/status → finalize the session row →
+/// counts. `adapter_outcome` is `None` for PTY-only sessions.
 fn finalize(
     store: &Store,
     session_id: &str,
     writer: &Arc<Mutex<EventWriter>>,
-    _duration_ms: i64,
+    adapter_outcome: Option<&AdapterOutcome>,
     exit_code: Option<i32>,
     status: &str,
 ) -> crate::Result<(i64, i64, i64)> {
@@ -488,14 +624,30 @@ fn finalize(
         "error" => hh_core::event::SessionStatus::Error,
         _ => hh_core::event::SessionStatus::Interrupted,
     };
+    // Flush + close the writer: all events (PTY + adapter + watcher) are
+    // durable and the writer thread is joined, so the step pass and the
+    // adapter-meta update run on the main connection with no contention.
+    {
+        let mut w = writer
+            .lock()
+            .map_err(|e| crate::RecordError::Pty(format!("writer lock poisoned: {e}")))?;
+        w.flush().map_err(crate::RecordError::from)?;
+        w.close().map_err(crate::RecordError::from)?;
+    }
+    // FR-3.4: assign 1-based step ordinals now that every event is durable.
+    store.assign_steps(session_id)?;
+    // FR-1.5: persist the adapter's model/usage/final status (Active/Degraded),
+    // if a structured adapter ran.
+    if let Some(o) = adapter_outcome {
+        store.set_session_adapter_meta(
+            session_id,
+            o.model.as_deref(),
+            o.usage_json.as_ref(),
+            o.status,
+        )?;
+    }
     let ended_at = now_unix_ms();
     store.finalize_session(session_id, ended_at, exit_code, status_enum)?;
-    // Flush the writer so all events are durable before we count them.
-    writer
-        .lock()
-        .map_err(|e| crate::RecordError::Pty(format!("writer lock poisoned: {e}")))?
-        .flush()
-        .map_err(crate::RecordError::from)?;
     let (event_count, files_changed) = store.session_stats(session_id)?;
     let steps = store.session_step_count(session_id)?;
     Ok((event_count, steps, files_changed))

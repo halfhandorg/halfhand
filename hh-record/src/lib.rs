@@ -2,9 +2,10 @@
 //!
 //! Drives a PTY-recorded agent session: spawns the agent in a PTY
 //! ([`runner`]), watches the working tree for file changes ([`watcher`]),
-//! and feeds both into the single-writer SQLite store via `hh-core`.
-//! Out of scope for v0.1 (tracked separately): the Claude Code JSONL
-//! adapter (FR-1.5) and the MCP stdio proxy (FR-2).
+//! feeds both into the single-writer SQLite store via `hh-core`, and — when a
+//! structured-event adapter applies (FR-1.5, Claude Code today) — drains its
+//! parsed events into the same store with `tool_call`→`tool_result` correlation.
+//! The MCP stdio proxy (FR-2) lives in [`mcp_proxy`].
 //!
 //! The threads-vs-tokio decision is recorded in
 //! `docs/adr/0001-threads-vs-tokio.md`.
@@ -14,12 +15,14 @@
 mod agent;
 mod error;
 mod git;
+mod mcp_proxy;
 mod runner;
 mod watcher;
 
 pub use agent::detect_agent;
 pub use error::{RecordError, Result};
 pub use git::GitMeta;
+pub use mcp_proxy::{run_mcp_proxy, McpProxyOptions, McpProxyOutcome};
 pub use runner::{run, RunOptions, RunOutcome};
 pub use watcher::{spawn_watcher, WatchOptions, WatcherHandle};
 

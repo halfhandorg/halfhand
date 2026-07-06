@@ -1,0 +1,22 @@
+---
+source: hh-core/src/adapter.rs
+expression: snap(&pr)
+---
+{
+  "events": [
+    {
+      "blob_hash": null,
+      "blob_size": null,
+      "body_json": {
+        "text": "Please list the files in the repo and show Cargo.toml."
+      },
+      "correlates": null,
+      "kind": "user_message",
+      "session_id": "test-session-id",
+      "step": null,
+      "summary": "Please list the files in the repo and show Cargo.toml.",
+      "ts_ms": 699
+    }
+  ],
+  "is_assistant_message": false
+}

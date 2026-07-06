@@ -216,6 +216,13 @@ pub struct NewSession {
     pub started_at: i64,
     /// Detected agent kind.
     pub agent_kind: AgentKind,
+    /// Adapter state for this session (FR-1.5): `Active` while a structured
+    /// adapter is tailing events, `Degraded` if it failed but PTY/FS recording
+    /// continues, `None` for a generic PTY-only session. Written to the
+    /// `sessions.adapter_status` column by [`crate::store::Store::create_session`]
+    /// and updated at finalize via
+    /// [`crate::store::Store::set_session_adapter_meta`].
+    pub adapter_status: AdapterStatus,
     /// Full command line as an argv vector (stored as JSON).
     pub command: Vec<String>,
     /// Working directory.
@@ -303,12 +310,44 @@ pub struct Event {
     /// One-line summary (≤ 120 chars per SRS §4.1).
     pub summary: String,
     /// Kind-specific structured payload.
+    ///
+    /// # Cross-event correlation (`correlate_key`)
+    ///
+    /// Adapters cannot know the DB row id an event will receive, so to express
+    /// "this tool_result belongs to that tool_call" they emit a string
+    /// `correlate_key` field inside `body_json` (the Claude adapter uses the
+    /// `tool_use.id` for a `tool_call` and the `tool_use_id` for a
+    /// `tool_result`). The recorder's drain thread resolves that key to the
+    /// referenced event's row id and stores it in [`Event::correlates`]. The
+    /// FR-3.4 step pass then makes a correlated `tool_result` share its
+    /// `tool_call`'s step. See the `adapter` module and FR-1.5.
     pub body_json: Option<serde_json::Value>,
     /// Blob hash for large payloads stored out-of-line.
     pub blob_hash: Option<String>,
     /// Uncompressed size of the blob, if `blob_hash` is set. The writer uses
     /// this to seed the `blobs.size` column on first reference.
     pub blob_size: Option<u64>,
+    /// Correlated event id (e.g. tool_result → tool_call).
+    pub correlates: Option<i64>,
+}
+
+/// An event row read back from the DB (input to the FR-3.4 step pass).
+///
+/// Unlike [`Event`] (the append form), this carries the DB row `id` so the
+/// step pass can express correlation by id and the store can write the
+/// assigned `step` back to the right row.
+#[derive(Debug, Clone)]
+pub struct EventRow {
+    /// The event row id (`events.id`).
+    pub id: i64,
+    /// Owning session id (full UUID string).
+    pub session_id: String,
+    /// Milliseconds since session start.
+    pub ts_ms: i64,
+    /// Event kind.
+    pub kind: EventKind,
+    /// 1-based step ordinal, or `None` for non-step events (FR-3.4).
+    pub step: Option<i64>,
     /// Correlated event id (e.g. tool_result → tool_call).
     pub correlates: Option<i64>,
 }
@@ -328,4 +367,17 @@ pub struct FileChange {
     pub after_hash: Option<String>,
     /// Whether the file was detected as binary.
     pub is_binary: bool,
+}
+
+/// Truncate a summary to the SRS §4.1 limit of 120 chars, appending `…` if it
+/// was longer. Shared by the recorder (PTY/FS capture) and the adapters so the
+/// `events.summary` length constraint is enforced in one place.
+#[must_use]
+pub fn truncate_summary(s: &str) -> String {
+    const LIMIT: usize = 120;
+    if s.chars().count() <= LIMIT {
+        return s.to_string();
+    }
+    let truncated: String = s.chars().take(LIMIT - 1).collect();
+    format!("{truncated}…")
 }

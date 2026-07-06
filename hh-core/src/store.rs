@@ -9,9 +9,11 @@
 use crate::blob::BlobStore;
 use crate::error::{Error, ResolveError, Result, StorageError};
 use crate::event::{
-    AdapterStatus, AgentKind, Event, FileChange, NewSession, SessionRow, SessionStatus,
+    AdapterStatus, AgentKind, Event, EventKind, EventRow, FileChange, NewSession, SessionRow,
+    SessionStatus,
 };
 use crate::migrations::LATEST_VERSION;
+use crate::step::assign_steps as assign_steps_pass;
 use rusqlite::{params, Connection, OpenFlags, OptionalExtension};
 use std::path::{Path, PathBuf};
 use std::sync::mpsc::{self, Receiver, Sender};
@@ -75,11 +77,17 @@ impl Store {
         // connection that wants enforcement).
         conn.execute("PRAGMA foreign_keys = ON", [])?;
         run_migrations(&conn)?;
-        Ok(Self {
+        let store = Self {
             conn,
             blobs: BlobStore::new(blobs_dir.to_path_buf()),
             db_path: db_path.to_path_buf(),
-        })
+        };
+        // Self-heal step ordinals (ADR-0002): re-run the step pass for any
+        // session with a semantic event whose step is still NULL — a crashed
+        // finalize, or an attached MCP proxy's late events landing after the
+        // parent's finalize. Usually the empty set, so cheap.
+        store.heal_steps()?;
+        Ok(store)
     }
 
     /// Borrow the blob store (e.g. to write file snapshots before referencing
@@ -106,7 +114,7 @@ impl Store {
                 new.started_at,
                 SessionStatus::Recording.to_string(),
                 new.agent_kind.to_string(),
-                AdapterStatus::None.to_string(),
+                new.adapter_status.to_string(),
                 command_json,
                 new.cwd.to_string_lossy(),
                 new.hostname,
@@ -141,13 +149,44 @@ impl Store {
         Ok(())
     }
 
+    /// Update a session's adapter-reported metadata at finalize (FR-1.5): model
+    /// name, token-usage JSON, and final adapter status. `model` and
+    /// `usage_json` use `COALESCE` so passing `None` (the adapter saw no
+    /// assistant records) does not clobber a value an earlier update set;
+    /// `adapter_status` is always overwritten with the outcome's status.
+    pub fn set_session_adapter_meta(
+        &self,
+        id: &str,
+        model: Option<&str>,
+        usage_json: Option<&serde_json::Value>,
+        status: AdapterStatus,
+    ) -> Result<()> {
+        let usage: Option<String> = match usage_json {
+            Some(v) => Some(serde_json::to_string(v).map_err(|e| {
+                StorageError::Sqlite(rusqlite::Error::ToSqlConversionFailure(Box::new(e)))
+            })?),
+            None => None,
+        };
+        self.conn.execute(
+            "UPDATE sessions SET
+                model = COALESCE(?1, model),
+                usage_json = COALESCE(?2, usage_json),
+                adapter_status = ?3
+             WHERE id = ?4",
+            params![model, usage, status.to_string(), id],
+        )?;
+        Ok(())
+    }
+
     /// List sessions newest-first (FR-5.1).
     pub fn list_sessions(&self, limit: u32) -> Result<Vec<SessionRow>> {
         let mut stmt = self.conn.prepare(
             "SELECT s.id, s.short_id, s.started_at, s.ended_at, s.exit_code, s.status,
                     s.agent_kind, s.adapter_status, s.command, s.cwd,
-                    (SELECT COUNT(*) FROM events e WHERE e.session_id = s.id AND e.step IS NOT NULL) AS step_count,
-                    (SELECT COUNT(*) FROM events e JOIN file_changes fc ON fc.event_id = e.id
+                    (SELECT COUNT(DISTINCT e.step) FROM events e
+                       WHERE e.session_id = s.id AND e.step IS NOT NULL) AS step_count,
+                    (SELECT COUNT(DISTINCT fc.path) FROM file_changes fc
+                       JOIN events e ON e.id = fc.event_id
                        WHERE e.session_id = s.id) AS files_changed
              FROM sessions s
              ORDER BY s.started_at DESC
@@ -224,6 +263,39 @@ impl Store {
         }
     }
 
+    /// Look up a session's `started_at` (unix-ms). Used by the MCP proxy in
+    /// attached mode to express event timestamps relative to the parent
+    /// session's clock, so MCP events interleave correctly on the parent's
+    /// timeline (FR-2). Errors if the session id does not exist.
+    pub fn session_started_at(&self, id: &str) -> Result<i64> {
+        let started_at = self
+            .conn
+            .query_row(
+                "SELECT started_at FROM sessions WHERE id = ?1",
+                params![id],
+                |r| r.get::<_, i64>(0),
+            )
+            .optional()?
+            .ok_or_else(|| StorageError::NotFound(id.to_string()))?;
+        Ok(started_at)
+    }
+
+    /// Look up a session's short id (6 hex). Used by the MCP proxy to print the
+    /// parent session's short id in its epilogue when attaching (FR-2). Errors
+    /// if the session id does not exist.
+    pub fn session_short_id(&self, id: &str) -> Result<String> {
+        let short_id = self
+            .conn
+            .query_row(
+                "SELECT short_id FROM sessions WHERE id = ?1",
+                params![id],
+                |r| r.get::<_, String>(0),
+            )
+            .optional()?
+            .ok_or_else(|| StorageError::NotFound(id.to_string()))?;
+        Ok(short_id)
+    }
+
     /// Delete a session and garbage-collect blobs no longer referenced by any
     /// event (FR-6.1). Returns the number of blob files removed.
     pub fn delete_session(&self, id: &str) -> Result<usize> {
@@ -257,6 +329,16 @@ impl Store {
                 }
             }
         }
+        // Null out intra-session event correlations before the cascade. The
+        // `events.correlates` self-FK has no ON DELETE clause (default NO
+        // ACTION), so without this the sessions→events cascade could trip
+        // RESTRICT deleting a `tool_call` while a `tool_result` still
+        // references it. Nulling first breaks the self-references; the whole
+        // session is being deleted anyway.
+        tx.execute(
+            "UPDATE events SET correlates = NULL WHERE session_id = ?1",
+            params![id],
+        )?;
         // Cascade deletes events + file_changes (FK ON DELETE CASCADE).
         let deleted = tx.execute("DELETE FROM sessions WHERE id = ?1", params![id])?;
         if deleted == 0 {
@@ -286,18 +368,66 @@ impl Store {
         Ok((event_count, files_changed))
     }
 
-    /// Count the step-eligible events for a session (FR-3.4: steps are every
-    /// semantic event except raw `terminal_output`). Used for the FR-1.6
-    /// epilogue ("N steps"). Step ordinals themselves are derived at read time
-    /// (see ADR-0001 / decisions summary), so this is a count, not an
-    /// assignment.
+    /// Count the distinct stored step ordinals for a session (FR-3.4). A
+    /// correlated `tool_result` shares its `tool_call`'s step, so this is
+    /// `COUNT(DISTINCT step)` over non-null steps — not a count of semantic
+    /// events. Step ordinals are stored at finalize (ADR-0002; see
+    /// [`Self::assign_steps`]) and self-healed on [`Store::open`].
     pub fn session_step_count(&self, id: &str) -> Result<i64> {
         let count: i64 = self.conn.query_row(
-            "SELECT COUNT(*) FROM events WHERE session_id = ?1 AND kind != 'terminal_output'",
+            "SELECT COUNT(DISTINCT step) FROM events WHERE session_id = ?1 AND step IS NOT NULL",
             params![id],
             |r| r.get::<_, i64>(0),
         )?;
         Ok(count)
+    }
+
+    /// Read all events for a session as [`EventRow`]s, ordered by `(ts_ms, id)`
+    /// (the order the FR-3.4 step pass assigns in). Used by [`Self::assign_steps`]
+    /// and by replay/inspect (FR-3/FR-4, future).
+    pub fn list_events(&self, session_id: &str) -> Result<Vec<EventRow>> {
+        let mut stmt = self.conn.prepare(
+            "SELECT id, session_id, ts_ms, kind, step, correlates FROM events
+             WHERE session_id = ?1 ORDER BY ts_ms, id",
+        )?;
+        let rows = stmt.query_map(params![session_id], |r| {
+            let kind_str: String = r.get(3)?;
+            // Unknown kinds should not occur for data we wrote; if one does,
+            // treat it as a semantic step event (AgentMessage) so it still gets
+            // a step rather than being silently dropped from the pass.
+            let kind = kind_str.parse().unwrap_or(EventKind::AgentMessage);
+            Ok(EventRow {
+                id: r.get(0)?,
+                session_id: r.get(1)?,
+                ts_ms: r.get(2)?,
+                kind,
+                step: r.get(4)?,
+                correlates: r.get(5)?,
+            })
+        })?;
+        let mut out = Vec::new();
+        for r in rows {
+            out.push(r?);
+        }
+        Ok(out)
+    }
+
+    /// Run the FR-3.4 step-assignment pass for a session and write the
+    /// ordinals back to `events.step` in one transaction on the main
+    /// connection (ADR-0002). Call after the writer is flushed + joined so
+    /// there is no within-process writer contention. Idempotent.
+    pub fn assign_steps(&self, session_id: &str) -> Result<()> {
+        let mut rows = self.list_events(session_id)?;
+        assign_steps_pass(&mut rows);
+        let tx = self.conn.unchecked_transaction()?;
+        for r in &rows {
+            tx.execute(
+                "UPDATE events SET step = ?1 WHERE id = ?2",
+                params![r.step, r.id],
+            )?;
+        }
+        tx.commit()?;
+        Ok(())
     }
 
     /// Mark any sessions still in `recording` status as `interrupted`
@@ -320,6 +450,30 @@ impl Store {
             [],
         )?;
         Ok(updated)
+    }
+
+    /// Re-run [`Self::assign_steps`] for every session that has a semantic
+    /// event with a NULL step (ADR-0002 self-heal). Called from [`Self::open`].
+    /// `terminal_output` events legitimately have NULL steps and are excluded
+    /// from the "needs heal" probe so a session with only terminal chunks is
+    /// not pointlessly rescanned.
+    fn heal_steps(&self) -> Result<()> {
+        let ids: Vec<String> = {
+            let mut stmt = self.conn.prepare(
+                "SELECT DISTINCT session_id FROM events
+                 WHERE step IS NULL AND kind != 'terminal_output'",
+            )?;
+            let rows = stmt.query_map([], |r| r.get::<_, String>(0))?;
+            let mut v = Vec::new();
+            for r in rows {
+                v.push(r?);
+            }
+            v
+        };
+        for id in &ids {
+            self.assign_steps(id)?;
+        }
+        Ok(())
     }
 
     /// Spawn the single-writer task and return a handle for appending events.
@@ -697,6 +851,7 @@ mod tests {
             id: Uuid::now_v7(),
             started_at: 1_700_000_000_000,
             agent_kind: AgentKind::Generic,
+            adapter_status: AdapterStatus::None,
             command: vec!["claude".into()],
             cwd: PathBuf::from("/tmp"),
             hostname: Some("host".into()),
@@ -965,5 +1120,229 @@ mod tests {
         // Deleting the second drops to 0 — file removed.
         store.delete_session(&b.id).unwrap();
         assert!(!blob_path.exists());
+    }
+
+    #[test]
+    fn create_session_honors_adapter_status() {
+        let (_tmp, store) = open_store();
+        let mut ns = new_session();
+        ns.adapter_status = AdapterStatus::Active;
+        let created = store.create_session(&ns).unwrap();
+        let status: String = store
+            .conn
+            .query_row(
+                "SELECT adapter_status FROM sessions WHERE id = ?1",
+                params![&created.id],
+                |r| r.get(0),
+            )
+            .unwrap();
+        assert_eq!(status, "active");
+    }
+
+    #[test]
+    fn set_session_adapter_meta_updates_and_preserves() {
+        let (_tmp, store) = open_store();
+        let created = store.create_session(&new_session()).unwrap();
+        store
+            .set_session_adapter_meta(
+                &created.id,
+                Some("claude-sonnet-5"),
+                Some(&serde_json::json!({"input_tokens": 42, "output_tokens": 7})),
+                AdapterStatus::Active,
+            )
+            .unwrap();
+        let (model, usage, status): (Option<String>, Option<String>, String) = store
+            .conn
+            .query_row(
+                "SELECT model, usage_json, adapter_status FROM sessions WHERE id = ?1",
+                params![&created.id],
+                |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?)),
+            )
+            .unwrap();
+        assert_eq!(model.as_deref(), Some("claude-sonnet-5"));
+        let usage_val: serde_json::Value = serde_json::from_str(&usage.unwrap()).unwrap();
+        assert_eq!(usage_val["input_tokens"], 42);
+        assert_eq!(usage_val["output_tokens"], 7);
+        assert_eq!(status, "active");
+
+        // Passing None for model/usage must not clobber (COALESCE); status is
+        // always overwritten.
+        store
+            .set_session_adapter_meta(&created.id, None, None, AdapterStatus::Degraded)
+            .unwrap();
+        let (model, status): (Option<String>, String) = store
+            .conn
+            .query_row(
+                "SELECT model, adapter_status FROM sessions WHERE id = ?1",
+                params![&created.id],
+                |r| Ok((r.get(0)?, r.get(1)?)),
+            )
+            .unwrap();
+        assert_eq!(
+            model.as_deref(),
+            Some("claude-sonnet-5"),
+            "model survives a None update"
+        );
+        assert_eq!(status, "degraded", "status is always overwritten");
+    }
+
+    #[test]
+    fn assign_steps_shares_call_and_result_step() {
+        let (_tmp, store) = open_store();
+        let created = store.create_session(&new_session()).unwrap();
+        {
+            let writer = store.event_writer().unwrap();
+            let call_id = writer
+                .append_event(Event {
+                    kind: EventKind::ToolCall,
+                    body_json: Some(serde_json::json!({"correlate_key": "tu_1"})),
+                    summary: "call".into(),
+                    ..event(&created.id, 0, None)
+                })
+                .unwrap();
+            writer
+                .append_event(Event {
+                    kind: EventKind::ToolResult,
+                    correlates: Some(call_id),
+                    body_json: Some(serde_json::json!({"correlate_key": "tu_1"})),
+                    summary: "result".into(),
+                    ..event(&created.id, 5, None)
+                })
+                .unwrap();
+            writer.finish().unwrap();
+        }
+        store.assign_steps(&created.id).unwrap();
+        let steps: Vec<Option<i64>> = store
+            .conn
+            .prepare("SELECT step FROM events WHERE session_id = ?1 ORDER BY ts_ms, id")
+            .unwrap()
+            .query_map(params![&created.id], |r| r.get::<_, Option<i64>>(0))
+            .unwrap()
+            .map(|r| r.unwrap())
+            .collect();
+        assert_eq!(steps, vec![Some(1), Some(1)], "call+result share step 1");
+    }
+
+    #[test]
+    fn assign_steps_self_heals_on_open() {
+        let tmp = TempDir::new().unwrap();
+        let db = tmp.path().join("hh.db");
+        let blobs = tmp.path().join("blobs");
+        let created = {
+            let store = Store::open(&db, &blobs).unwrap();
+            let created = store.create_session(&new_session()).unwrap();
+            {
+                let writer = store.event_writer().unwrap();
+                let call_id = writer
+                    .append_event(Event {
+                        kind: EventKind::ToolCall,
+                        summary: "call".into(),
+                        ..event(&created.id, 0, None)
+                    })
+                    .unwrap();
+                writer
+                    .append_event(Event {
+                        kind: EventKind::ToolResult,
+                        correlates: Some(call_id),
+                        summary: "result".into(),
+                        ..event(&created.id, 5, None)
+                    })
+                    .unwrap();
+                writer.finish().unwrap();
+            }
+            // Do NOT call assign_steps: steps stay NULL.
+            created.id
+        };
+        // Reopen: Store::open self-heals the NULL steps (ADR-0002).
+        let store = Store::open(&db, &blobs).unwrap();
+        let steps: Vec<Option<i64>> = store
+            .conn
+            .prepare("SELECT step FROM events WHERE session_id = ?1 ORDER BY ts_ms, id")
+            .unwrap()
+            .query_map(params![created], |r| r.get::<_, Option<i64>>(0))
+            .unwrap()
+            .map(|r| r.unwrap())
+            .collect();
+        assert_eq!(
+            steps,
+            vec![Some(1), Some(1)],
+            "self-heal assigned shared step 1"
+        );
+    }
+
+    #[test]
+    fn list_sessions_counts_distinct_steps() {
+        let (_tmp, store) = open_store();
+        let created = store.create_session(&new_session()).unwrap();
+        {
+            let writer = store.event_writer().unwrap();
+            // call + result share step 1; agent_message is step 2. The old
+            // COUNT(*) WHERE kind != 'terminal_output' would report 3; the new
+            // COUNT(DISTINCT step) reports 2.
+            writer
+                .append_event(Event {
+                    kind: EventKind::ToolCall,
+                    summary: "c".into(),
+                    ..event(&created.id, 0, Some(1))
+                })
+                .unwrap();
+            writer
+                .append_event(Event {
+                    kind: EventKind::ToolResult,
+                    summary: "r".into(),
+                    ..event(&created.id, 5, Some(1))
+                })
+                .unwrap();
+            writer
+                .append_event(Event {
+                    kind: EventKind::AgentMessage,
+                    summary: "m".into(),
+                    ..event(&created.id, 10, Some(2))
+                })
+                .unwrap();
+            writer.finish().unwrap();
+        }
+        let rows = store.list_sessions(10).unwrap();
+        assert_eq!(
+            rows[0].step_count, 2,
+            "distinct steps should be 2 (shared 1 + 2), not 3"
+        );
+    }
+
+    #[test]
+    fn delete_session_with_correlated_events() {
+        // R7: events.correlates is a self-FK with no ON DELETE clause. Deleting
+        // a session whose events are correlated must not trip RESTRICT.
+        let (_tmp, store) = open_store();
+        let created = store.create_session(&new_session()).unwrap();
+        {
+            let writer = store.event_writer().unwrap();
+            let call_id = writer
+                .append_event(Event {
+                    kind: EventKind::ToolCall,
+                    summary: "call".into(),
+                    ..event(&created.id, 0, Some(1))
+                })
+                .unwrap();
+            writer
+                .append_event(Event {
+                    kind: EventKind::ToolResult,
+                    correlates: Some(call_id),
+                    summary: "result".into(),
+                    ..event(&created.id, 5, Some(1))
+                })
+                .unwrap();
+            writer.finish().unwrap();
+        }
+        store.delete_session(&created.id).unwrap();
+        let count: i64 = store
+            .conn
+            .query_row(
+                "SELECT COUNT(*) FROM events WHERE session_id = ?1",
+                params![&created.id],
+                |r| r.get(0),
+            )
+            .unwrap();
+        assert_eq!(count, 0, "all events removed on session delete");
     }
 }
