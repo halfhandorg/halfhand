@@ -7,6 +7,7 @@
 include!(concat!(env!("OUT_DIR"), "/hh_version.rs"));
 
 mod cli;
+mod replay;
 mod ui;
 
 use std::io::IsTerminal;
@@ -33,13 +34,7 @@ fn main() -> ExitCode {
 fn run(cli: Cli) -> anyhow::Result<ExitCode> {
     match cli.command {
         Command::Run(args) => run_command(args),
-        Command::Replay(args) => Err(ui::not_implemented(
-            "replay",
-            &format!(
-                "session hint: {}",
-                args.session.as_deref().unwrap_or("last")
-            ),
-        )),
+        Command::Replay(args) => replay_command(&args),
         Command::Inspect(args) => Err(ui::not_implemented(
             "inspect",
             &format!(
@@ -123,6 +118,35 @@ fn run_command(args: cli::RunArgs) -> anyhow::Result<ExitCode> {
     print_epilogue(&outcome);
     // Propagate the child's exit code so `hh run -- make` behaves like `make`.
     Ok(child_exit_code(outcome.exit_code))
+}
+
+/// `hh replay` (FR-3): open the interactive TUI on a recorded session.
+/// Requires a real terminal — the TUI needs raw mode, which a pipe/redirect
+/// cannot provide (CLAUDE.md: "Respect NO_COLOR and non-TTY output"; for an
+/// inherently interactive command that means refusing clearly rather than
+/// failing deep inside crossterm).
+fn replay_command(args: &cli::ReplayArgs) -> anyhow::Result<ExitCode> {
+    if !std::io::stdout().is_terminal() {
+        anyhow::bail!(
+            "`hh replay` needs an interactive terminal\n  \
+             why: stdout is not a TTY (piped or redirected)\n  \
+             hint: run `hh replay` directly in a terminal, or use `hh inspect` for non-interactive output"
+        );
+    }
+    let (store, _paths, _config) = open_store()?;
+    let hint = args.session.as_deref().unwrap_or("last");
+    let session_id = store
+        .resolve_session(hint)
+        .map_err(|e| anyhow::anyhow!("could not resolve session `{hint}`\n  why: {e}"))?;
+    let session = store
+        .get_session(&session_id)
+        .map_err(|e| anyhow::anyhow!("could not load session\n  why: {e}"))?;
+    let index = store
+        .list_event_index(&session_id)
+        .map_err(|e| anyhow::anyhow!("could not load session events\n  why: {e}"))?;
+    let no_color = std::env::var_os("NO_COLOR").is_some();
+    replay::run(store, session, index, no_color)?;
+    Ok(ExitCode::SUCCESS)
 }
 
 /// `hh mcp-proxy` (FR-2): stdio JSON-RPC middleman. Forwards verbatim and

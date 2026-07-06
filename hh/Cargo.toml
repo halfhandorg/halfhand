@@ -28,6 +28,21 @@ owo-colors = "4"
 # (FR-5.1/FR-4). Already in the dependency tree via hh-core; named here so the
 # binary builds event payloads directly rather than hand-formatting JSON.
 serde_json = "1"
+# Justification (SRS §6/FR-3): the replay TUI's widget/layout/rendering
+# engine. Version pinned to the crossterm 0.27 line already used by hh-record
+# (FR-1.1's PTY proxy) so the workspace carries one crossterm major version.
+ratatui = "0.26"
+# Justification (SRS §6/FR-3): raw mode, alternate screen, and input events
+# for the replay TUI. Matches hh-record's crossterm version.
+crossterm = "0.27"
+# Justification (FR-3.2): unified diffs in the detail pane. Already in the
+# dependency tree transitively via insta (hh-core dev-dependency); named here
+# so the binary can compute diffs directly.
+similar = "2.7"
+# Justification (FR-3.5): bounded LRU cache for the last 50 lazily-fetched
+# event bodies, so scrolling the timeline does not re-hit SQLite/blob storage
+# for rows already visited.
+lru = "0.12"
 
 [build-dependencies]
 # Justification: embed git sha into --version (NFR-8). No network.

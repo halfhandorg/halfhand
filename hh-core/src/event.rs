@@ -352,6 +352,55 @@ pub struct EventRow {
     pub correlates: Option<i64>,
 }
 
+/// A lightweight per-event row for the replay/inspect timeline index (FR-3.5):
+/// carries the one-line `summary` but not `body_json`/`blob_hash`, so loading
+/// the full index for a session (including `terminal_output`) is cheap. Full
+/// payloads are fetched on demand per selected row via
+/// [`crate::store::Store::get_event_detail`].
+#[derive(Debug, Clone)]
+pub struct EventIndexRow {
+    /// The event row id (`events.id`).
+    pub id: i64,
+    /// Milliseconds since session start.
+    pub ts_ms: i64,
+    /// Event kind.
+    pub kind: EventKind,
+    /// 1-based step ordinal, or `None` for non-step events (`terminal_output`).
+    pub step: Option<i64>,
+    /// Correlated event id (e.g. `tool_result` → `tool_call`).
+    pub correlates: Option<i64>,
+    /// One-line summary (≤ 120 chars).
+    pub summary: String,
+}
+
+/// A fully-loaded event, fetched lazily for the selected row (FR-3.5). Unlike
+/// [`EventIndexRow`], `body_json` here is display-ready: a blob-overflowed
+/// payload has already been resolved (fetched + decompressed) by
+/// [`crate::store::Store::get_event_detail`] so callers never see the raw
+/// `{"overflow": true, ...}` envelope.
+#[derive(Debug, Clone)]
+pub struct EventDetail {
+    /// The event row id.
+    pub id: i64,
+    /// Owning session id.
+    pub session_id: String,
+    /// Milliseconds since session start.
+    pub ts_ms: i64,
+    /// Event kind.
+    pub kind: EventKind,
+    /// 1-based step ordinal, or `None` for non-step events.
+    pub step: Option<i64>,
+    /// Correlated event id.
+    pub correlates: Option<i64>,
+    /// One-line summary.
+    pub summary: String,
+    /// Kind-specific structured payload, resolved from the blob store if it
+    /// had overflowed inline storage.
+    pub body_json: Option<serde_json::Value>,
+    /// The attached `file_changes` row, present only for `kind == FileChange`.
+    pub file_change: Option<FileChange>,
+}
+
 /// A file change row attached to an event (SRS §4.1 `file_changes`).
 #[derive(Debug, Clone)]
 pub struct FileChange {

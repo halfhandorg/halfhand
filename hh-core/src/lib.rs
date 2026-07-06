@@ -17,6 +17,7 @@ pub mod event;
 pub mod migrations;
 pub mod step;
 pub mod store;
+pub mod timeline;
 
 // Re-export the most commonly used types at the crate root for ergonomics.
 pub use adapter::{
@@ -27,8 +28,9 @@ pub use blob::{BlobStore, PutOutcome};
 pub use config::{parse_bytes, Config, Paths, RecordConfig, ReplayConfig, StorageConfig, Theme};
 pub use error::{BlobError, ConfigError, Error, ResolveError, Result, StorageError};
 pub use event::{
-    truncate_summary, AdapterStatus, AgentKind, ChangeKind, Event, EventKind, EventRow, FileChange,
-    NewSession, SessionRow, SessionStatus,
+    truncate_summary, AdapterStatus, AgentKind, ChangeKind, Event, EventDetail, EventIndexRow,
+    EventKind, EventRow, FileChange, NewSession, SessionRow, SessionStatus,
 };
 pub use step::assign_steps;
 pub use store::{CreatedSession, EventWriter, Store};
+pub use timeline::{build_timeline, StepEntry, TerminalSegment, TimelineRow};

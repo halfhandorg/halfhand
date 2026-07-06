@@ -9,8 +9,8 @@
 use crate::blob::BlobStore;
 use crate::error::{Error, ResolveError, Result, StorageError};
 use crate::event::{
-    AdapterStatus, AgentKind, Event, EventKind, EventRow, FileChange, NewSession, SessionRow,
-    SessionStatus,
+    AdapterStatus, AgentKind, ChangeKind, Event, EventDetail, EventIndexRow, EventKind, EventRow,
+    FileChange, NewSession, SessionRow, SessionStatus,
 };
 use crate::migrations::LATEST_VERSION;
 use crate::step::assign_steps as assign_steps_pass;
@@ -52,6 +52,19 @@ pub struct CreatedSession {
     pub id: String,
     /// 6-hex-char short id.
     pub short_id: String,
+}
+
+/// The raw column tuple backing [`Store::get_event_detail`], grouped into a
+/// struct rather than a bare tuple (clippy::type_complexity).
+struct EventRawRow {
+    session_id: String,
+    ts_ms: i64,
+    kind_str: String,
+    step: Option<i64>,
+    correlates: Option<i64>,
+    summary: String,
+    body_str: Option<String>,
+    blob_hash: Option<String>,
 }
 
 impl Store {
@@ -410,6 +423,189 @@ impl Store {
             out.push(r?);
         }
         Ok(out)
+    }
+
+    /// Fetch one session's full row by its (already-resolved) full id
+    /// (FR-3.2 header; FR-4). Call [`Self::resolve_session`] first to turn a
+    /// short id / `last` into the full id this expects.
+    pub fn get_session(&self, id: &str) -> Result<SessionRow> {
+        self.conn
+            .query_row(
+                "SELECT s.id, s.short_id, s.started_at, s.ended_at, s.exit_code, s.status,
+                        s.agent_kind, s.adapter_status, s.command, s.cwd,
+                        (SELECT COUNT(DISTINCT e.step) FROM events e
+                           WHERE e.session_id = s.id AND e.step IS NOT NULL) AS step_count,
+                        (SELECT COUNT(DISTINCT fc.path) FROM file_changes fc
+                           JOIN events e ON e.id = fc.event_id
+                           WHERE e.session_id = s.id) AS files_changed
+                 FROM sessions s WHERE s.id = ?1",
+                params![id],
+                map_session_row,
+            )
+            .optional()?
+            .ok_or_else(|| StorageError::NotFound(id.to_string()).into())
+    }
+
+    /// Read the full per-event index for a session (FR-3.5 eager index load):
+    /// every event (including `terminal_output`) with its one-line summary,
+    /// but not the (potentially large) `body_json`/blob payload — that is
+    /// fetched lazily per selected row via [`Self::get_event_detail`].
+    /// Ordered by `(ts_ms, id)`.
+    pub fn list_event_index(&self, session_id: &str) -> Result<Vec<EventIndexRow>> {
+        let mut stmt = self.conn.prepare(
+            "SELECT id, ts_ms, kind, step, correlates, summary FROM events
+             WHERE session_id = ?1 ORDER BY ts_ms, id",
+        )?;
+        let rows = stmt.query_map(params![session_id], |r| {
+            let kind_str: String = r.get(2)?;
+            let kind = kind_str.parse().unwrap_or(EventKind::AgentMessage);
+            Ok(EventIndexRow {
+                id: r.get(0)?,
+                ts_ms: r.get(1)?,
+                kind,
+                step: r.get(3)?,
+                correlates: r.get(4)?,
+                summary: r.get(5)?,
+            })
+        })?;
+        let mut out = Vec::new();
+        for r in rows {
+            out.push(r?);
+        }
+        Ok(out)
+    }
+
+    /// Fetch one event's full detail by row id (FR-3.5 lazy body load):
+    /// resolves a blob-overflowed `body_json` transparently (fetches and
+    /// decompresses the blob, returning its parsed content in place of the
+    /// `{"overflow": true, ...}` envelope) and attaches the `file_changes` row
+    /// for `FileChange` events. Errors if the id does not exist.
+    pub fn get_event_detail(&self, id: i64) -> Result<EventDetail> {
+        let row: EventRawRow = self
+            .conn
+            .query_row(
+                "SELECT session_id, ts_ms, kind, step, correlates, summary, body_json, blob_hash
+                 FROM events WHERE id = ?1",
+                params![id],
+                |r| {
+                    Ok(EventRawRow {
+                        session_id: r.get(0)?,
+                        ts_ms: r.get(1)?,
+                        kind_str: r.get(2)?,
+                        step: r.get(3)?,
+                        correlates: r.get(4)?,
+                        summary: r.get(5)?,
+                        body_str: r.get(6)?,
+                        blob_hash: r.get(7)?,
+                    })
+                },
+            )
+            .optional()?
+            .ok_or_else(|| StorageError::NotFound(id.to_string()))?;
+        let kind = row.kind_str.parse().unwrap_or(EventKind::AgentMessage);
+        let inline_body: Option<serde_json::Value> = row
+            .body_str
+            .as_deref()
+            .and_then(|s| serde_json::from_str(s).ok());
+        let body_json = self.resolve_body(inline_body, row.blob_hash.as_deref());
+        let file_change = if kind == EventKind::FileChange {
+            self.get_file_change(id)?
+        } else {
+            None
+        };
+        Ok(EventDetail {
+            id,
+            session_id: row.session_id,
+            ts_ms: row.ts_ms,
+            kind,
+            step: row.step,
+            correlates: row.correlates,
+            summary: row.summary,
+            body_json,
+            file_change,
+        })
+    }
+
+    /// Fetch the event correlated with `event_id` (FR-3.2 MCP/tool
+    /// call+result pairing): if `correlates` is `Some`, that is the
+    /// request/call this event points at; otherwise look for an event that
+    /// points *at* `event_id` (its response/result). Returns `None` if there
+    /// is no correlated event either way.
+    pub fn get_correlated_event(
+        &self,
+        event_id: i64,
+        correlates: Option<i64>,
+    ) -> Result<Option<EventDetail>> {
+        if let Some(cid) = correlates {
+            return self.get_event_detail(cid).map(Some);
+        }
+        let other_id: Option<i64> = self
+            .conn
+            .query_row(
+                "SELECT id FROM events WHERE correlates = ?1 LIMIT 1",
+                params![event_id],
+                |r| r.get(0),
+            )
+            .optional()?;
+        match other_id {
+            Some(oid) => self.get_event_detail(oid).map(Some),
+            None => Ok(None),
+        }
+    }
+
+    /// Resolve a possibly blob-overflowed body: if `inline` is the
+    /// `{"overflow": true, ...}` envelope and `blob_hash` is set, fetch and
+    /// decompress the blob and parse it as the real payload. Falls back to
+    /// the inline value (the envelope itself) if the blob is missing or
+    /// corrupt — a display concern, not worth failing the whole fetch over.
+    fn resolve_body(
+        &self,
+        inline: Option<serde_json::Value>,
+        blob_hash: Option<&str>,
+    ) -> Option<serde_json::Value> {
+        let Some(hash) = blob_hash else {
+            return inline;
+        };
+        let is_overflow_envelope = inline
+            .as_ref()
+            .and_then(|v| v.get("overflow"))
+            .and_then(serde_json::Value::as_bool)
+            .unwrap_or(false);
+        if !is_overflow_envelope {
+            return inline;
+        }
+        match self.blobs.get(hash) {
+            Ok(bytes) => match serde_json::from_slice(&bytes) {
+                Ok(v) => Some(v),
+                Err(_) => inline,
+            },
+            Err(_) => inline,
+        }
+    }
+
+    /// Fetch the `file_changes` row attached to `event_id`, if any.
+    fn get_file_change(&self, event_id: i64) -> Result<Option<FileChange>> {
+        self.conn
+            .query_row(
+                "SELECT event_id, path, change_kind, before_hash, after_hash, is_binary
+                 FROM file_changes WHERE event_id = ?1",
+                params![event_id],
+                |r| {
+                    let change_kind_str: String = r.get(2)?;
+                    let change_kind = change_kind_str.parse().unwrap_or(ChangeKind::Modified);
+                    let is_binary: i64 = r.get(5)?;
+                    Ok(FileChange {
+                        event_id: r.get(0)?,
+                        path: r.get(1)?,
+                        change_kind,
+                        before_hash: r.get(3)?,
+                        after_hash: r.get(4)?,
+                        is_binary: is_binary != 0,
+                    })
+                },
+            )
+            .optional()
+            .map_err(Into::into)
     }
 
     /// Run the FR-3.4 step-assignment pass for a session and write the
@@ -1344,5 +1540,240 @@ mod tests {
             )
             .unwrap();
         assert_eq!(count, 0, "all events removed on session delete");
+    }
+
+    #[test]
+    fn get_session_returns_full_row() {
+        let (_tmp, store) = open_store();
+        let created = store.create_session(&new_session()).unwrap();
+        let row = store.get_session(&created.id).unwrap();
+        assert_eq!(row.id, created.id);
+        assert_eq!(row.short_id, created.short_id);
+        assert_eq!(row.status, SessionStatus::Recording);
+    }
+
+    #[test]
+    fn get_session_not_found() {
+        let (_tmp, store) = open_store();
+        let err = store.get_session("does-not-exist").unwrap_err();
+        assert!(matches!(
+            err,
+            crate::Error::Storage(StorageError::NotFound(_))
+        ));
+    }
+
+    #[test]
+    fn list_event_index_includes_terminal_output_with_summary() {
+        let (_tmp, store) = open_store();
+        let created = store.create_session(&new_session()).unwrap();
+        {
+            let writer = store.event_writer().unwrap();
+            writer
+                .append_event(Event {
+                    summary: "hi".into(),
+                    ..event(&created.id, 0, Some(1))
+                })
+                .unwrap();
+            writer
+                .append_event(Event {
+                    kind: EventKind::TerminalOutput,
+                    step: None,
+                    summary: "chunk".into(),
+                    ..event(&created.id, 1, None)
+                })
+                .unwrap();
+            writer.finish().unwrap();
+        }
+        let idx = store.list_event_index(&created.id).unwrap();
+        assert_eq!(idx.len(), 2);
+        assert_eq!(idx[0].summary, "hi");
+        assert_eq!(idx[1].kind, EventKind::TerminalOutput);
+        assert_eq!(idx[1].summary, "chunk");
+        assert!(idx[1].step.is_none());
+    }
+
+    #[test]
+    fn get_event_detail_returns_inline_body() {
+        let (_tmp, store) = open_store();
+        let created = store.create_session(&new_session()).unwrap();
+        let writer = store.event_writer().unwrap();
+        let id = writer.append_event(event(&created.id, 0, Some(1))).unwrap();
+        writer.finish().unwrap();
+        let detail = store.get_event_detail(id).unwrap();
+        assert_eq!(detail.id, id);
+        assert_eq!(detail.summary, "hello");
+        assert_eq!(detail.body_json.unwrap()["text"], "hi");
+        assert!(detail.file_change.is_none());
+    }
+
+    #[test]
+    fn get_event_detail_not_found() {
+        let (_tmp, store) = open_store();
+        let err = store.get_event_detail(999_999).unwrap_err();
+        assert!(matches!(
+            err,
+            crate::Error::Storage(StorageError::NotFound(_))
+        ));
+    }
+
+    #[test]
+    fn get_event_detail_resolves_blob_overflow() {
+        let (_tmp, store) = open_store();
+        let created = store.create_session(&new_session()).unwrap();
+        let real_body = serde_json::json!({"text": "the real payload"});
+        let out = store
+            .blobs()
+            .put(serde_json::to_vec(&real_body).unwrap().as_slice())
+            .unwrap();
+        let envelope = serde_json::json!({
+            "overflow": true,
+            "size": out.size,
+            "blob_hash": out.hash,
+            "encoding": "blob",
+        });
+        let writer = store.event_writer().unwrap();
+        let id = writer
+            .append_event(Event {
+                body_json: Some(envelope),
+                blob_hash: Some(out.hash.clone()),
+                blob_size: Some(out.size),
+                ..event(&created.id, 0, Some(1))
+            })
+            .unwrap();
+        writer.finish().unwrap();
+        let detail = store.get_event_detail(id).unwrap();
+        assert_eq!(
+            detail.body_json.unwrap(),
+            real_body,
+            "overflow envelope must be transparently resolved to the real payload"
+        );
+    }
+
+    #[test]
+    fn get_event_detail_includes_file_change() {
+        let (_tmp, store) = open_store();
+        let created = store.create_session(&new_session()).unwrap();
+        let writer = store.event_writer().unwrap();
+        let id = writer
+            .append_file_change(
+                Event {
+                    kind: EventKind::FileChange,
+                    summary: "file changed".into(),
+                    ..event(&created.id, 0, Some(1))
+                },
+                FileChange {
+                    event_id: 0,
+                    path: "src/main.rs".into(),
+                    change_kind: ChangeKind::Modified,
+                    before_hash: None,
+                    after_hash: None,
+                    is_binary: false,
+                },
+            )
+            .unwrap();
+        writer.finish().unwrap();
+        let detail = store.get_event_detail(id).unwrap();
+        let fc = detail.file_change.expect("file_change must be attached");
+        assert_eq!(fc.path, "src/main.rs");
+        assert_eq!(fc.change_kind, ChangeKind::Modified);
+    }
+
+    #[test]
+    fn get_correlated_event_resolves_both_directions() {
+        let (_tmp, store) = open_store();
+        let created = store.create_session(&new_session()).unwrap();
+        let writer = store.event_writer().unwrap();
+        let call_id = writer
+            .append_event(Event {
+                kind: EventKind::ToolCall,
+                summary: "call".into(),
+                ..event(&created.id, 0, Some(1))
+            })
+            .unwrap();
+        let result_id = writer
+            .append_event(Event {
+                kind: EventKind::ToolResult,
+                correlates: Some(call_id),
+                summary: "result".into(),
+                ..event(&created.id, 5, Some(1))
+            })
+            .unwrap();
+        writer.finish().unwrap();
+
+        // From the result (has `correlates` set): resolves to the call.
+        let from_result = store
+            .get_correlated_event(result_id, Some(call_id))
+            .unwrap()
+            .expect("result must resolve to its call");
+        assert_eq!(from_result.id, call_id);
+
+        // From the call (no `correlates`): resolves via reverse lookup to the result.
+        let from_call = store
+            .get_correlated_event(call_id, None)
+            .unwrap()
+            .expect("call must resolve to its result");
+        assert_eq!(from_call.id, result_id);
+    }
+
+    #[test]
+    fn get_correlated_event_none_when_uncorrelated() {
+        let (_tmp, store) = open_store();
+        let created = store.create_session(&new_session()).unwrap();
+        let writer = store.event_writer().unwrap();
+        let id = writer.append_event(event(&created.id, 0, Some(1))).unwrap();
+        writer.finish().unwrap();
+        assert!(store.get_correlated_event(id, None).unwrap().is_none());
+    }
+
+    /// FR-3.5/NFR-1: the replay TUI loads the full per-event index eagerly at
+    /// startup. Benchmark-ish: a synthetic 10k-event session (half plain
+    /// messages, half correlated tool_call/tool_result pairs) must load and
+    /// group into a timeline well within a generous CI bound. Not a tight
+    /// perf assertion (CI machines vary widely) — it exists to catch an
+    /// accidental O(n²) regression (e.g. a linear scan per row), not to police
+    /// exact timings.
+    #[test]
+    fn list_event_index_loads_10k_events_within_generous_bound() {
+        let (_tmp, store) = open_store();
+        let created = store.create_session(&new_session()).unwrap();
+
+        // Seed 10k events (5k correlated tool_call/tool_result pairs) directly
+        // via one transaction on the store's own connection, bypassing the
+        // single-writer channel's per-event round trip: that round trip (one
+        // mpsc send/recv + one autocommit per call) is real and correct for a
+        // live recorder, but would make *this* test measure writer throughput
+        // instead of the eager-index-load path FR-3.5 actually cares about.
+        {
+            let tx = store.conn.unchecked_transaction().unwrap();
+            for i in 0..5_000i64 {
+                let call_ts = i * 2;
+                let result_ts = call_ts + 1;
+                tx.execute(
+                    "INSERT INTO events (session_id, ts_ms, kind, summary) VALUES (?1, ?2, 'tool_call', ?3)",
+                    params![created.id, call_ts, format!("tool_call #{i}")],
+                )
+                .unwrap();
+                let call_id = tx.last_insert_rowid();
+                tx.execute(
+                    "INSERT INTO events (session_id, ts_ms, kind, summary, correlates) VALUES (?1, ?2, 'tool_result', ?3, ?4)",
+                    params![created.id, result_ts, format!("tool_result #{i}"), call_id],
+                )
+                .unwrap();
+            }
+            tx.commit().unwrap();
+        }
+        store.assign_steps(&created.id).unwrap();
+
+        let start = std::time::Instant::now();
+        let index = store.list_event_index(&created.id).unwrap();
+        let rows = crate::timeline::build_timeline(&index, false);
+        let elapsed = start.elapsed();
+
+        assert_eq!(index.len(), 10_000, "5k call+result pairs = 10k events");
+        assert_eq!(rows.len(), 5_000, "each pair collapses to one step row");
+        assert!(
+            elapsed < std::time::Duration::from_secs(2),
+            "loading + grouping 10k events took {elapsed:?}, expected well under 2s"
+        );
     }
 }
