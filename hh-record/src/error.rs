@@ -29,6 +29,19 @@ pub enum RecordError {
     /// The child could not be waited on, or its exit status was unreadable.
     #[error("child process error: {0}")]
     Child(String),
+    /// An unknown or unsupported adapter name was passed to `hh run --adapter`
+    /// (FR-1.5). Names the bad value and what's available so the user can fix it.
+    #[error("unknown adapter: {0}")]
+    Adapter(String),
+    /// A generic MCP proxy failure (server spawn, stdio I/O, store). The string
+    /// is a human-readable, actionable description (FR-2).
+    #[error("mcp proxy error: {0}")]
+    Mcp(String),
+    /// The `HH_SESSION_ID` referenced by an attached `hh mcp-proxy` does not
+    /// resolve to a recorded session (FR-2). Actionable: tells the user to run
+    /// standalone or re-run inside `hh run` rather than creating an orphan.
+    #[error("mcp attach failed: {0}")]
+    McpSession(String),
 }
 
 /// A `Result` alias for the recorder.

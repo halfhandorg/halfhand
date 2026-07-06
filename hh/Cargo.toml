@@ -24,6 +24,10 @@ clap = { version = "4", features = ["derive"] }
 anyhow = "1"
 # Justification: colored output, respecting NO_COLOR (SRS §6 / NFR-7).
 owo-colors = "4"
+# Justification: `hh list --json` and `hh inspect --json` emit stable JSON
+# (FR-5.1/FR-4). Already in the dependency tree via hh-core; named here so the
+# binary builds event payloads directly rather than hand-formatting JSON.
+serde_json = "1"
 
 [build-dependencies]
 # Justification: embed git sha into --version (NFR-8). No network.

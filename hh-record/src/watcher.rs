@@ -34,6 +34,20 @@ use notify::{RecommendedWatcher, RecursiveMode, Watcher};
 /// Built-in ignore patterns (FR-1.4: `.git/`, `node_modules/`, `target/`).
 const BUILTIN_IGNORE: &[&str] = &[".git/", "node_modules/", "target/"];
 
+/// Coalescing window for editor-style double-writes (FR-1.4). Editors save a
+/// file as a burst of filesystem events within tens of milliseconds — e.g.
+/// write-content then touch-mtime, or write-then-rename-into-place producing
+/// two Modify events on the final path. A 100 ms window merges such a burst
+/// into a single `file_change` event while staying well below the cadence of a
+/// human's distinct saves (seconds apart). 100 ms also matches a familiar
+/// typing-debounce and is too short to visibly delay recording.
+const DEBOUNCE_WINDOW: Duration = Duration::from_millis(100);
+
+/// How often the worker loop wakes to flush due pending events. Kept well
+/// below [`DEBOUNCE_WINDOW`] so a pending change is processed promptly once its
+/// window elapses.
+const POLL_INTERVAL: Duration = Duration::from_millis(20);
+
 /// Options for the filesystem watcher (FR-1.4).
 #[derive(Debug, Clone)]
 pub struct WatchOptions {
@@ -153,7 +167,12 @@ fn build_matcher(cwd: &Path, extra_ignore: &[String]) -> std::result::Result<Git
     builder.build().map_err(|e| format!("build gitignore: {e}"))
 }
 
-/// The watcher event loop, run on the worker thread.
+/// The watcher event loop, run on the worker thread. Events are not processed
+/// immediately: each capturable path enters a [`pending`] map keyed by absolute
+/// path, and is processed only after its debounce window elapses with no
+/// further event on the same path (FR-1.4). On shutdown, any still-pending
+/// change is flushed so a quick exit doesn't drop a write that landed inside
+/// the window.
 #[allow(clippy::too_many_arguments, clippy::needless_pass_by_value)]
 // recorder wiring; values are moved into the spawning closure and owned for
 // the thread's lifetime (thread entry point, see runner::run_reader).
@@ -169,45 +188,218 @@ fn run_loop(
     stop: Arc<AtomicBool>,
 ) {
     let mut known: HashMap<PathBuf, String> = HashMap::new();
+    let mut pending: HashMap<PathBuf, Pending> = HashMap::new();
     while !stop.load(Ordering::Acquire) {
-        match nrx.recv_timeout(Duration::from_millis(100)) {
+        match nrx.recv_timeout(POLL_INTERVAL) {
             Ok(Ok(event)) => {
                 for path in &event.paths {
-                    if let Err(e) = process_path(
-                        path,
-                        event.kind,
-                        &matcher,
-                        &opts,
-                        &writer,
-                        &blobs,
-                        &session_id,
-                        start,
-                        &mut known,
-                    ) {
-                        eprintln!(
-                            "hh: warning: file change capture failed for {}: {e}",
-                            path.display()
-                        );
+                    if let Some(kind) = classify(path, event.kind, &matcher, &opts) {
+                        coalesce(&mut pending, path.clone(), kind);
                     }
                 }
             }
-            Ok(Err(e)) => {
-                eprintln!("hh: warning: fs watcher error: {e}");
-            }
+            Ok(Err(e)) => eprintln!("hh: warning: fs watcher error: {e}"),
             Err(std::sync::mpsc::RecvTimeoutError::Timeout) => {}
             Err(std::sync::mpsc::RecvTimeoutError::Disconnected) => break,
         }
+        // Flush any pending changes whose debounce window has elapsed.
+        flush_due(
+            &mut pending,
+            &opts,
+            &writer,
+            &blobs,
+            &session_id,
+            start,
+            &mut known,
+        );
     }
+    // Flush whatever is still pending so a write that landed inside the window
+    // just before shutdown is not lost.
+    flush_all(
+        &mut pending,
+        &opts,
+        &writer,
+        &blobs,
+        &session_id,
+        start,
+        &mut known,
+    );
     // Drop the watcher to release the inotify/fsevents handle.
     drop(watcher);
 }
 
-/// Process a single changed path into a `file_change` event (or skip it).
+/// A debounced, not-yet-processed change to one path. `suppress` is set when a
+/// create was followed by a delete within the same window (net no-op).
+#[derive(Debug, Clone, Copy)]
+struct Pending {
+    /// Merged change kind to record once the window elapses.
+    kind: ChangeKind,
+    /// Deadline after which the change may be flushed.
+    deadline: Instant,
+    /// If `true`, drop the change on flush (net no-op within the window).
+    suppress: bool,
+}
+
+/// Flush every pending change whose deadline has passed.
+fn flush_due(
+    pending: &mut HashMap<PathBuf, Pending>,
+    opts: &WatchOptions,
+    writer: &Arc<Mutex<EventWriter>>,
+    blobs: &Arc<BlobStore>,
+    session_id: &str,
+    start: Instant,
+    known: &mut HashMap<PathBuf, String>,
+) {
+    let now = Instant::now();
+    let due: Vec<PathBuf> = pending
+        .iter()
+        .filter(|(_, p)| p.deadline <= now)
+        .map(|(k, _)| k.clone())
+        .collect();
+    for path in due {
+        flush_one(
+            pending, &path, opts, writer, blobs, session_id, start, known,
+        );
+    }
+}
+
+/// Flush every pending change, regardless of deadline (shutdown path).
+fn flush_all(
+    pending: &mut HashMap<PathBuf, Pending>,
+    opts: &WatchOptions,
+    writer: &Arc<Mutex<EventWriter>>,
+    blobs: &Arc<BlobStore>,
+    session_id: &str,
+    start: Instant,
+    known: &mut HashMap<PathBuf, String>,
+) {
+    let paths: Vec<PathBuf> = pending.keys().cloned().collect();
+    for path in paths {
+        flush_one(
+            pending, &path, opts, writer, blobs, session_id, start, known,
+        );
+    }
+}
+
+/// Remove and process one pending change, logging a warning on failure.
 #[allow(clippy::too_many_arguments)] // recorder wiring threaded through to the writer
-fn process_path(
+fn flush_one(
+    pending: &mut HashMap<PathBuf, Pending>,
+    path: &Path,
+    opts: &WatchOptions,
+    writer: &Arc<Mutex<EventWriter>>,
+    blobs: &Arc<BlobStore>,
+    session_id: &str,
+    start: Instant,
+    known: &mut HashMap<PathBuf, String>,
+) {
+    let Some(p) = pending.remove(path) else {
+        return;
+    };
+    if p.suppress {
+        return;
+    }
+    if let Err(e) = process(path, p.kind, opts, writer, blobs, session_id, start, known) {
+        eprintln!(
+            "hh: warning: file change capture failed for {}: {e}",
+            path.display()
+        );
+    }
+}
+
+/// Decide whether a raw notify event on `path` should be captured, and if so
+/// return the [`ChangeKind`]. Filters internal halfhand paths, paths outside
+/// the watched tree, directories, and ignored paths (built-in, `.gitignore`,
+/// and caller-supplied extra patterns). This runs *before* debouncing so
+/// ignored files never enter the pending map.
+fn classify(
     path: &Path,
     kind: notify::EventKind,
     matcher: &Gitignore,
+    opts: &WatchOptions,
+) -> Option<ChangeKind> {
+    for excl in &opts.internal_exclude {
+        if path.starts_with(excl) {
+            return None;
+        }
+    }
+    let rel = path.strip_prefix(&opts.cwd).ok()?;
+    if path.is_dir() {
+        return None;
+    }
+    if matcher.matched_path_or_any_parents(rel, false).is_ignore() {
+        return None;
+    }
+    Some(match kind {
+        notify::EventKind::Create(_) => ChangeKind::Created,
+        notify::EventKind::Modify(_) => ChangeKind::Modified,
+        notify::EventKind::Remove(_) => ChangeKind::Deleted,
+        // Any/Other/Access are not content changes we capture.
+        notify::EventKind::Any | notify::EventKind::Other | notify::EventKind::Access(_) => {
+            return None;
+        }
+    })
+}
+
+/// Fold a new event on `path` into the pending map, extending its debounce
+/// window and merging kinds. A create followed by a delete within the window
+/// is a net no-op and is marked `suppress`.
+fn coalesce(pending: &mut HashMap<PathBuf, Pending>, path: PathBuf, kind: ChangeKind) {
+    let now = Instant::now();
+    let deadline = now + DEBOUNCE_WINDOW;
+    match pending.get_mut(&path) {
+        None => {
+            pending.insert(
+                path,
+                Pending {
+                    kind,
+                    deadline,
+                    suppress: false,
+                },
+            );
+        }
+        Some(p) => {
+            p.deadline = deadline;
+            let (merged, suppress) = merge_kind(p.kind, kind);
+            p.kind = merged;
+            p.suppress = p.suppress || suppress;
+        }
+    }
+}
+
+/// Merge a prior pending kind with a newly-observed kind on the same path
+/// within one debounce window. Returns `(merged_kind, suppress)`.
+///
+/// Rules:
+/// - Create → Delete (same window): net no-op → `suppress`.
+/// - Anything → Created: the path exists now → `Created` (covers delete-then-
+///   recreate, which is rare within 100 ms but handled sensibly).
+/// - Modify after a Create stays `Created` (still the first observation).
+/// - Otherwise the latest kind wins, except two Modifies stay `Modified`.
+fn merge_kind(prior: ChangeKind, new: ChangeKind) -> (ChangeKind, bool) {
+    match (prior, new) {
+        // Create then Delete within the window is a net no-op → suppress.
+        (ChangeKind::Created, ChangeKind::Deleted) => (ChangeKind::Deleted, true),
+        // A (re)create means the path exists now; a modify right after the
+        // initial create is still the first observation of the file.
+        (ChangeKind::Created, ChangeKind::Modified) | (_, ChangeKind::Created) => {
+            (ChangeKind::Created, false)
+        }
+        // A delete wins over a prior modify/observe.
+        (_, ChangeKind::Deleted) => (ChangeKind::Deleted, false),
+        // Two modifies (and any other combo) collapse to a single modify.
+        _ => (ChangeKind::Modified, false),
+    }
+}
+
+/// Process one debounced change into a `file_change` event (or skip it). The
+/// change kind is already known (computed by [`classify`], possibly merged by
+/// [`coalesce`]); this reads content, manages before/after hashes, and appends
+/// the event + `file_changes` row.
+#[allow(clippy::too_many_arguments)] // recorder wiring threaded through to the writer
+fn process(
+    path: &Path,
+    change_kind: ChangeKind,
     opts: &WatchOptions,
     writer: &Arc<Mutex<EventWriter>>,
     blobs: &Arc<BlobStore>,
@@ -215,39 +407,10 @@ fn process_path(
     start: Instant,
     known: &mut HashMap<PathBuf, String>,
 ) -> std::result::Result<(), String> {
-    // Exclude internal halfhand paths (data dir / db / blobs).
-    for excl in &opts.internal_exclude {
-        if path.starts_with(excl) {
-            return Ok(());
-        }
-    }
-
-    // Relativize to cwd for ignore matching and storage. Skip paths outside
-    // the watched tree (notify should not deliver any, but be defensive).
+    // Defensive: re-strip in case a path outside cwd slipped through.
     let Ok(rel) = path.strip_prefix(&opts.cwd) else {
         return Ok(());
     };
-
-    // Skip directories and ignored paths. Use `matched_path_or_any_parents`
-    // so a file under an ignored directory (e.g. `node_modules/foo.js`) is
-    // excluded even though only the directory matched a pattern.
-    if path.is_dir() {
-        return Ok(());
-    }
-    if matcher.matched_path_or_any_parents(rel, false).is_ignore() {
-        return Ok(());
-    }
-
-    let change_kind = match kind {
-        notify::EventKind::Create(_) => ChangeKind::Created,
-        notify::EventKind::Modify(_) => ChangeKind::Modified,
-        notify::EventKind::Remove(_) => ChangeKind::Deleted,
-        // Any/Other/Access are not content changes we capture.
-        notify::EventKind::Any | notify::EventKind::Other | notify::EventKind::Access(_) => {
-            return Ok(());
-        }
-    };
-
     let ts_ms = i64::try_from(start.elapsed().as_millis()).unwrap_or(i64::MAX);
     let rel_str = rel.to_string_lossy().to_string();
 
@@ -295,7 +458,7 @@ fn process_path(
         session_id: session_id.to_string(),
         ts_ms,
         kind: EventKind::FileChange,
-        step: None, // file changes are steps in replay (FR-3.4); step assigned at read time? See SRS.
+        step: None, // file changes are steps in replay (FR-3.4); step ordinal derived at read time.
         summary: truncate_summary(&format!("{rel_str} {change_kind}")),
         body_json: Some(serde_json::json!({
             "path": rel_str,
@@ -393,5 +556,62 @@ mod tests {
         assert!(!m
             .matched_path_or_any_parents("src/main.rs", false)
             .is_ignore());
+    }
+
+    #[test]
+    fn merge_kind_collapse_editor_double_write() {
+        // Two modifies of the same file within the window collapse to one Modify.
+        let (k, s) = merge_kind(ChangeKind::Modified, ChangeKind::Modified);
+        assert_eq!(k, ChangeKind::Modified);
+        assert!(!s);
+        // Create then Modify (editor's "write then touch") stays a single Created.
+        let (k, s) = merge_kind(ChangeKind::Created, ChangeKind::Modified);
+        assert_eq!(k, ChangeKind::Created);
+        assert!(!s);
+    }
+
+    #[test]
+    fn merge_kind_create_then_delete_is_noop() {
+        // Created then Removed within the window is a net no-op → suppress.
+        let (k, s) = merge_kind(ChangeKind::Created, ChangeKind::Deleted);
+        assert_eq!(k, ChangeKind::Deleted);
+        assert!(s);
+    }
+
+    #[test]
+    fn merge_kind_modify_then_delete_is_delete() {
+        let (k, s) = merge_kind(ChangeKind::Modified, ChangeKind::Deleted);
+        assert_eq!(k, ChangeKind::Deleted);
+        assert!(!s);
+    }
+
+    #[test]
+    fn merge_kind_delete_then_recreate_is_created() {
+        let (k, s) = merge_kind(ChangeKind::Deleted, ChangeKind::Created);
+        assert_eq!(k, ChangeKind::Created);
+        assert!(!s);
+    }
+
+    #[test]
+    fn coalesce_extends_window_and_suppresses_create_delete_burst() {
+        let mut pending: HashMap<PathBuf, Pending> = HashMap::new();
+        let path = PathBuf::from("/tmp/x");
+        coalesce(&mut pending, path.clone(), ChangeKind::Created);
+        let first_deadline = pending[&path].deadline;
+        // A second event on the same path within the window extends the deadline.
+        coalesce(&mut pending, path.clone(), ChangeKind::Deleted);
+        let entry = &pending[&path];
+        assert!(entry.deadline >= first_deadline);
+        assert!(entry.suppress);
+    }
+
+    #[test]
+    fn coalesce_keeps_separate_paths_independent() {
+        let mut pending: HashMap<PathBuf, Pending> = HashMap::new();
+        coalesce(&mut pending, PathBuf::from("/tmp/a"), ChangeKind::Created);
+        coalesce(&mut pending, PathBuf::from("/tmp/b"), ChangeKind::Modified);
+        assert_eq!(pending.len(), 2);
+        assert_eq!(pending[&PathBuf::from("/tmp/a")].kind, ChangeKind::Created);
+        assert_eq!(pending[&PathBuf::from("/tmp/b")].kind, ChangeKind::Modified);
     }
 }

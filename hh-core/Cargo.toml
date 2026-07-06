@@ -28,8 +28,9 @@ zstd = "0.13"
 # Justification: sessions are UUIDv7 (SRS §1.3/FR-1.2).
 uuid = { version = "1.10", features = ["v7"] }
 # Justification: humanized timestamps in error/list output (SRS §6). `macros`
-# for the `format_description!` macro used in [`store::format_ts_ms`].
-time = { version = "0.3", features = ["formatting", "macros"] }
+# for the `format_description!` macro used in [`store::format_ts_ms`]; `parsing`
+# for RFC3339 timestamp parsing in the Claude Code adapter (FR-1.5).
+time = { version = "0.3", features = ["formatting", "macros", "parsing"] }
 # Justification: config.toml parsing (SRS §4.2). Not listed in SRS §6 but required
 # by §4.2; a minimal, widely-used, well-maintained parser.
 toml = "0.8"
@@ -41,3 +42,8 @@ thiserror = "1"
 
 [dev-dependencies]
 tempfile = "3"
+# Justification: snapshot tests of the Claude adapter's pure parser output
+# (FR-1.5; CLAUDE.md testing standards: "Snapshot tests with insta"). Dual
+# Apache-2.0/MIT, both in the cargo-deny allow-list. Default features only
+# (no `serialization`/`yaml` extras) to keep the added dep graph small.
+insta = "1"

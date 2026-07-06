@@ -1,0 +1,22 @@
+---
+source: hh-core/src/adapter.rs
+expression: snap(&pr)
+---
+{
+  "events": [
+    {
+      "blob_hash": null,
+      "blob_size": null,
+      "body_json": {
+        "text": "The repo is empty and Cargo.toml is missing."
+      },
+      "correlates": null,
+      "kind": "agent_message",
+      "session_id": "test-session-id",
+      "step": null,
+      "summary": "The repo is empty and Cargo.toml is missing.",
+      "ts_ms": 3100
+    }
+  ],
+  "is_assistant_message": true
+}

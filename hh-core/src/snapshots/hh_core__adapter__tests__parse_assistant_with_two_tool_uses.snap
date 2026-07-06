@@ -1,0 +1,56 @@
+---
+source: hh-core/src/adapter.rs
+expression: snap(&pr)
+---
+{
+  "events": [
+    {
+      "blob_hash": null,
+      "blob_size": null,
+      "body_json": {
+        "text": "I'll list files then read Cargo.toml."
+      },
+      "correlates": null,
+      "kind": "thinking",
+      "session_id": "test-session-id",
+      "step": null,
+      "summary": "I'll list files then read Cargo.toml.",
+      "ts_ms": 1500
+    },
+    {
+      "blob_hash": null,
+      "blob_size": null,
+      "body_json": {
+        "correlate_key": "call_abc123",
+        "input": {
+          "command": "ls -la"
+        },
+        "name": "Bash"
+      },
+      "correlates": null,
+      "kind": "tool_call",
+      "session_id": "test-session-id",
+      "step": null,
+      "summary": "tool_call: Bash",
+      "ts_ms": 1500
+    },
+    {
+      "blob_hash": null,
+      "blob_size": null,
+      "body_json": {
+        "correlate_key": "call_def456",
+        "input": {
+          "file_path": "Cargo.toml"
+        },
+        "name": "Read"
+      },
+      "correlates": null,
+      "kind": "tool_call",
+      "session_id": "test-session-id",
+      "step": null,
+      "summary": "tool_call: Read",
+      "ts_ms": 1500
+    }
+  ],
+  "is_assistant_message": true
+}
