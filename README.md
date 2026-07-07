@@ -168,7 +168,7 @@ documented. **Pin a beta version in CI** rather than tracking `latest` until
 ## Installation
 
 ```bash
-cargo install halfhand
+cargo install halfhand@0.1.0-beta.1
 ```
 
 Or grab a prebuilt binary from the
