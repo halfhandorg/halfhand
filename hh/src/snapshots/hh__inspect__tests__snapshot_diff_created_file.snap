@@ -1,0 +1,8 @@
+---
+source: hh/src/inspect.rs
+expression: out
+---
+diff -- a/created.txt b/created.txt
+--- /dev/null
++++ b/created.txt
++created-content

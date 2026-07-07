@@ -64,6 +64,29 @@ adapter      ─┘
 - DB and blob dirs created `0700`; blob files written `0600` (Unix). Atomic
   write via temp + rename + fsync. `--record-input` defaults off.
 
+## No-network guarantee (NFR-2)
+
+Halfhand never makes outbound network calls. Recorded agent data (prompts,
+tool I/O, MCP traffic, file contents, terminal output) stays on the machine
+it was captured on — the recorder has no HTTP client in its dependency graph
+to exfiltrate it.
+
+This is enforced as a **build-time tripwire**, not just a convention:
+`hh-core/tests/no_network.rs` runs `cargo metadata` (which resolves from the
+on-disk `Cargo.lock` — no network needed for the check itself) and fails the
+suite if any HTTP *client* crate appears anywhere in the resolved workspace
+graph, directly or transitively. The denylist targets unambiguous HTTP
+clients (`reqwest`, `ureq`, `isahc`, `attohttpc`, `surf`, `minreq`, `curl`,
+`wreq`, `crabq`, `async-h1`). Generic transport/type crates (`hyper`, `http`,
+`hyper-util`) are intentionally **not** listed — they can appear transitively
+without enabling outbound HTTP, so listing them would cry wolf. A failure
+names the offending crate so the offender is obvious.
+
+Adding a crate that needs the network is therefore a visible, reviewable
+event: it either fails CI (forcing an explicit exemption + an SRS
+reconciliation) or it ships a new `schema` and a documented deviation.
+Neither happens silently.
+
 ## Out of scope here
 
 `hh run`, `hh mcp-proxy`, the TUI, and the Claude Code adapter are not

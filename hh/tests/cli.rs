@@ -68,18 +68,24 @@ fn every_subcommand_help_has_an_example() {
     }
 }
 
+/// `hh inspect last` with no sessions recorded gives an actionable error with
+/// a hint (FR-4 / NFR-7). Uses a temp data dir — never the real one (CLAUDE.md).
 #[test]
-fn unimplemented_subcommand_returns_not_implemented_exiting_nonzero() {
-    // `hh run` and `hh replay` are implemented; `hh inspect` (FR-4) is not yet.
-    let out = hh().args(["inspect", "last"]).output().unwrap();
+fn inspect_with_no_sessions_gives_an_actionable_error() {
+    let temp = Temp::new();
+    let out = hh()
+        .args(["inspect", "last"])
+        .env("HH_DATA_DIR", temp.data.path())
+        .output()
+        .unwrap();
     assert!(
         !out.status.success(),
-        "expected nonzero exit for unimplemented inspect"
+        "expected nonzero exit when there are no sessions"
     );
     let stderr = String::from_utf8_lossy(&out.stderr);
     assert!(
-        stderr.contains("not implemented"),
-        "expected 'not implemented' in stderr: {stderr}"
+        stderr.contains("no sessions") || stderr.contains("could not resolve"),
+        "expected a no-sessions error in stderr: {stderr}"
     );
     // NFR-7: error includes a hint (suggested next step).
     assert!(
@@ -654,6 +660,10 @@ fn run_mcp_proxy(temp: &Temp, stdin_bytes: &[u8], server_args: &[&str]) -> std::
         .args(["mcp-proxy", "--"])
         .args(server_args)
         .env("HH_DATA_DIR", temp.data.path())
+        // Clear any ambient `HH_SESSION_ID` (e.g. when the suite itself runs
+        // under `hh run`): without this the proxy attaches to a session that
+        // does not exist in the temp data dir instead of running standalone.
+        .env_remove("HH_SESSION_ID")
         .current_dir(temp.work.path())
         .stdin(Stdio::piped())
         .stdout(Stdio::piped())
@@ -1277,5 +1287,424 @@ fn claude_adapter_degrades_on_missing_projects_dir() {
     assert_eq!(
         status, "ok",
         "PTY session should still be recorded + finalized ok"
+    );
+}
+
+// ---------------------------------------------------------------------------
+// `hh inspect` (FR-4) end-to-end
+// ---------------------------------------------------------------------------
+
+/// True if `jq` is on PATH (AC-5 validates `--json` through jq). Tests that
+/// need it skip gracefully when absent rather than failing the suite.
+fn jq_available() -> bool {
+    std::process::Command::new("jq")
+        .arg("--version")
+        .stdout(Stdio::null())
+        .stderr(Stdio::null())
+        .status()
+        .is_ok_and(|s| s.success())
+}
+
+/// FR-4: `hh inspect <session>` prints a summary (header + step table), and
+/// `--step N`/`--json`/`--diff` switch views. The summary lists every step with
+/// a badge and timestamp; the step detail shows the event bodies.
+#[test]
+fn inspect_summary_lists_steps_and_step_detail_shows_body() {
+    let temp = Temp::new();
+    let out = run_fixture(
+        &temp,
+        &["sh", &fixture("fixture_agent.sh").to_string_lossy()],
+    );
+    assert_eq!(out.status.code(), Some(3));
+
+    // Summary view: header + a STEP/KIND/SUMMARY/TIME table.
+    let summary = hh()
+        .args(["inspect", "last"])
+        .env("HH_DATA_DIR", temp.data.path())
+        .output()
+        .unwrap();
+    assert!(
+        summary.status.success(),
+        "hh inspect failed: {}",
+        String::from_utf8_lossy(&summary.stderr)
+    );
+    let table = String::from_utf8_lossy(&summary.stdout);
+    assert!(table.contains("STEP"), "missing STEP header: {table}");
+    assert!(table.contains("KIND"), "missing KIND header: {table}");
+    assert!(
+        table.contains("files changed"),
+        "missing header fields: {table}"
+    );
+
+    // --json without --step is NDJSON: one JSON object per line, each with
+    // schema:1.
+    let j = hh()
+        .args(["inspect", "last", "--json"])
+        .env("HH_DATA_DIR", temp.data.path())
+        .output()
+        .unwrap();
+    assert!(
+        j.status.success(),
+        "stderr: {}",
+        String::from_utf8_lossy(&j.stderr)
+    );
+    let lines = String::from_utf8_lossy(&j.stdout);
+    assert!(
+        lines.lines().count() >= 1,
+        "expected at least one NDJSON line"
+    );
+    for line in lines.lines() {
+        let v: serde_json::Value =
+            serde_json::from_str(line).expect("each NDJSON line is valid JSON");
+        assert_eq!(v["schema"], 1, "every event object carries schema:1");
+        assert!(v["kind"].is_string(), "every event object has a kind");
+    }
+}
+
+/// AC-5: `hh inspect --json` produces output that `jq` can parse and that
+/// conforms to the documented schema (FR-4 / docs/json.md). Skips if jq is
+/// absent.
+#[test]
+fn inspect_json_is_valid_against_jq() {
+    if !jq_available() {
+        eprintln!("skipping jq validation test: jq not on PATH");
+        return;
+    }
+    let temp = Temp::new();
+    let out = run_fixture(
+        &temp,
+        &["sh", &fixture("fixture_agent.sh").to_string_lossy()],
+    );
+    assert_eq!(out.status.code(), Some(3));
+
+    // NDJSON stream: jq -s slurps every line into an array; every object has
+    // schema:1 and a string kind.
+    let mut ndjson = hh()
+        .args(["inspect", "last", "--json"])
+        .env("HH_DATA_DIR", temp.data.path())
+        .stdout(Stdio::piped())
+        .spawn()
+        .unwrap();
+    let ndjson_stdout = ndjson.stdout.take().unwrap();
+    let jq = std::process::Command::new("jq")
+        .args([
+            "-se",
+            "all(.schema == 1) and all(.kind | type == \"string\") and length >= 1",
+        ])
+        .stdin(ndjson_stdout)
+        .output()
+        .expect("jq should run");
+    // Reap the `hh` child so it is not a zombie (clippy::zombie_processes).
+    let ndjson_status = ndjson.wait().expect("hh inspect should exit");
+    assert!(
+        ndjson_status.success(),
+        "hh inspect --json failed: {ndjson_status}"
+    );
+    assert!(
+        jq.status.success(),
+        "jq rejected the NDJSON stream: {}",
+        String::from_utf8_lossy(&jq.stderr)
+    );
+
+    // --step 1 --json is a single object with schema:1 and a .events array.
+    let mut step = hh()
+        .args(["inspect", "last", "--step", "1", "--json"])
+        .env("HH_DATA_DIR", temp.data.path())
+        .stdout(Stdio::piped())
+        .spawn()
+        .unwrap();
+    let step_stdout = step.stdout.take().unwrap();
+    let jq2 = std::process::Command::new("jq")
+        .args([
+            "-e",
+            ".schema == 1 and (.events | type == \"array\") and .step == 1",
+        ])
+        .stdin(step_stdout)
+        .output()
+        .expect("jq should run");
+    // Reap the `hh` child so it is not a zombie (clippy::zombie_processes).
+    let step_status = step.wait().expect("hh inspect --step should exit");
+    assert!(
+        step_status.success(),
+        "hh inspect --step --json failed: {step_status}"
+    );
+    assert!(
+        jq2.status.success(),
+        "jq rejected the step JSON object: {}",
+        String::from_utf8_lossy(&jq2.stderr)
+    );
+}
+
+/// FR-4 `--diff`: prints a unified diff for the session's file changes.
+#[test]
+fn inspect_diff_prints_unified_diff() {
+    let temp = Temp::new();
+    let out = run_fixture(
+        &temp,
+        &["sh", &fixture("fixture_agent.sh").to_string_lossy()],
+    );
+    assert_eq!(out.status.code(), Some(3));
+
+    let diff = hh()
+        .args(["inspect", "last", "--diff"])
+        .env("HH_DATA_DIR", temp.data.path())
+        .output()
+        .unwrap();
+    assert!(
+        diff.status.success(),
+        "stderr: {}",
+        String::from_utf8_lossy(&diff.stderr)
+    );
+    let text = String::from_utf8_lossy(&diff.stdout);
+    assert!(
+        text.contains("diff -- ") || text.contains("fixture_output.txt"),
+        "expected a diff header or path in: {text}"
+    );
+}
+
+/// FR-4 `--json` and `--diff` are mutually exclusive → actionable error.
+#[test]
+fn inspect_json_and_diff_are_mutually_exclusive() {
+    let temp = Temp::new();
+    run_fixture(&temp, &["true"]);
+    let out = hh()
+        .args(["inspect", "last", "--json", "--diff"])
+        .env("HH_DATA_DIR", temp.data.path())
+        .output()
+        .unwrap();
+    assert!(
+        !out.status.success(),
+        "expected nonzero exit for --json --diff"
+    );
+    let stderr = String::from_utf8_lossy(&out.stderr);
+    assert!(
+        stderr.contains("mutually exclusive"),
+        "expected a mutual-exclusion error: {stderr}"
+    );
+    assert!(
+        stderr.contains("hint:"),
+        "missing actionable hint: {stderr}"
+    );
+}
+
+// ---------------------------------------------------------------------------
+// `hh delete` (FR-6.1) end-to-end
+// ---------------------------------------------------------------------------
+
+/// Count `.zst` blob files on disk under `<data_dir>/blobs`.
+fn count_blob_files(data_dir: &Path) -> usize {
+    let blobs = data_dir.join("blobs");
+    let mut n = 0;
+    if let Ok(rd) = std::fs::read_dir(&blobs) {
+        for entry in rd.flatten() {
+            if let Ok(sub) = std::fs::read_dir(entry.path()) {
+                n += sub
+                    .flatten()
+                    .filter(|f| f.path().extension().is_some_and(|e| e == "zst"))
+                    .count();
+            }
+        }
+    }
+    n
+}
+
+/// Create a finalized session with one `file_change` event whose after-content
+/// blob is `content` (shared across calls when `content` is identical). Returns
+/// the full session id and the blob hash.
+fn session_with_file_blob(data_dir: &Path, content: &[u8]) -> (String, String) {
+    let store = open_store(data_dir);
+    let now = unix_ms_now();
+    let new = hh_core::NewSession {
+        id: hh_core::event::now_v7(),
+        started_at: now,
+        agent_kind: hh_core::AgentKind::Generic,
+        adapter_status: hh_core::AdapterStatus::None,
+        command: vec!["agent".into()],
+        cwd: PathBuf::from("/tmp"),
+        hostname: None,
+        hh_version: "test".into(),
+        model: None,
+        git_branch: None,
+        git_sha: None,
+        git_dirty: None,
+    };
+    let created = store.create_session(&new).unwrap();
+    let outcome = store.blobs().put(content).unwrap();
+    let hash = outcome.hash.clone();
+    let writer = store.event_writer().unwrap();
+    writer
+        .append_file_change(
+            hh_core::Event {
+                session_id: created.id.clone(),
+                ts_ms: 0,
+                kind: hh_core::EventKind::FileChange,
+                step: None,
+                summary: "f created".into(),
+                body_json: Some(serde_json::json!({"path": "f", "change_kind": "created"})),
+                blob_hash: Some(hash.clone()),
+                blob_size: Some(outcome.size),
+                correlates: None,
+            },
+            hh_core::FileChange {
+                event_id: 0,
+                path: "f".into(),
+                change_kind: hh_core::ChangeKind::Created,
+                before_hash: None,
+                after_hash: Some(hash.clone()),
+                is_binary: false,
+            },
+        )
+        .unwrap();
+    writer.finish().unwrap();
+    store
+        .finalize_session(&created.id, now + 100, Some(0), hh_core::SessionStatus::Ok)
+        .unwrap();
+    (created.id, hash)
+}
+
+/// The refcount stored in the `blobs` table for `hash` (0 if absent).
+fn blob_refcount(conn: &Connection, hash: &str) -> i64 {
+    conn.query_row("SELECT refcount FROM blobs WHERE hash = ?1", [hash], |r| {
+        r.get(0)
+    })
+    .unwrap_or(0)
+}
+
+/// FR-6.1: `hh delete <id> --yes` removes the session and prints an epilogue.
+#[test]
+fn delete_with_yes_removes_session() {
+    let temp = Temp::new();
+    run_fixture(&temp, &["true"]);
+    // One session exists.
+    let before = hh()
+        .args(["list", "--json"])
+        .env("HH_DATA_DIR", temp.data.path())
+        .output()
+        .unwrap();
+    let parsed: serde_json::Value = serde_json::from_slice(&before.stdout).unwrap();
+    assert_eq!(parsed.as_array().unwrap().len(), 1);
+
+    let out = hh()
+        .args(["delete", "last", "--yes"])
+        .env("HH_DATA_DIR", temp.data.path())
+        .output()
+        .unwrap();
+    assert!(
+        out.status.success(),
+        "stderr: {}",
+        String::from_utf8_lossy(&out.stderr)
+    );
+    let stdout = String::from_utf8_lossy(&out.stdout);
+    assert!(
+        stdout.contains("Deleted session"),
+        "missing delete epilogue: {stdout}"
+    );
+
+    // The session is gone.
+    let after = hh()
+        .args(["list"])
+        .env("HH_DATA_DIR", temp.data.path())
+        .output()
+        .unwrap();
+    let text = String::from_utf8_lossy(&after.stdout);
+    assert!(
+        text.contains("no sessions recorded yet"),
+        "expected an empty list after delete: {text}"
+    );
+}
+
+/// FR-6.1: `hh delete` without `--yes` refuses when stdin is not a TTY (the
+/// test harness pipes stdin), pointing the user at `--yes`. The session
+/// survives.
+#[test]
+fn delete_refuses_without_yes_on_piped_stdin() {
+    let temp = Temp::new();
+    run_fixture(&temp, &["true"]);
+
+    let out = hh()
+        .args(["delete", "last"])
+        .env("HH_DATA_DIR", temp.data.path())
+        .stdin(Stdio::null())
+        .output()
+        .unwrap();
+    assert!(!out.status.success(), "expected nonzero exit without --yes");
+    let stderr = String::from_utf8_lossy(&out.stderr);
+    assert!(
+        stderr.contains("refusing"),
+        "expected a refusing-to-delete error: {stderr}"
+    );
+    assert!(
+        stderr.contains("--yes"),
+        "error should suggest --yes: {stderr}"
+    );
+
+    // The session still exists.
+    let conn = open_db(temp.data.path());
+    let n: i64 = conn
+        .query_row("SELECT COUNT(*) FROM sessions", [], |r| r.get(0))
+        .unwrap();
+    assert_eq!(n, 1, "the session must survive a refused delete");
+}
+
+/// FR-6.1: a blob shared across two sessions survives deleting one session
+/// (refcount goes 2 → 1, file stays), and is garbage-collected only when the
+/// last referencing session is deleted (refcount 1 → 0, file removed).
+#[test]
+fn delete_shared_blob_survives_deleting_one_session() {
+    let temp = Temp::new();
+    let content = b"shared-content\n";
+    let (id_a, hash) = session_with_file_blob(temp.data.path(), content);
+    let (id_b, _) = session_with_file_blob(temp.data.path(), content);
+    assert_eq!(
+        hash,
+        hh_core::BlobStore::hash(content),
+        "hash helper sanity"
+    );
+
+    // Both sessions reference the same content blob → one file, refcount 2.
+    let conn = open_db(temp.data.path());
+    assert_eq!(blob_refcount(&conn, &hash), 2, "refcount should be 2");
+    assert_eq!(
+        count_blob_files(temp.data.path()),
+        1,
+        "one shared blob file"
+    );
+
+    // Delete session A: refcount 2 → 1, blob file survives.
+    let out = hh()
+        .args(["delete", &id_a, "--yes"])
+        .env("HH_DATA_DIR", temp.data.path())
+        .output()
+        .unwrap();
+    assert!(
+        out.status.success(),
+        "stderr: {}",
+        String::from_utf8_lossy(&out.stderr)
+    );
+    let conn = open_db(temp.data.path());
+    assert_eq!(blob_refcount(&conn, &hash), 1, "refcount should drop to 1");
+    assert_eq!(
+        count_blob_files(temp.data.path()),
+        1,
+        "shared blob must survive deleting one session"
+    );
+
+    // Delete session B: refcount 1 → 0, blob file GC'd.
+    let out = hh()
+        .args(["delete", &id_b, "--yes"])
+        .env("HH_DATA_DIR", temp.data.path())
+        .output()
+        .unwrap();
+    assert!(
+        out.status.success(),
+        "stderr: {}",
+        String::from_utf8_lossy(&out.stderr)
+    );
+    let conn = open_db(temp.data.path());
+    assert_eq!(blob_refcount(&conn, &hash), 0, "refcount should reach 0");
+    assert_eq!(
+        count_blob_files(temp.data.path()),
+        0,
+        "blob must be garbage-collected after the last session is deleted"
     );
 }

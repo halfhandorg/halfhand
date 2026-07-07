@@ -311,14 +311,29 @@ impl Store {
 
     /// Delete a session and garbage-collect blobs no longer referenced by any
     /// event (FR-6.1). Returns the number of blob files removed.
+    ///
+    /// Refcount semantics: the writer bumps a blob's refcount once *per
+    /// referencing event* (see `insert_event`'s `ON CONFLICT DO UPDATE SET
+    /// refcount = refcount + 1`), so deleting a session must decrement by the
+    /// number of this session's events that reference each blob — not by 1.
+    /// Otherwise a session that references the same content blob from two
+    /// events (e.g. two files with identical content) would leave the blob
+    /// leaked at refcount 1 after deletion. Grouping by `blob_hash` with
+    /// `COUNT(*)` and decrementing by that count keeps the books balanced and
+    /// lets a blob shared *across* sessions survive the deletion of one.
     pub fn delete_session(&self, id: &str) -> Result<usize> {
-        // Collect blob hashes referenced by this session before cascading.
-        let hashes: Vec<String> = {
+        // Collect (blob_hash, reference_count) for every blob this session's
+        // events reference, before the cascade deletes the events.
+        let refs: Vec<(String, i64)> = {
             let mut stmt = self.conn.prepare(
-                "SELECT DISTINCT e.blob_hash FROM events e
-                 WHERE e.session_id = ?1 AND e.blob_hash IS NOT NULL",
+                "SELECT e.blob_hash, COUNT(*)
+                 FROM events e
+                 WHERE e.session_id = ?1 AND e.blob_hash IS NOT NULL
+                 GROUP BY e.blob_hash",
             )?;
-            let rows = stmt.query_map(params![id], |r| r.get::<_, String>(0))?;
+            let rows = stmt.query_map(params![id], |r| {
+                Ok((r.get::<_, String>(0)?, r.get::<_, i64>(1)?))
+            })?;
             let mut v = Vec::new();
             for r in rows {
                 v.push(r?);
@@ -326,13 +341,15 @@ impl Store {
             v
         };
         let tx = self.conn.unchecked_transaction()?;
-        // Decrement refcounts for each referenced blob.
+        // Decrement refcounts by the per-blob reference count, GC'ing any blob
+        // that reaches zero (content-addressed, so a blob still referenced by
+        // another session stays on disk).
         let mut removed = 0usize;
-        for hash in &hashes {
+        for (hash, count) in &refs {
             let refcount: i64 = tx.query_row(
-                "UPDATE blobs SET refcount = refcount - 1
+                "UPDATE blobs SET refcount = refcount - ?2
                  WHERE hash = ?1 RETURNING refcount",
-                params![hash],
+                params![hash, count],
                 |r| r.get::<_, i64>(0),
             )?;
             if refcount <= 0 {

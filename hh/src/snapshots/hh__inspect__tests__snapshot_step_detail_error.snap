@@ -1,0 +1,10 @@
+---
+source: hh/src/inspect.rs
+expression: out
+---
+Step 5 · ERR · boom · 00:00:03
+
+ERR boom
+  {
+    "message": "permission denied"
+  }

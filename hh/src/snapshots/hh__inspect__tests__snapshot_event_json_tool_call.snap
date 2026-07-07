@@ -1,0 +1,24 @@
+---
+source: hh/src/inspect.rs
+expression: pretty
+---
+{
+  "body": {
+    "input": {
+      "command": "ls -la"
+    },
+    "name": "Bash"
+  },
+  "correlates": null,
+  "file_change": null,
+  "id": 2,
+  "kind": "tool_call",
+  "schema": 1,
+  "session": {
+    "id": "018e2c5a-4a00-7000-8000-000000a1b2c3",
+    "short_id": "a1b2c3"
+  },
+  "step": 2,
+  "summary": "tool_call: Bash",
+  "ts_ms": 1000
+}

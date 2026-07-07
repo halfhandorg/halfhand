@@ -560,6 +560,7 @@ dependencies = [
  "crossterm",
  "hh-core",
  "hh-record",
+ "insta",
  "lru 0.18.0",
  "owo-colors",
  "ratatui",

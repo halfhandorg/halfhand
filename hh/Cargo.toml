@@ -58,3 +58,7 @@ tempfile = "3"
 # directly (DR-2: hh.db is a public, documented interface), without going
 # through hh-core's Store (which would re-run migrations and hide the schema).
 rusqlite = { version = "0.31", features = ["bundled"] }
+# Justification: snapshot tests of `hh inspect`'s human-readable output
+# (FR-4; CLAUDE.md testing standards: "Snapshot tests with insta for rendered
+# output"). Dual Apache-2.0/MIT, already in the workspace via hh-core.
+insta = "1"

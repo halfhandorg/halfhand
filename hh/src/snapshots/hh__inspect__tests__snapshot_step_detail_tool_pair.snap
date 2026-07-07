@@ -1,0 +1,19 @@
+---
+source: hh/src/inspect.rs
+expression: out
+---
+Step 2 · TOOL · tool_call: Bash · 00:00:01
+
+TOOL tool_call: Bash
+  {
+    "input": {
+      "command": "ls -la"
+    },
+    "name": "Bash"
+  }
+
+TOOL tool_result: ok
+  {
+    "content": "file.txt",
+    "is_error": false
+  }
