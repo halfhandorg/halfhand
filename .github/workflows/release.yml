@@ -70,7 +70,10 @@ jobs:
           set -euo pipefail
           # macOS ships `shasum`, not `sha256sum`; both emit "<hash>  <file>".
           cksum256() { if command -v sha256sum >/dev/null 2>&1; then sha256sum "$1"; else shasum -a 256 "$1"; fi; }
-          stage="hh-${{ matrix.target }}"
+          # Stage dir is named after the bare target (e.g. `aarch64-apple-darwin`);
+          # the release job later flattens `stage/hh` → `hh-<target>` so the final
+          # asset name has a single `hh-` prefix, not `hh-hh-<target>`.
+          stage="${{ matrix.target }}"
           mkdir -p "$stage"
           bin="target/${{ matrix.target }}/release/hh"
           [ -f "$bin" ] || bin="target/release/hh" # native build falls here
