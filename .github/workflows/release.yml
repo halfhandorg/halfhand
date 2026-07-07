@@ -113,25 +113,40 @@ jobs:
           # macOS ships `shasum`, not `sha256sum`; both emit "<hash>  <file>".
           cksum256() { if command -v sha256sum >/dev/null 2>&1; then sha256sum "$1"; else shasum -a 256 "$1"; fi; }
           mkdir -p release
-          # Unpack every per-target tarball, collect its binary + version + .sha256.
-          sha_lines=""
+          # Unpack every per-target tarball (each contains hh, version.txt,
+          # hh-<target>.sha256 under a hh-<target>/ dir).
           for tgz in artifacts/*.tar.gz; do
             tar -xzf "$tgz" -C release
           done
-          # Build a top-level SHA256SUMS covering every shipped binary.
-          ( cd release && find . -name 'hh' -type f | sort | while read -r p; do
-              dir="$(dirname "$p")"
-              (cd "$dir" && cksum256 hh)
-            done > ../SHA256SUMS )
-          mv SHA256SUMS release/SHA256SUMS
-          # Concatenate the per-target version.txt files into one manifest.
+          # Flatten: rename each target's binary + version to target-suffixed
+          # names so GitHub Release assets don't collide (every binary is named
+          # `hh`; GitHub requires unique asset names). Drop the per-target
+          # .sha256 from the tarball — it references the pre-rename `hh` and
+          # will be regenerated over the final filenames below.
+          for d in release/*/; do
+            t="$(basename "$d")"
+            [ -f "$d/hh" ] && mv "$d/hh" "release/hh-$t"
+            [ -f "$d/version.txt" ] && mv "$d/version.txt" "release/version-$t.txt"
+            rm -rf "$d"
+          done
+          # Regenerate per-target checksums + a top-level SHA256SUMS over the
+          # final, target-suffixed binary names.
+          ( cd release && for bin in hh-*; do
+              case "$bin" in *.sha256) continue ;; esac
+              cksum256 "$bin" > "$bin.sha256"
+            done
+            : > SHA256SUMS
+            for bin in hh-*; do
+              case "$bin" in *.sha256) continue ;; esac
+              cksum256 "$bin" >> SHA256SUMS
+            done )
+          # Artifact manifest: per-target version line + all checksums.
           {
             echo "# Halfhand ${{ github.ref_name }} — artifact manifest"
             echo
-            for d in release/*/; do
-              [ -f "$d/version.txt" ] || continue
-              printf '%s: ' "$(basename "$d")"
-              cat "$d/version.txt"
+            for vf in release/version-*.txt; do
+              t="$(basename "$vf" .txt)"; t="${t#version-}"
+              printf '%s: ' "$t"; cat "$vf"
             done
             echo
             echo "## SHA-256 checksums"
@@ -140,8 +155,6 @@ jobs:
             cat release/SHA256SUMS
             echo '```'
           } > release/ARTIFACTS.md
-          # Expose the binaries, per-target checksums, top-level checksum, and
-          # manifest to the release-upload step below.
           ls -R release
 
       - name: Create GitHub Release
@@ -151,8 +164,7 @@ jobs:
           draft: true
           generate_release_notes: true
           files: |
-            release/*/hh
-            release/*/version.txt
-            release/*/hh-*.sha256
+            release/hh-*
+            release/version-*.txt
             release/SHA256SUMS
             release/ARTIFACTS.md
