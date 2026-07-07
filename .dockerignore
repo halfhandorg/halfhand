@@ -3,7 +3,7 @@
 .claude/
 target/
 ../target-shared/
-
+hh/tests/fixtures/claude_jsonl/
 # === Git & Source Control ===
 .git
 .gitignore

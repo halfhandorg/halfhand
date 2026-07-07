@@ -5,7 +5,7 @@ target/
 # === Self-Reference ===
 # Stops Claude from recursively reading its own worktree artifacts
 .claude/
-
+hh/tests/fixtures/claude_jsonl/
 # === Secrets & Credentials ===
 .env
 .env.*

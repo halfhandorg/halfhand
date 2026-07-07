@@ -23,3 +23,4 @@ target
 # JetBrains Junie agent workspace (plans, scratch) — local only
 .junie/
 .claude/
+hh/tests/fixtures/claude_jsonl/
