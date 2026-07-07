@@ -68,6 +68,8 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
+          # macOS ships `shasum`, not `sha256sum`; both emit "<hash>  <file>".
+          cksum256() { if command -v sha256sum >/dev/null 2>&1; then sha256sum "$1"; else shasum -a 256 "$1"; fi; }
           stage="hh-${{ matrix.target }}"
           mkdir -p "$stage"
           bin="target/${{ matrix.target }}/release/hh"
@@ -77,7 +79,7 @@ jobs:
           # the release notes can show what each artifact reports.
           "$stage/hh" --version > "$stage/version.txt"
           # Per-target checksum of the binary itself.
-          (cd "$stage" && sha256sum hh > "hh-${{ matrix.target }}.sha256")
+          (cd "$stage" && cksum256 hh > "hh-${{ matrix.target }}.sha256")
           tar -czf "$stage.tar.gz" "$stage"
           echo "ASSET=$stage.tar.gz" >> "$GITHUB_ENV"
 
@@ -104,6 +106,8 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
+          # macOS ships `shasum`, not `sha256sum`; both emit "<hash>  <file>".
+          cksum256() { if command -v sha256sum >/dev/null 2>&1; then sha256sum "$1"; else shasum -a 256 "$1"; fi; }
           mkdir -p release
           # Unpack every per-target tarball, collect its binary + version + .sha256.
           sha_lines=""
@@ -113,7 +117,7 @@ jobs:
           # Build a top-level SHA256SUMS covering every shipped binary.
           ( cd release && find . -name 'hh' -type f | sort | while read -r p; do
               dir="$(dirname "$p")"
-              (cd "$dir" && sha256sum hh)
+              (cd "$dir" && cksum256 hh)
             done > ../SHA256SUMS )
           mv SHA256SUMS release/SHA256SUMS
           # Concatenate the per-target version.txt files into one manifest.
