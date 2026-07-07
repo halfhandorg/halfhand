@@ -17,8 +17,8 @@ list, and delete. Recordings never leave your machine.
 ## 30-second quickstart
 
 ```bash
-cargo install halfhand          # installs the `hh` binary
-hh run -- claude                # record a Claude Code session (or any command)
+cargo install halfhand@0.1.0-beta.1     # installs the `hh` binary
+hh run -- claude                        # record a Claude Code session (or any command)
 hh replay last                  # faithfully play it back in an interactive TUI
 hh inspect last                 # non-interactive summary + step table
 ```
