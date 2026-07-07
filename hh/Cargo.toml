@@ -7,6 +7,9 @@ license.workspace = true
 authors.workspace = true
 repository.workspace = true
 description = "Local-first CLI flight recorder for AI agents"
+keywords = ["cli", "ai-agent", "recorder", "flight-recorder", "replay"]
+categories = ["command-line-utilities", "development-tools"]
+readme = "../README.md"
 
 [lints]
 workspace = true
@@ -45,10 +48,6 @@ similar = "2.7"
 # `IterMut` unsound; fixed upstream, we never use `iter_mut` but take the fix
 # anyway since it's a free version bump).
 lru = "0.18"
-
-[build-dependencies]
-# Justification: embed git sha into --version (NFR-8). No network.
-built = { version = "0.7", features = ["git2"] }
 
 [dev-dependencies]
 # Justification: integration tests create throwaway data dirs (CLAUDE.md:

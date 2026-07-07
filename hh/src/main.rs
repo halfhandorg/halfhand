@@ -433,6 +433,7 @@ fn pad_into(out: &mut String, s: &str, width: usize) {
 fn session_to_json(r: &hh_core::SessionRow) -> serde_json::Value {
     let duration_ms = r.ended_at.map(|end| (end - r.started_at).max(0));
     serde_json::json!({
+        "schema": inspect::SCHEMA_VERSION,
         "id": r.id,
         "short_id": r.short_id,
         "status": r.status.to_string(),

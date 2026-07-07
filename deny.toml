@@ -20,8 +20,9 @@ yanked = "deny"
 ignore = ["RUSTSEC-2017-0008", "RUSTSEC-2024-0436"]
 
 [licenses]
-# Halfhand is MIT (SRS §1). Allow permissive licenses compatible with MIT
-# distribution; copyleft (GPL/AGPL) and "unencumbered" must be reviewed.
+# Halfhand is Apache-2.0 (SRS §1). Allow permissive licenses compatible with
+# Apache-2.0 distribution; copyleft (GPL/AGPL) and "unencumbered" must be
+# reviewed.
 version = 2
 allow = [
     "MIT",
@@ -38,7 +39,7 @@ allow = [
     # MPL-2.0 is weak (file-level) copyleft from `option-ext`, a transitive dep
     # of `directories` (SRS §6) used by hh-core. We do not modify any MPL-2.0
     # file, so the source-disclosure obligation never triggers; it is
-    # compatible with MIT distribution. Reviewed and accepted for v0.1.
+    # compatible with Apache-2.0 distribution. Reviewed and accepted for v0.1.
     "MPL-2.0",
 ]
 # Confidence threshold for license detection.

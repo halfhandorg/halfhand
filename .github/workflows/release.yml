@@ -1,0 +1,150 @@
+name: release
+
+# Tag-triggered release: push a `v*` tag (e.g. `v0.1.0-beta.1`) to build
+# release binaries for x86_64/aarch64 on macOS and Linux (musl where feasible),
+# publish SHA-256 checksums, and upload everything to a GitHub Release.
+#
+# NFR-8: every binary embeds the git sha it was built from in `hh --version`
+# via `HH_BUILD_SHA` (see `hh/build.rs`), so a release binary always reports
+# the exact commit it was built from even when built inside a `cross` container
+# where `.git` is not visible.
+
+on:
+  push:
+    tags:
+      - "v*"
+  workflow_dispatch: # manual trigger for re-building a release without re-tagging
+
+permissions:
+  contents: write # for creating the GitHub Release and uploading assets
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  build:
+    name: build ${{ matrix.target }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          # Linux: GNU x86_64 is native on ubuntu; musl and aarch64 go through
+          # `cross` (Docker) so the bundled SQLite C compiles against the right
+          # sysroot/toolchain.
+          - { os: ubuntu-latest, target: x86_64-unknown-linux-gnu,  cross: false, archive: tar.gz }
+          - { os: ubuntu-latest, target: x86_64-unknown-linux-musl, cross: true,  archive: tar.gz }
+          - { os: ubuntu-latest, target: aarch64-unknown-linux-gnu, cross: true,  archive: tar.gz }
+          - { os: ubuntu-latest, target: aarch64-unknown-linux-musl, cross: true, archive: tar.gz }
+          # macOS: both targets build natively on an arm64 runner (Xcode
+          # toolchain cross-compiles to x86_64; aarch64 is native).
+          - { os: macos-14,      target: aarch64-apple-darwin,      cross: false, archive: tar.gz }
+          - { os: macos-14,      target: x86_64-apple-darwin,       cross: false, archive: tar.gz }
+    runs-on: ${{ matrix.os }}
+    env:
+      # Always embed the workflow's commit sha (the tagged commit) regardless
+      # of whether `.git` is visible inside a `cross` container.
+      HH_BUILD_SHA: ${{ github.sha }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Rust toolchain (+ target)
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: ${{ matrix.target }}
+
+      - name: Install cross
+        if: ${{ matrix.cross }}
+        run: cargo install cross --locked --version 0.2.5
+
+      - name: Build release binary
+        run: |
+          if [ "${{ matrix.cross }}" = "true" ]; then
+            cross build --release --locked -p halfhand --target ${{ matrix.target }}
+          else
+            cargo build --release --locked -p halfhand --target ${{ matrix.target }}
+          fi
+
+      - name: Stage binary + version + checksum
+        shell: bash
+        run: |
+          set -euo pipefail
+          stage="hh-${{ matrix.target }}"
+          mkdir -p "$stage"
+          bin="target/${{ matrix.target }}/release/hh"
+          [ -f "$bin" ] || bin="target/release/hh" # native build falls here
+          cp "$bin" "$stage/hh"
+          # Record the embedded version string (NFR-8) alongside the binary so
+          # the release notes can show what each artifact reports.
+          "$stage/hh" --version > "$stage/version.txt"
+          # Per-target checksum of the binary itself.
+          (cd "$stage" && sha256sum hh > "hh-${{ matrix.target }}.sha256")
+          tar -czf "$stage.tar.gz" "$stage"
+          echo "ASSET=$stage.tar.gz" >> "$GITHUB_ENV"
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: hh-${{ matrix.target }}
+          path: ${{ env.ASSET }}
+          if-no-files-found: error
+
+  release:
+    name: publish GitHub Release
+    needs: build
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Download all build artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: artifacts
+          merge-multiple: true
+
+      - name: Assemble checksums + release notes
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p release
+          # Unpack every per-target tarball, collect its binary + version + .sha256.
+          sha_lines=""
+          for tgz in artifacts/*.tar.gz; do
+            tar -xzf "$tgz" -C release
+          done
+          # Build a top-level SHA256SUMS covering every shipped binary.
+          ( cd release && find . -name 'hh' -type f | sort | while read -r p; do
+              dir="$(dirname "$p")"
+              (cd "$dir" && sha256sum hh)
+            done > ../SHA256SUMS )
+          mv SHA256SUMS release/SHA256SUMS
+          # Concatenate the per-target version.txt files into one manifest.
+          {
+            echo "# Halfhand ${{ github.ref_name }} — artifact manifest"
+            echo
+            for d in release/*/; do
+              [ -f "$d/version.txt" ] || continue
+              printf '%s: ' "$(basename "$d")"
+              cat "$d/version.txt"
+            done
+            echo
+            echo "## SHA-256 checksums"
+            echo
+            echo '```text'
+            cat release/SHA256SUMS
+            echo '```'
+          } > release/ARTIFACTS.md
+          # Expose the binaries, per-target checksums, top-level checksum, and
+          # manifest to the release-upload step below.
+          ls -R release
+
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          name: ${{ github.ref_name }}
+          draft: true
+          generate_release_notes: true
+          files: |
+            release/*/hh
+            release/*/version.txt
+            release/*/hh-*.sha256
+            release/SHA256SUMS
+            release/ARTIFACTS.md

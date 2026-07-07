@@ -23,9 +23,18 @@ fn git_output(args: &[&str]) -> Option<String> {
 }
 
 fn main() {
-    let sha =
-        git_output(&["rev-parse", "--short", "HEAD"]).unwrap_or_else(|| "unknown".to_string());
-    let dirty = git_output(&["status", "--porcelain"]).is_some_and(|s| !s.is_empty());
+    // Prefer an explicit `HH_BUILD_SHA` (set by release CI) so release
+    // binaries embed the exact released sha even when built in a container
+    // (e.g. `cross`) where `.git` is not visible. Falls back to `git
+    // rev-parse`, then to "unknown" (NFR-8).
+    let sha = std::env::var("HH_BUILD_SHA")
+        .ok()
+        .filter(|s| !s.is_empty())
+        .unwrap_or_else(|| {
+            git_output(&["rev-parse", "--short", "HEAD"]).unwrap_or_else(|| "unknown".to_string())
+        });
+    let dirty = std::env::var("HH_BUILD_SHA").is_err()
+        && git_output(&["status", "--porcelain"]).is_some_and(|s| !s.is_empty());
     let pkg = env!("CARGO_PKG_VERSION");
     let suffix = if dirty { " (dirty)" } else { "" };
     let line = format!("pub const HH_VERSION: &str = \"{pkg} ({sha}){suffix}\";\n");
@@ -40,4 +49,5 @@ fn main() {
     }
     println!("cargo:rerun-if-changed=.git/HEAD");
     println!("cargo:rerun-if-changed=.git/index");
+    println!("cargo:rerun-if-env-changed=HH_BUILD_SHA");
 }

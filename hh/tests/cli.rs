@@ -630,6 +630,10 @@ fn list_shows_aligned_table_and_json() {
     let arr = parsed.as_array().expect("list --json must be an array");
     assert_eq!(arr.len(), 1);
     let obj = &arr[0];
+    assert_eq!(
+        obj["schema"], 1,
+        "session object carries schema:1 (docs/json.md)"
+    );
     assert_eq!(obj["status"], "ok");
     assert_eq!(obj["agent_kind"], "generic");
     assert_eq!(obj["exit_code"], 0);
@@ -1106,19 +1110,14 @@ sys.exit(0)
     make_executable(path);
 }
 
-/// FR-1.5: `hh run -- claude` tails `~/.claude/projects/<slug>/*.jsonl` and
-/// records structured `user_message` / `tool_call` / `tool_result` events with
-/// `correlates`, and persists the assistant record's `model` + `usage_json` +
-/// `adapter_status=active` on the session row. A `claude` shim on PATH writes a
-/// transcript into a temp HOME's projects dir; the adapter locates it by cwd.
+/// Record a session via a `claude` shim on PATH (shared by the FR-1.5 e2e and
+/// the AC-1 read-side test). Installs a shim that writes a three-record
+/// transcript into a temp `$HOME/.claude/projects/<slug>/`, pre-creates the
+/// slug dir, runs `hh run -- claude`, and asserts the run exited 0. The shim's
+/// temp HOME/bin drop when this returns (the run is complete), but the
+/// recording persists in `temp.data`. Returns the `hh run` output.
 #[cfg(unix)]
-#[test]
-fn claude_adapter_e2e() {
-    if !python3_available() {
-        eprintln!("skipping claude adapter e2e: python3 not on PATH");
-        return;
-    }
-    let temp = Temp::new();
+fn record_claude_shim_session(temp: &Temp) -> std::process::Output {
     let home = tempfile::tempdir().expect("temp HOME");
     let bin = tempfile::tempdir().expect("temp PATH bin");
     let work = temp.work.path().to_path_buf();
@@ -1180,6 +1179,24 @@ fn claude_adapter_e2e() {
         "claude shim should exit 0; stderr: {}",
         String::from_utf8_lossy(&out.stderr)
     );
+    out
+}
+
+/// FR-1.5: `hh run -- claude` tails `~/.claude/projects/<slug>/*.jsonl` and
+/// records structured `user_message` / `tool_call` / `tool_result` events with
+/// `correlates`, and persists the assistant record's `model` + `usage_json` +
+/// `adapter_status=active` on the session row. A `claude` shim on PATH writes a
+/// transcript into a temp HOME's projects dir; the adapter locates it by cwd.
+#[cfg(unix)]
+#[test]
+fn claude_adapter_e2e() {
+    if !python3_available() {
+        eprintln!("skipping claude adapter e2e: python3 not on PATH");
+        return;
+    }
+    let temp = Temp::new();
+    let out = record_claude_shim_session(&temp);
+    let _ = out; // `hh run` already asserted successful inside the helper.
 
     let conn = open_db(temp.data.path());
     let (agent_kind, adapter_status, model, usage): (
@@ -1243,6 +1260,75 @@ fn claude_adapter_e2e() {
         .query_row("SELECT kind FROM events WHERE id = ?1", [cid], |r| r.get(0))
         .unwrap();
     assert_eq!(kind, "tool_call");
+}
+
+/// AC-1 (automatable read-side): after a structured `claude` session is
+/// recorded, the read-side commands surface it correctly — `hh list --json`
+/// reports `agent_kind=claude-code`, and `hh inspect last --json` emits the
+/// structured events as NDJSON conforming to `docs/json.md` (`schema:1`), with
+/// at least one `tool_call`/`tool_result` pair. The live-API-key smoke against
+/// the genuine `claude` binary is the manual part of AC-1
+/// (`docs/manual-qa.md`); this test covers everything else.
+#[cfg(unix)]
+#[test]
+fn inspect_and_list_on_claude_code_session() {
+    if !python3_available() {
+        eprintln!("skipping AC-1 read-side test: python3 not on PATH");
+        return;
+    }
+    let temp = Temp::new();
+    let _ = record_claude_shim_session(&temp);
+
+    // `hh list --json` reports the structured session.
+    let list = hh()
+        .args(["list", "--json"])
+        .env("HH_DATA_DIR", temp.data.path())
+        .output()
+        .expect("hh list should run");
+    assert!(
+        list.status.success(),
+        "hh list --json failed: {}",
+        String::from_utf8_lossy(&list.stderr)
+    );
+    let parsed: serde_json::Value =
+        serde_json::from_slice(&list.stdout).expect("list --json must be valid JSON");
+    let arr = parsed.as_array().expect("list --json must be an array");
+    assert_eq!(arr.len(), 1, "exactly one session expected: {parsed}");
+    assert_eq!(arr[0]["agent_kind"], "claude-code");
+    assert_eq!(arr[0]["adapter_status"], "active");
+    assert_eq!(arr[0]["schema"], 1, "session object carries schema:1");
+
+    // `hh inspect last --json` emits the structured events as NDJSON.
+    let insp = hh()
+        .args(["inspect", "last", "--json"])
+        .env("HH_DATA_DIR", temp.data.path())
+        .output()
+        .expect("hh inspect should run");
+    assert!(
+        insp.status.success(),
+        "hh inspect --json failed: {}",
+        String::from_utf8_lossy(&insp.stderr)
+    );
+    let lines = String::from_utf8_lossy(&insp.stdout);
+    assert!(
+        lines.lines().count() >= 3,
+        "expected at least 3 NDJSON events (user_message + tool_call + tool_result): {lines}"
+    );
+    let mut kinds = Vec::new();
+    for line in lines.lines() {
+        let v: serde_json::Value =
+            serde_json::from_str(line).expect("each NDJSON line is valid JSON");
+        assert_eq!(v["schema"], 1, "every event object carries schema:1: {v}");
+        kinds.push(v["kind"].as_str().unwrap_or("").to_string());
+    }
+    assert!(
+        kinds.iter().any(|k| k == "tool_call"),
+        "expected a tool_call event in NDJSON: {kinds:?}"
+    );
+    assert!(
+        kinds.iter().any(|k| k == "tool_result"),
+        "expected a tool_result event in NDJSON: {kinds:?}"
+    );
 }
 
 /// FR-1.5 failure mode: with no `~/.claude/projects` directory, the adapter

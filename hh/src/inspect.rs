@@ -25,9 +25,11 @@ use owo_colors::OwoColorize;
 use similar::{ChangeTag, TextDiff};
 use std::fmt::Write as _;
 
-/// JSON schema version emitted by every `hh inspect --json` object (FR-4).
-/// Consumers should gate on this before reading fields; see `docs/json.md`.
-const SCHEMA_VERSION: u64 = 1;
+/// JSON schema version emitted by every `hh` JSON object — both the session
+/// objects in `hh list --json` and the event/step objects in `hh inspect
+/// --json` (FR-4 / FR-5.1). Consumers should gate on this before reading
+/// fields; see `docs/json.md`.
+pub(crate) const SCHEMA_VERSION: u64 = 1;
 
 /// Internal bookkeeping fields stripped from `body` before any human or JSON
 /// rendering (FR-1.5's `correlate_key` is resolved to `events.correlates`

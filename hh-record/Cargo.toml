@@ -7,6 +7,8 @@ license.workspace = true
 authors.workspace = true
 repository.workspace = true
 description = "Halfhand recorder: PTY runner, FS watcher, MCP proxy"
+keywords = ["pty", "recorder", "watcher", "mcp", "halfhand"]
+categories = ["development-tools", "filesystem"]
 
 [lints]
 workspace = true
