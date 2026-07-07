@@ -4,9 +4,7 @@
 > own machine, then replay and inspect it later — no servers, no uploads,
 > zero network calls from `hh` itself.
 
-[![CI](https://github.com/halfhandorg/halfhand/actions/workflows/ci.yml/badge.svg)](https://github.com/halfhandorg/halfhand/actions/workflows/ci.yml)
-[![crates.io](https://img.shields.io/crates/v/halfhand.svg?label=crates.io)](https://crates.io/crates/halfhand)
-[![license: Apache-2.0](https://img.shields.io/github/license/halfhandorg/halfhand)](LICENSE)
+
 
 ![](docs/assets/halfhand-cli.png)
 
