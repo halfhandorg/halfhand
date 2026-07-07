@@ -76,8 +76,12 @@ jobs:
           [ -f "$bin" ] || bin="target/release/hh" # native build falls here
           cp "$bin" "$stage/hh"
           # Record the embedded version string (NFR-8) alongside the binary so
-          # the release notes can show what each artifact reports.
-          "$stage/hh" --version > "$stage/version.txt"
+          # the release notes can show what each artifact reports. Cross-built
+          # foreign-arch binaries (e.g. aarch64-linux on an x86_64 runner) can't
+          # be executed on the build host, so tolerate that — the checksum
+          # below hashes file bytes and does not need to run the binary.
+          "$stage/hh" --version > "$stage/version.txt" 2>&1 \
+            || echo "hh ${{ matrix.target }} (built via cross; not runnable on build host)" > "$stage/version.txt"
           # Per-target checksum of the binary itself.
           (cd "$stage" && cksum256 hh > "hh-${{ matrix.target }}.sha256")
           tar -czf "$stage.tar.gz" "$stage"
