@@ -803,8 +803,17 @@ fn writer_run(db_path: &Path, rx: Receiver<WriterReq>) {
     ) else {
         return;
     };
-    let _ = conn.busy_timeout(Duration::from_secs(5));
-    let _ = conn.execute("PRAGMA foreign_keys = ON", []);
+    if let Err(e) = conn.busy_timeout(Duration::from_secs(5)) {
+        eprintln!("hh: warning: writer thread could not set busy_timeout: {e}");
+    }
+    // Unlike `Store::open` (which propagates this failure), the writer thread
+    // cannot fail its own construction — it has already been spawned and the
+    // caller is blocked waiting for the channel, not a `Result`. A failure
+    // here would silently disable the `correlates`/`file_changes` FK checks
+    // for the rest of the session, so at least surface it on stderr.
+    if let Err(e) = conn.execute("PRAGMA foreign_keys = ON", []) {
+        eprintln!("hh: warning: writer thread could not enable foreign_keys: {e}");
+    }
     for req in rx {
         match req {
             WriterReq::Append(event, reply) => {
@@ -1792,5 +1801,186 @@ mod tests {
             elapsed < std::time::Duration::from_secs(2),
             "loading + grouping 10k events took {elapsed:?}, expected well under 2s"
         );
+    }
+
+    /// Property tests for blob refcounting + GC (`delete_session`'s
+    /// decrement-then-GC logic). For any sequence of session creates, blob-
+    /// referencing appends (from a small shared content pool, so blobs are
+    /// referenced by multiple events/sessions), and session deletes: the DB
+    /// refcount for a blob always equals its live reference count, a blob with
+    /// live references is never GC'd, and a blob with none is always GC'd
+    /// (both its `blobs` row and its on-disk file).
+    mod blob_refcount_prop {
+        use super::*;
+        use proptest::prelude::*;
+        use std::collections::HashMap;
+
+        /// A small shared pool of blob contents so appends across sessions
+        /// collide on the same hash (exercising the shared-refcount path).
+        const BLOB_CONTENTS: [&[u8]; 3] = [b"blob-a-content", b"blob-b-content", b"blob-c-content"];
+
+        /// A small pool of session "slots" (0..4) so creates/deletes/appends
+        /// interleave against a bounded, reusable set of sessions.
+        #[derive(Debug, Clone)]
+        enum Op {
+            Create,
+            Append { session: u8, blob: u8 },
+            Delete { session: u8 },
+        }
+
+        fn op_strategy() -> impl Strategy<Value = Op> {
+            prop_oneof![
+                Just(Op::Create),
+                (0u8..4, 0u8..3).prop_map(|(session, blob)| Op::Append { session, blob }),
+                (0u8..4).prop_map(|session| Op::Delete { session }),
+            ]
+        }
+
+        proptest! {
+            #![proptest_config(ProptestConfig { cases: 32, ..ProptestConfig::default() })]
+
+            #[test]
+            fn refcounts_match_live_refs_and_gc_is_exact(
+                ops in prop::collection::vec(op_strategy(), 1..40)
+            ) {
+                let (_tmp, store) = open_store();
+                let writer = store.event_writer().unwrap();
+                // slot -> live session id (absent = not created yet / deleted).
+                let mut sessions: HashMap<u8, String> = HashMap::new();
+                // Our own ground-truth: hash -> count of *live* events referencing it.
+                let mut expected_refs: HashMap<String, i64> = HashMap::new();
+                let mut next_started_at = 1_700_000_000_000i64;
+                let mut ts = 0i64;
+
+                for op in ops {
+                    match op {
+                        Op::Create => {
+                            if let Some(slot) = (0u8..4).find(|s| !sessions.contains_key(s)) {
+                                let mut ns = new_session();
+                                ns.started_at = next_started_at;
+                                next_started_at += 1;
+                                let created = store.create_session(&ns).unwrap();
+                                sessions.insert(slot, created.id);
+                            }
+                        }
+                        Op::Append { session, blob } => {
+                            let Some(sid) = sessions.get(&session) else { continue };
+                            let content = BLOB_CONTENTS[usize::from(blob % 3)];
+                            let out = store.blobs().put(content).unwrap();
+                            ts += 1;
+                            writer
+                                .append_event(Event {
+                                    kind: EventKind::FileChange,
+                                    blob_hash: Some(out.hash.clone()),
+                                    blob_size: Some(out.size),
+                                    summary: "file changed".into(),
+                                    ..event(sid, ts, Some(1))
+                                })
+                                .unwrap();
+                            *expected_refs.entry(out.hash).or_insert(0) += 1;
+                        }
+                        Op::Delete { session } => {
+                            let Some(sid) = sessions.remove(&session) else { continue };
+                            // This session's per-blob reference counts, read before the
+                            // delete cascades (mirrors delete_session's own query).
+                            let refs: Vec<(String, i64)> = {
+                                let mut stmt = store
+                                    .conn
+                                    .prepare(
+                                        "SELECT blob_hash, COUNT(*) FROM events \
+                                         WHERE session_id = ?1 AND blob_hash IS NOT NULL \
+                                         GROUP BY blob_hash",
+                                    )
+                                    .unwrap();
+                                stmt.query_map(params![sid], |r| {
+                                    Ok((r.get::<_, String>(0)?, r.get::<_, i64>(1)?))
+                                })
+                                .unwrap()
+                                .collect::<std::result::Result<_, _>>()
+                                .unwrap()
+                            };
+                            store.delete_session(&sid).unwrap();
+                            for (hash, count) in refs {
+                                if let Some(e) = expected_refs.get_mut(&hash) {
+                                    *e -= count;
+                                }
+                            }
+                        }
+                    }
+
+                    for (hash, expected) in &expected_refs {
+                        prop_assert!(
+                            *expected >= 0,
+                            "test bookkeeping went negative — bug in the test itself"
+                        );
+                        let row: Option<i64> = store
+                            .conn
+                            .query_row(
+                                "SELECT refcount FROM blobs WHERE hash = ?1",
+                                params![hash],
+                                |r| r.get(0),
+                            )
+                            .optional()
+                            .unwrap();
+                        let path = store.blobs().blob_path(hash);
+                        if *expected > 0 {
+                            prop_assert_eq!(
+                                row, Some(*expected),
+                                "DB refcount must equal the live reference count"
+                            );
+                            prop_assert!(path.exists(), "a referenced blob must stay on disk");
+                        } else {
+                            prop_assert_eq!(row, None, "an unreferenced blob's row must be GC'd");
+                            prop_assert!(!path.exists(), "an unreferenced blob's file must be GC'd");
+                        }
+                    }
+                }
+                writer.finish().unwrap();
+            }
+        }
+    }
+
+    /// Property test for migration idempotency (DR-1): applying the migration
+    /// set to a fresh DB, then reopening (which re-runs `run_migrations` and is
+    /// a no-op past `LATEST_VERSION`) any number of extra times, always yields
+    /// byte-identical schema.
+    mod migration_idempotency_prop {
+        use proptest::prelude::*;
+        use tempfile::TempDir;
+
+        fn schema_dump(conn: &rusqlite::Connection) -> Vec<String> {
+            let mut stmt = conn
+                .prepare(
+                    "SELECT sql FROM sqlite_master \
+                     WHERE sql IS NOT NULL ORDER BY type, name",
+                )
+                .unwrap();
+            stmt.query_map([], |r| r.get::<_, String>(0))
+                .unwrap()
+                .collect::<std::result::Result<_, _>>()
+                .unwrap()
+        }
+
+        proptest! {
+            #![proptest_config(ProptestConfig { cases: 16, ..ProptestConfig::default() })]
+
+            #[test]
+            fn reopening_any_number_of_times_is_a_schema_no_op(extra_opens in 1usize..6) {
+                let tmp = TempDir::new().unwrap();
+                let db = tmp.path().join("hh.db");
+                let blobs = tmp.path().join("blobs");
+
+                let first = crate::store::Store::open(&db, &blobs).unwrap();
+                let baseline = schema_dump(&first.conn);
+                drop(first);
+
+                for _ in 0..extra_opens {
+                    let store = crate::store::Store::open(&db, &blobs).unwrap();
+                    let dump = schema_dump(&store.conn);
+                    prop_assert_eq!(&dump, &baseline, "schema drifted after re-opening");
+                    drop(store);
+                }
+            }
+        }
     }
 }

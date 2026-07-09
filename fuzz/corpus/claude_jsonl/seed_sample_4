@@ -1,0 +1,1 @@
+{"type":"assistant","isSidechain":true,"isMeta":false,"message":{"role":"assistant","model":"glm-5.2","content":[{"type":"text","text":"subagent scratch work"}]},"timestamp":"2026-07-02T06:14:41.000Z","cwd":"/tmp/work","sessionId":"sample-session-0001","uuid":"a-side"}

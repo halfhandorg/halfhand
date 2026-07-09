@@ -833,10 +833,7 @@ mod tests {
     }
 
     impl Fixture {
-        // A test fixture is a linear script that seeds a realistic event
-        // sequence; splitting it would obscure the scenario, so allow the
-        // line-count lint here.
-        #[allow(clippy::too_many_lines)]
+        #[allow(clippy::too_many_lines)] // linear fixture script; splitting it would obscure the scenario
         fn build() -> Self {
             let tmp = TempDir::new().unwrap();
             let store = Store::open(&tmp.path().join("hh.db"), &tmp.path().join("blobs"))

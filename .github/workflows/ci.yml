@@ -81,3 +81,52 @@ jobs:
         with:
           command: check
           command-arguments: advisories licenses bans sources
+
+  coverage:
+    name: coverage (hh-core >= 80% lines, report-only elsewhere)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: llvm-tools-preview
+      - uses: taiki-e/install-action@cargo-llvm-cov
+      # hh-core is the storage/blob/event layer with the property + fuzz
+      # coverage this session added — it gates the build. hh-record/hh (PTY,
+      # signals, terminal) are much harder to exercise headlessly in CI, so
+      # they're report-only for now rather than blocking on a floor they
+      # can't realistically hit without a real TTY.
+      - name: cargo llvm-cov (hh-core, fail under 80% lines)
+        run: cargo llvm-cov --package hh-core --locked --fail-under-lines 80
+      - name: cargo llvm-cov (workspace, report only)
+        run: cargo llvm-cov --workspace --locked --summary-only
+        continue-on-error: true
+
+  semver-checks:
+    name: cargo-semver-checks (hh-core)
+    runs-on: ubuntu-latest
+    steps:
+      # hh-core has never been published to crates.io, so semver-checks has no
+      # registry baseline to diff against — full history + an explicit
+      # `--baseline-rev` against main compares this branch's API to main's
+      # instead (a no-op pass on main itself).
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: taiki-e/install-action@cargo-semver-checks
+      # hh-core's public API is a real contract now: adapters (Codex, etc.)
+      # implement its `Adapter` trait, and the v1.0.0 addendum requires CLI
+      # flags/--json/DB schema/exit codes/env vars to be additive-only. This
+      # extends that discipline to hh-core's Rust API surface.
+      #
+      # `--release-type minor` is required: hh-core's Cargo.toml version never
+      # bumps per-PR, so current == baseline version and semver-checks cannot
+      # infer what to check — verified locally that *without* this flag it
+      # silently runs 0 of 253 lints and always reports "no update required"
+      # (looks like a pass, isn't one). `minor` means "additions are fine,
+      # breakage is not" — exactly CLAUDE.md's additive-only rule.
+      - name: cargo semver-checks check-release -p hh-core
+        run: |
+          git fetch origin main
+          cargo semver-checks check-release -p hh-core --baseline-rev origin/main --release-type minor

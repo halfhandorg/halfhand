@@ -85,6 +85,23 @@ pub struct RunOutcome {
     pub status: &'static str,
 }
 
+/// Lock the shared writer, recovering from poisoning instead of failing.
+///
+/// The writer `Mutex` is shared by the PTY reader, FS watcher, and adapter
+/// drain threads (CLAUDE.md single-writer discipline: the lock only ever
+/// guards the channel `send` + reply, not the actual SQLite write, which runs
+/// on the writer's own thread). If one of those threads panics while holding
+/// it, the `EventWriter` itself (a `Sender` + `JoinHandle`) is never left
+/// torn — so recovering the guard and continuing is safe, and is what keeps a
+/// panic in any *one* recording source from silently blacking out every other
+/// source (including `finalize`, which shares this same lock) for the rest of
+/// the session.
+fn lock_writer(writer: &Mutex<EventWriter>) -> std::sync::MutexGuard<'_, EventWriter> {
+    writer
+        .lock()
+        .unwrap_or_else(std::sync::PoisonError::into_inner)
+}
+
 /// A guard that disables raw mode on drop. Created only when stdin is a TTY.
 struct RawModeGuard;
 
@@ -348,13 +365,12 @@ pub fn run(store: &Store, opts: &RunOptions) -> crate::Result<RunOutcome> {
     if let Some(t) = drain_thread {
         let _ = t.join();
     }
-    let adapter_outcome = match adapter_outcome_handle {
-        Some(h) => Some(
-            h.join()
-                .map_err(|_| crate::RecordError::Pty("claude adapter thread panicked".into()))?,
-        ),
-        None => None,
-    };
+    // A panicked tailer thread must degrade the session, not abort the
+    // recording (CLAUDE.md panic hygiene): everything captured by the PTY
+    // reader and FS watcher up to this point is already durable, so the run
+    // still finalizes — just with adapter_status=degraded and a warning,
+    // exactly as the "no transcript found" degrade path already does.
+    let adapter_outcome = adapter_outcome_handle.map(|h| adapter_outcome_from_join(h.join()));
 
     // --- Finalize (FR-1.6) ----------------------------------------------
     drop(raw_guard); // restore terminal before printing the epilogue
@@ -499,11 +515,10 @@ fn run_adapter_drain(events: std::sync::mpsc::Receiver<Event>, writer: Arc<Mutex
             EventKind::ToolCall => {
                 // Append first (the id is assigned by the writer), then register
                 // it under the call's correlate_key for later tool_results.
-                if let Ok(w) = writer.lock() {
-                    if let Ok(id) = w.append_event(ev) {
-                        if let Some(k) = key {
-                            calls.insert(k, id);
-                        }
+                let w = lock_writer(&writer);
+                if let Ok(id) = w.append_event(ev) {
+                    if let Some(k) = key {
+                        calls.insert(k, id);
                     }
                 }
                 continue;
@@ -517,9 +532,7 @@ fn run_adapter_drain(events: std::sync::mpsc::Receiver<Event>, writer: Arc<Mutex
             }
             _ => {}
         }
-        if let Ok(w) = writer.lock() {
-            let _ = w.append_event(ev);
-        }
+        let _ = lock_writer(&writer).append_event(ev);
     }
 }
 
@@ -567,9 +580,7 @@ fn flush_terminal_chunk(
         blob_size,
         correlates: None,
     };
-    if let Ok(w) = writer.lock() {
-        let _ = w.append_event(event);
-    }
+    let _ = lock_writer(writer).append_event(event);
 }
 
 /// Emit a `terminal_output` event for a recorded input chunk (`--record-input`).
@@ -600,9 +611,7 @@ fn flush_input_chunk(
         blob_size: None,
         correlates: None,
     };
-    if let Ok(w) = writer.lock() {
-        let _ = w.append_event(event);
-    }
+    let _ = lock_writer(writer).append_event(event);
 }
 
 /// Finalize the session row and return `(event_count, steps, files_changed)`.
@@ -627,10 +636,10 @@ fn finalize(
     // Flush + close the writer: all events (PTY + adapter + watcher) are
     // durable and the writer thread is joined, so the step pass and the
     // adapter-meta update run on the main connection with no contention.
+    // Recovers from poisoning (see `lock_writer`) rather than failing finalize
+    // outright — a panic in any recording source must not also abort finalize.
     {
-        let mut w = writer
-            .lock()
-            .map_err(|e| crate::RecordError::Pty(format!("writer lock poisoned: {e}")))?;
+        let mut w = lock_writer(writer);
         w.flush().map_err(crate::RecordError::from)?;
         w.close().map_err(crate::RecordError::from)?;
     }
@@ -684,6 +693,23 @@ fn hostname() -> Option<String> {
         .and_then(|o| String::from_utf8(o.stdout).ok())
         .map(|s| s.trim().to_string())
         .filter(|s| !s.is_empty())
+}
+
+/// Maps a joined adapter-tailer thread result to its outcome, degrading
+/// (never aborting) on a panic — CLAUDE.md panic hygiene: a tailer panic must
+/// leave the session recording, just with `adapter_status = Degraded` and a
+/// warning, exactly like the "no transcript found" degrade path.
+fn adapter_outcome_from_join(result: std::thread::Result<AdapterOutcome>) -> AdapterOutcome {
+    result.unwrap_or_else(|_| {
+        eprintln!(
+            "hh: warning: claude adapter thread panicked; session continues, \
+             recording as adapter_status=degraded"
+        );
+        AdapterOutcome {
+            status: AdapterStatus::Degraded,
+            ..Default::default()
+        }
+    })
 }
 
 /// Truncate a summary to the SRS §4.1 limit of 120 chars.
@@ -756,5 +782,40 @@ mod tests {
         // After 2026-01-01 (~1_767_000_000_000) and before year 2100.
         assert!(ms > 1_767_000_000_000);
         assert!(ms < 4_000_000_000_000);
+    }
+
+    /// Panic hygiene (CLAUDE.md v1.0.0 addendum): injects a real panic on a
+    /// real thread (not a hand-built `Err`) — mirroring exactly what `run()`
+    /// does with the claude adapter's tailer `JoinHandle` — and asserts the
+    /// session degrades (`adapter_status = Degraded`) instead of the panic
+    /// propagating and aborting the recording.
+    #[test]
+    fn adapter_thread_panic_degrades_instead_of_aborting() {
+        let handle = std::thread::Builder::new()
+            .name("hh-test-inject-adapter-panic".into())
+            .spawn(|| -> AdapterOutcome { panic!("hh-record test: injected adapter tailer panic") })
+            .unwrap();
+        let result = handle.join();
+        assert!(result.is_err(), "the injected panic must actually happen");
+
+        let outcome = adapter_outcome_from_join(result);
+        assert_eq!(outcome.status, AdapterStatus::Degraded);
+        assert!(outcome.model.is_none());
+        assert!(outcome.usage_json.is_none());
+    }
+
+    /// The non-panicking path is unaffected: a normal outcome passes through.
+    #[test]
+    fn adapter_outcome_from_join_passes_through_on_success() {
+        let handle = std::thread::Builder::new()
+            .spawn(|| AdapterOutcome {
+                model: Some("glm-5.2".into()),
+                status: AdapterStatus::Active,
+                ..Default::default()
+            })
+            .unwrap();
+        let outcome = adapter_outcome_from_join(handle.join());
+        assert_eq!(outcome.status, AdapterStatus::Active);
+        assert_eq!(outcome.model.as_deref(), Some("glm-5.2"));
     }
 }

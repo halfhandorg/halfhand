@@ -26,6 +26,11 @@ pub use mcp_proxy::{run_mcp_proxy, McpProxyOptions, McpProxyOutcome};
 pub use runner::{run, RunOptions, RunOutcome};
 pub use watcher::{spawn_watcher, WatchOptions, WatcherHandle};
 
+/// Fuzz-only entry points into the MCP JSON-RPC line classifier; see
+/// [`mcp_proxy::fuzzing`].
+#[cfg(feature = "fuzzing")]
+pub use mcp_proxy::fuzzing;
+
 // Re-export the core types the binary needs to construct RunOptions without
 // reaching into hh-core directly (keeps the binary's `use` surface small).
 pub use hh_core::store::Store;

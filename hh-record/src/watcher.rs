@@ -39,6 +39,12 @@ use notify::{RecommendedWatcher, RecursiveMode, Watcher};
 /// Built-in ignore patterns (FR-1.4: `.git/`, `node_modules/`, `target/`).
 const BUILTIN_IGNORE: &[&str] = &[".git/", "node_modules/", "target/"];
 
+/// Panic-injection flag for the panic-hygiene test (`tests::mod
+/// panic_hygiene`). See the check in [`run_loop`]. Test-only: compiled out of
+/// every non-test build.
+#[cfg(test)]
+static INJECT_PANIC_FOR_TEST: AtomicBool = AtomicBool::new(false);
+
 /// Coalescing window for editor-style double-writes (FR-1.4). Editors save a
 /// file as a burst of filesystem events within tens of milliseconds — e.g.
 /// write-content then touch-mtime, or write-then-rename-into-place producing
@@ -178,9 +184,9 @@ fn build_matcher(cwd: &Path, extra_ignore: &[String]) -> std::result::Result<Git
 /// further event on the same path (FR-1.4). On shutdown, any still-pending
 /// change is flushed so a quick exit doesn't drop a write that landed inside
 /// the window.
-#[allow(clippy::too_many_arguments, clippy::needless_pass_by_value)]
 // recorder wiring; values are moved into the spawning closure and owned for
 // the thread's lifetime (thread entry point, see runner::run_reader).
+#[allow(clippy::too_many_arguments, clippy::needless_pass_by_value)] // see comment above
 fn run_loop(
     watcher: RecommendedWatcher,
     nrx: std::sync::mpsc::Receiver<std::result::Result<notify::Event, notify::Error>>,
@@ -206,6 +212,15 @@ fn run_loop(
         &mut existing,
     );
     while !stop.load(Ordering::Acquire) {
+        // Panic-hygiene test hook (never compiled outside `cfg(test)`): lets a
+        // test flip a flag and observe that a real panic on this thread is
+        // contained by `stop_and_join`'s `let _ = t.join()` rather than
+        // aborting the process or leaving the recording unable to finalize.
+        #[cfg(test)]
+        assert!(
+            !INJECT_PANIC_FOR_TEST.swap(false, Ordering::SeqCst),
+            "hh-record test: injected watcher panic"
+        );
         match nrx.recv_timeout(POLL_INTERVAL) {
             Ok(Ok(event)) => {
                 for path in &event.paths {
@@ -571,9 +586,13 @@ fn process(
         is_binary,
     };
 
+    // Recover from poisoning rather than failing this (and every subsequent)
+    // capture: the writer `Mutex` is shared with the PTY reader and adapter
+    // drain threads, and a panic in one of them must not silently blind the
+    // others for the rest of the session (see `runner::lock_writer`).
     let writer = writer
         .lock()
-        .map_err(|e| format!("writer lock poisoned: {e}"))?;
+        .unwrap_or_else(std::sync::PoisonError::into_inner);
     writer
         .append_file_change(event, file_change)
         .map_err(|e| format!("append file_change: {e}"))?;
@@ -788,5 +807,119 @@ mod tests {
         scan_existing_files(cwd, cwd, &matcher, &[cwd.join(".hh")], &mut existing);
 
         assert!(!existing.contains(&cwd.join(".hh").join("hh.db")));
+    }
+
+    /// Panic hygiene (CLAUDE.md v1.0.0 addendum): a panic on the watcher
+    /// thread must never abort the recording. This injects a real panic (via
+    /// [`INJECT_PANIC_FOR_TEST`]) into a live `run_loop` — on a real thread,
+    /// with the real `notify::Watcher` — and checks: (1) `stop_and_join`
+    /// does not propagate it to the caller, (2) a write from *before* the
+    /// panic stays durable, and (3) the shared writer — even if its `Mutex`
+    /// was poisoned by the panic — still accepts further appends (the
+    /// single-writer lock is shared with the PTY reader and adapter drain
+    /// threads, so this is the difference between "one source degrades" and
+    /// "the whole session silently stops recording").
+    ///
+    /// The panic trigger doesn't depend on a real OS file-change event: the
+    /// injection check runs at the top of every `run_loop` iteration
+    /// (including timeout-driven wakeups every `POLL_INTERVAL`), so arming
+    /// the flag and waiting a few multiples of it is enough — deliberately
+    /// avoiding a dependency on FSEvents actually firing, which was observed
+    /// flaky/absent on GitHub's macOS runners (this is the first test in the
+    /// crate to exercise a real notify watcher end-to-end; every other
+    /// watcher test below is a pure-function test).
+    #[test]
+    fn watcher_panic_does_not_abort_recording() {
+        use hh_core::event::{AdapterStatus, AgentKind, NewSession};
+        use hh_core::store::Store;
+
+        let tmp = tempfile::tempdir().unwrap();
+        let cwd = tmp.path().join("work");
+        std::fs::create_dir_all(&cwd).unwrap();
+        let store = Store::open(&tmp.path().join("hh.db"), &tmp.path().join("blobs")).unwrap();
+        let created = store
+            .create_session(&NewSession {
+                id: hh_core::event::now_v7(),
+                started_at: 0,
+                agent_kind: AgentKind::Generic,
+                adapter_status: AdapterStatus::None,
+                command: vec!["test".into()],
+                cwd: cwd.clone(),
+                hostname: None,
+                hh_version: "test".into(),
+                model: None,
+                git_branch: None,
+                git_sha: None,
+                git_dirty: None,
+            })
+            .unwrap();
+        let writer = Arc::new(Mutex::new(store.event_writer().unwrap()));
+        let blobs = Arc::new(BlobStore::new(store.blobs().root().to_path_buf()));
+
+        // A write from before anything panics, appended directly (not via a
+        // real FS event — see the doc comment above) so durability is
+        // asserted deterministically.
+        writer
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+            .append_event(Event {
+                session_id: created.id.clone(),
+                ts_ms: 0,
+                kind: EventKind::Lifecycle,
+                step: None,
+                summary: "before panic".into(),
+                body_json: None,
+                blob_hash: None,
+                blob_size: None,
+                correlates: None,
+            })
+            .unwrap();
+
+        let opts = WatchOptions {
+            cwd: cwd.clone(),
+            max_file_size: 4 * 1024 * 1024,
+            record_binary: false,
+            extra_ignore: Vec::new(),
+            internal_exclude: Vec::new(),
+        };
+        let handle = spawn_watcher(
+            opts,
+            Arc::clone(&writer),
+            Arc::clone(&blobs),
+            created.id.clone(),
+            Instant::now(),
+        )
+        .unwrap();
+
+        // Arm the injection; the loop wakes up (and hits the check) every
+        // POLL_INTERVAL regardless of any real filesystem event, so a few
+        // multiples of it is a generous, platform-independent margin.
+        INJECT_PANIC_FOR_TEST.store(true, Ordering::SeqCst);
+        std::thread::sleep(POLL_INTERVAL * 20);
+
+        // Must not propagate the panic to this thread.
+        handle.stop_and_join();
+
+        let index = store.list_event_index(&created.id).unwrap();
+        assert!(
+            index.iter().any(|e| e.summary == "before panic"),
+            "the write from before the injected panic must still be durable"
+        );
+
+        let w = writer
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
+        w.append_event(Event {
+            session_id: created.id.clone(),
+            ts_ms: 1,
+            kind: EventKind::Lifecycle,
+            step: None,
+            summary: "after panic".into(),
+            body_json: None,
+            blob_hash: None,
+            blob_size: None,
+            correlates: None,
+        })
+        .expect("the writer must still accept appends after the watcher thread panicked");
     }
 }

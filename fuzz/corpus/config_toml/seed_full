@@ -1,0 +1,11 @@
+[record]
+max_file_size = "4MiB"
+record_input = false
+record_binary = false
+ignore = ["dist/", "*.lock"]
+
+[storage]
+data_dir = "/tmp/hh"
+
+[replay]
+theme = "dark"

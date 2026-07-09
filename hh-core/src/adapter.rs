@@ -832,6 +832,43 @@ fn debug(msg: &str) {
     }
 }
 
+/// Fuzz-only entry points into the otherwise-private Claude JSONL parser
+/// (`cargo fuzz` target `claude_jsonl`). Gated behind the `fuzzing` feature so
+/// it never widens the crate's normal public API.
+#[cfg(feature = "fuzzing")]
+pub mod fuzzing {
+    use super::{parse_record, BlobStore};
+    use std::sync::OnceLock;
+
+    /// A blob store rooted in a process-unique temp dir, reused across fuzz
+    /// iterations (opening a fresh one per call would dominate runtime with
+    /// filesystem setup rather than parser logic).
+    fn blobs() -> &'static BlobStore {
+        static BLOBS: OnceLock<BlobStore> = OnceLock::new();
+        BLOBS.get_or_init(|| {
+            let dir = std::env::temp_dir().join(format!("hh-fuzz-adapter-{}", std::process::id()));
+            BlobStore::new(dir)
+        })
+    }
+
+    /// Mirrors `parse_and_send`'s path from one raw tailed line (UTF-8 validate
+    /// → trim → JSON parse → [`parse_record`]) — the exact sequence the live
+    /// tailer runs on untrusted transcript content. Must never panic.
+    pub fn fuzz_parse_line(bytes: &[u8]) {
+        let Ok(s) = std::str::from_utf8(bytes) else {
+            return;
+        };
+        let s = s.trim();
+        if s.is_empty() {
+            return;
+        }
+        let Ok(value) = serde_json::from_str::<serde_json::Value>(s) else {
+            return;
+        };
+        let _ = parse_record(&value, "fuzz-session", 0, blobs());
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

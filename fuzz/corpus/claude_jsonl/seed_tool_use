@@ -1,0 +1,1 @@
+{"type":"assistant","isSidechain":false,"isMeta":false,"message":{"role":"assistant","model":"glm-5.2","content":[{"type":"thinking","thinking":"plan"},{"type":"tool_use","id":"call_1","name":"Bash","input":{"command":"ls"}}],"usage":{"input_tokens":10,"output_tokens":5}},"timestamp":"2026-07-02T06:14:41.000Z","cwd":"/tmp/work","sessionId":"s"}

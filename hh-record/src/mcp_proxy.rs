@@ -201,10 +201,12 @@ pub fn run_mcp_proxy(store: &Store, opts: &McpProxyOptions) -> crate::Result<Mcp
     // --- Finalize (standalone only) -------------------------------------
     // Flush + close the writer first (no intra-process contention: the threads
     // have joined), then assign step ordinals + finalize the session row.
+    // Recovers from poisoning (see `ProxyCtx::append`) rather than failing
+    // finalize outright — a panic in either proxy thread must not also abort it.
     {
         let mut w = writer
             .lock()
-            .map_err(|e| crate::RecordError::Mcp(format!("lock writer on close: {e}")))?;
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
         w.flush()
             .map_err(|e| crate::RecordError::Mcp(format!("flush writer: {e}")))?;
         w.close()
@@ -264,10 +266,15 @@ struct ProxyCtx {
 
 impl ProxyCtx {
     /// Append `event` under the shared writer lock, returning the assigned row
-    /// id on success. Lock failures and store errors are swallowed (best-effort
-    /// recording; forwarding always continues).
+    /// id on success. A poisoned lock is recovered rather than treated as a
+    /// failure (a panic in the sibling thread must not blind this one too);
+    /// store errors are still swallowed (best-effort recording; forwarding
+    /// always continues).
     fn append(&self, event: Event) -> Option<i64> {
-        let w = self.writer.lock().ok()?;
+        let w = self
+            .writer
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
         w.append_event(event).ok()
     }
 
@@ -585,6 +592,67 @@ fn wait_for_child(child: &mut Child) -> Option<i32> {
     match child.wait() {
         Ok(status) => status.code(),
         Err(_) => None,
+    }
+}
+
+/// Fuzz-only entry points into the MCP JSON-RPC line classifier (`cargo fuzz`
+/// target `mcp_frame`). Gated behind the `fuzzing` feature so it never widens
+/// the crate's normal public API.
+#[cfg(feature = "fuzzing")]
+pub mod fuzzing {
+    use super::{record_downstream_line, record_upstream_line, ProxyCtx};
+    use hh_core::blob::BlobStore;
+    use hh_core::event::{AdapterStatus, AgentKind, NewSession};
+    use hh_core::store::Store;
+    use std::collections::HashMap;
+    use std::sync::{Arc, Mutex, OnceLock};
+
+    /// A `ProxyCtx` backed by a real (process-unique temp dir) store, built
+    /// once and reused across fuzz iterations — the interesting logic under
+    /// fuzz is the NDJSON classification in `record_*_line`, not store setup.
+    fn ctx() -> &'static ProxyCtx {
+        static CTX: OnceLock<ProxyCtx> = OnceLock::new();
+        CTX.get_or_init(|| {
+            let dir = std::env::temp_dir().join(format!("hh-fuzz-mcp-{}", std::process::id()));
+            let store =
+                Store::open(&dir.join("hh.db"), &dir.join("blobs")).expect("open fuzz store");
+            let new_session = NewSession {
+                id: hh_core::event::now_v7(),
+                started_at: 0,
+                agent_kind: AgentKind::McpOnly,
+                adapter_status: AdapterStatus::None,
+                command: vec!["fuzz".to_string()],
+                cwd: std::env::temp_dir(),
+                hostname: None,
+                hh_version: "fuzz".to_string(),
+                model: None,
+                git_branch: None,
+                git_sha: None,
+                git_dirty: None,
+            };
+            let created = store
+                .create_session(&new_session)
+                .expect("create fuzz session");
+            let writer = Arc::new(Mutex::new(store.event_writer().expect("fuzz writer")));
+            let blobs = Arc::new(BlobStore::new(store.blobs().root().to_path_buf()));
+            ProxyCtx {
+                writer,
+                blobs,
+                pending: Arc::new(Mutex::new(HashMap::new())),
+                session_id: created.id,
+                base_started_at: 0,
+            }
+        })
+    }
+
+    /// Fuzz a client→server line exactly as the upstream thread processes it.
+    pub fn fuzz_upstream_line(line: &[u8]) {
+        record_upstream_line(line, ctx());
+    }
+
+    /// Fuzz a server→client line exactly as the downstream thread processes it.
+    pub fn fuzz_downstream_line(line: &[u8]) {
+        record_downstream_line(line, ctx());
     }
 }
 

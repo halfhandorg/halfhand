@@ -1,0 +1,1 @@
+{"type":"user","isSidechain":false,"isMeta":false,"message":{"role":"user","content":"Please list the files in the repo and show Cargo.toml."},"timestamp":"2026-07-02T06:14:40.699Z","cwd":"/tmp/work","sessionId":"sample-session-0001","uuid":"u-0001","userType":"external","entrypoint":"cli","version":"2.1.198","gitBranch":"main"}

@@ -1,0 +1,53 @@
+[package]
+name = "hh-fuzz"
+version = "0.0.0"
+publish = false
+edition = "2021"
+
+[package.metadata]
+cargo-fuzz = true
+
+# Detached from the main workspace (standard cargo-fuzz layout): this crate
+# needs nightly + the `fuzzing` feature, neither of which the rest of the
+# workspace should ever require.
+[workspace]
+
+[dependencies]
+libfuzzer-sys = "0.4"
+arbitrary = { version = "1", features = ["derive"] }
+
+[dependencies.hh-core]
+path = "../hh-core"
+features = ["fuzzing"]
+
+[dependencies.hh-record]
+path = "../hh-record"
+features = ["fuzzing"]
+
+[[bin]]
+name = "claude_jsonl"
+path = "fuzz_targets/claude_jsonl.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "mcp_frame"
+path = "fuzz_targets/mcp_frame.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "config_toml"
+path = "fuzz_targets/config_toml.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "blob_decompress"
+path = "fuzz_targets/blob_decompress.rs"
+test = false
+doc = false
+bench = false

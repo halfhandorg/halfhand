@@ -16,6 +16,12 @@ workspace = true
 [lib]
 path = "src/lib.rs"
 
+[features]
+# Gates `pub mod fuzzing` wrappers around otherwise-private parsers so the
+# fuzz/ crate can drive them without widening the normal public API surface
+# (off by default; not part of the semver-checked surface).
+fuzzing = []
+
 [dependencies]
 # Justification (SRS §6): rusqlite bundled so the DB ships with the binary and we
 # never depend on a system libsqlite3 (portable, reproducible builds).
@@ -49,3 +55,6 @@ tempfile = "3"
 # Apache-2.0/MIT, both in the cargo-deny allow-list. Default features only
 # (no `serialization`/`yaml` extras) to keep the added dep graph small.
 insta = "1"
+# Justification: property tests for storage invariants (blob refcounts, step
+# assignment, migration idempotency) per CLAUDE.md's v1.0.0 addendum.
+proptest = "1"

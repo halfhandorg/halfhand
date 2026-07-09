@@ -11,6 +11,43 @@ in CI rather than tracking `latest` until 1.0.
 
 ## [Unreleased]
 
+### Fixed
+- `BlobStore::get` / `remove_if_unreferenced` now reject a malformed hash
+  (wrong length, non-hex, or non-ASCII bytes) instead of risking a byte-slice
+  panic on a multi-byte UTF-8 character at offset 2, or a path-traversal write
+  via a crafted hash string.
+- The FS watcher, adapter tailer, and MCP proxy threads share one writer
+  `Mutex`; a panic in any one of them no longer poisons it for the rest of the
+  session (every lock site now recovers from poisoning) or aborts `hh run`'s
+  finalize — a panicked adapter tailer now degrades the session
+  (`adapter_status=degraded`, warning) exactly like the existing
+  "no transcript found" path, instead of leaving it stuck at
+  `status=recording` forever.
+- `writer_run`'s `PRAGMA foreign_keys = ON` failure is now logged instead of
+  silently swallowed (a silent failure here would disable FK enforcement for
+  the rest of the session with no visible cause).
+- Bumped `crossbeam-epoch` 0.9.19 → 0.9.20 (RUSTSEC-2026-0204), pulled in
+  transitively via `ignore`.
+
+### Added
+- `cargo fuzz` targets (`fuzz/`, nightly toolchain) for the four
+  untrusted/external-input parsers: Claude JSONL transcript lines, MCP
+  JSON-RPC framing, `config.toml`, and blob decompression. Seeded from
+  `tests/fixtures/`; runs nightly in CI (60s/target,
+  `.github/workflows/fuzz-nightly.yml`) and via `just fuzz-all <seconds>`
+  locally.
+- `proptest` property tests: blob refcount/GC invariants (refcount tracks live
+  references exactly; GC removes a blob iff unreferenced) across arbitrary
+  create/append/delete sequences, step-assignment invariants (dense ordinals,
+  exact call/result pairing, idempotent) across arbitrary event interleavings,
+  and migration-reopen idempotency (byte-identical schema across N reopens).
+- Panic-injection tests proving a real panic on the FS watcher thread or the
+  Claude adapter tailer thread degrades the session instead of aborting the
+  recording.
+- CI: `cargo-llvm-cov` gate (hh-core ≥ 80% lines, fail-under; workspace-wide
+  report-only) and `cargo-semver-checks` against `main` for hh-core's public
+  API (adapters implement its `Adapter` trait).
+
 ## [0.1.0-beta.1] — 2026-07-07
 
 First public beta. Local-first CLI flight recorder for AI agents: records an
