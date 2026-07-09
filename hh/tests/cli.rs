@@ -1439,6 +1439,7 @@ fn claude_adapter_degrades_on_missing_projects_dir() {
 /// session (`status=ok`). This is the direct guard for the reported symptom —
 /// `hh run` on an unwatchable cwd used to abort the whole recording.
 #[cfg(unix)]
+#[cfg(not(target_os = "macos"))]
 #[test]
 fn run_warns_and_continues_when_cwd_unwatchable() {
     use std::os::unix::fs::PermissionsExt;
