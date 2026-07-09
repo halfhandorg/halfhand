@@ -862,15 +862,33 @@ mod tests {
         )
         .unwrap();
 
-        // Captured normally, before anything panics.
+        // Captured normally, before anything panics. Polls rather than a
+        // fixed sleep: macOS FSEvents has real, documented multi-hundred-ms
+        // startup latency right after a watch is registered (see the module
+        // docs' FSEvents quirk note), which made a fixed 300ms flaky in CI.
         std::fs::write(cwd.join("before.txt"), b"before").unwrap();
-        std::thread::sleep(Duration::from_millis(300));
+        let deadline = Instant::now() + Duration::from_secs(5);
+        loop {
+            if store
+                .list_event_index(&created.id)
+                .unwrap()
+                .iter()
+                .any(|e| e.summary.contains("before.txt"))
+            {
+                break;
+            }
+            assert!(
+                Instant::now() < deadline,
+                "the write before the injected panic was never captured within 5s"
+            );
+            std::thread::sleep(Duration::from_millis(50));
+        }
 
         // Arm the injection, then nudge the loop past its recv_timeout so it
         // hits the panic promptly instead of waiting out POLL_INTERVAL.
         INJECT_PANIC_FOR_TEST.store(true, Ordering::SeqCst);
         std::fs::write(cwd.join("trigger.txt"), b"trigger").unwrap();
-        std::thread::sleep(Duration::from_millis(300));
+        std::thread::sleep(Duration::from_millis(500));
 
         // Must not propagate the panic to this thread.
         handle.stop_and_join();

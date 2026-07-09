@@ -305,7 +305,7 @@ mod tests {
         let p = s.blob_path(&out.hash);
         assert!(p.exists());
         assert!(p.starts_with(s.root()));
-        assert!(p.parent().unwrap().file_name().unwrap().len() == 2);
+        assert_eq!(p.parent().unwrap().file_name().unwrap().len(), 2);
         let got = s.get(&out.hash).unwrap();
         assert_eq!(got, content);
     }
