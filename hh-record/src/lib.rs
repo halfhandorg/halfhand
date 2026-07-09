@@ -24,7 +24,7 @@ pub use error::{RecordError, Result};
 pub use git::GitMeta;
 pub use mcp_proxy::{run_mcp_proxy, McpProxyOptions, McpProxyOutcome};
 pub use runner::{run, RunOptions, RunOutcome};
-pub use watcher::{spawn_watcher, WatchOptions, WatcherHandle};
+pub use watcher::{spawn_watcher, watcher_smoke_test, WatchOptions, WatcherHandle};
 
 /// Fuzz-only entry points into the MCP JSON-RPC line classifier; see
 /// [`mcp_proxy::fuzzing`].

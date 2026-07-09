@@ -94,10 +94,20 @@ impl WatcherHandle {
     }
 }
 
-/// Spawn the watcher thread. Setup errors (building the matcher or the
-/// notify watcher, or the initial `watch` call) propagate as `Pty`-style
-/// errors; runtime errors in the event loop are written to stderr and the
-/// loop continues (FR-1.4 best-effort).
+/// Spawn the watcher thread. Returns `Ok(Some(handle))` on success and
+/// `Ok(None)` when filesystem watching could not be set up at all — the matcher
+/// could not be built, the notify watcher could not initialize, or even the
+/// cwd itself is unwatchable. In every one of those cases the recorder **does
+/// not abort**: it prints a single actionable stderr warning and continues
+/// without file-change recording (FR-1.5 best-effort: PTY + adapter capture
+/// proceed regardless). Only a failure to spawn the worker thread returns `Err`
+/// (a fatal OS-resource error).
+///
+/// A single recursive watch is tried first. If it fails — e.g. one unreadable
+/// subdir (`EACCES` on `/tmp/systemd-private-*`) makes `notify` reject the whole
+/// recursive call — we fall back to per-directory non-recursive watches,
+/// skipping unreadable and ignored directories, so one bad subtree no longer
+/// blacks out file recording for the entire session.
 ///
 /// `start` is the session-start `Instant` used to compute event timestamps
 /// relative to session start (FR-1.3).
@@ -108,23 +118,58 @@ pub fn spawn_watcher(
     blobs: Arc<BlobStore>,
     session_id: String,
     start: Instant,
-) -> crate::Result<WatcherHandle> {
-    let matcher = build_matcher(&opts.cwd, &opts.extra_ignore).map_err(crate::RecordError::Pty)?;
+) -> crate::Result<Option<WatcherHandle>> {
+    let matcher = match build_matcher(&opts.cwd, &opts.extra_ignore) {
+        Ok(m) => m,
+        Err(e) => {
+            eprintln!(
+                "hh: warning: could not build ignore matcher ({e}); \
+                 file-change recording disabled for this session (recording continues)"
+            );
+            return Ok(None);
+        }
+    };
     let stop = Arc::new(AtomicBool::new(false));
 
     let (ntx, nrx) = std::sync::mpsc::channel();
-    let mut watcher = notify::recommended_watcher(
+    let mut watcher = match notify::recommended_watcher(
         move |res: std::result::Result<notify::Event, notify::Error>| {
             // Channel send fails only when the watcher thread exited; ignore.
             let _ = ntx.send(res);
         },
-    )
-    .map_err(|e| crate::RecordError::Pty(format!("notify watcher init: {e}")))?;
-    watcher
-        .watch(&opts.cwd, RecursiveMode::Recursive)
-        .map_err(|e| {
-            crate::RecordError::Pty(format!("notify watch `{}`: {e}", opts.cwd.display()))
-        })?;
+    ) {
+        Ok(w) => w,
+        Err(e) => {
+            eprintln!(
+                "hh: warning: could not initialize filesystem watcher ({e}); \
+                 file-change recording disabled for this session (recording continues)"
+            );
+            return Ok(None);
+        }
+    };
+
+    // Try one recursive watch; on failure fall back to per-directory watches,
+    // skipping unreadable / ignored subtrees (FR-1.4 best-effort).
+    let cwd_watched = match watcher.watch(&opts.cwd, RecursiveMode::Recursive) {
+        Ok(()) => true,
+        Err(e) => {
+            eprintln!(
+                "hh: warning: recursive watch of {} failed ({e}); \
+                 falling back to per-directory watches \
+                 (changes in unreadable or newly-created subdirectories may be missed)",
+                opts.cwd.display()
+            );
+            add_per_dir_watches(&mut watcher, &opts.cwd, &matcher, &opts.internal_exclude)
+        }
+    };
+    if !cwd_watched {
+        eprintln!(
+            "hh: warning: could not watch {} at all; file changes will not be \
+             recorded for this session (recording continues — run `hh doctor`)",
+            opts.cwd.display()
+        );
+        return Ok(None);
+    }
 
     let stop_for_thread = Arc::clone(&stop);
     let thread = std::thread::Builder::new()
@@ -144,10 +189,138 @@ pub fn spawn_watcher(
         })
         .map_err(|e| crate::RecordError::Pty(format!("spawn watcher thread: {e}")))?;
 
-    Ok(WatcherHandle {
+    Ok(Some(WatcherHandle {
         thread: Some(thread),
         stop,
+    }))
+}
+
+/// Fall back when a single recursive watch fails: walk the tree from `root`
+/// adding a non-recursive watch per directory, skipping unreadable (`EACCES`)
+/// and ignored (built-in / `.gitignore` / extra) directories. Returns `true` if
+/// at least `root` itself was watched, `false` if even the cwd is unwatchable
+/// (the caller then disables file-change recording with a warning).
+///
+/// Newly-created subdirectories are not watched in this fallback mode (the
+/// non-recursive watch does not auto-descend) — a known limitation called out in
+/// the fallback warning. Best-effort: a `read_dir` failure on a subtree is
+/// skipped with at most one warning rather than aborting the walk.
+fn add_per_dir_watches(
+    watcher: &mut RecommendedWatcher,
+    root: &Path,
+    matcher: &Gitignore,
+    internal_exclude: &[PathBuf],
+) -> bool {
+    let mut stack = vec![root.to_path_buf()];
+    let mut dirs_watched = 0usize;
+    let mut warned_skip = false;
+    while let Some(dir) = stack.pop() {
+        match watcher.watch(&dir, RecursiveMode::NonRecursive) {
+            Ok(()) => dirs_watched += 1,
+            Err(e) => {
+                if dir == root {
+                    return false; // can't watch the cwd at all
+                }
+                if !warned_skip {
+                    eprintln!(
+                        "hh: warning: could not watch {} ({e}); \
+                         skipping this directory and its children",
+                        dir.display()
+                    );
+                    warned_skip = true;
+                }
+                continue; // don't descend into a directory we can't watch
+            }
+        }
+        let Ok(entries) = std::fs::read_dir(&dir) else {
+            continue;
+        };
+        for e in entries.flatten() {
+            let path = e.path();
+            if internal_exclude.iter().any(|excl| path.starts_with(excl)) {
+                continue;
+            }
+            let Ok(rel) = path.strip_prefix(root) else {
+                continue;
+            };
+            let Ok(ft) = e.file_type() else {
+                continue;
+            };
+            if !ft.is_dir() {
+                continue;
+            }
+            if matcher.matched_path_or_any_parents(rel, true).is_ignore() {
+                continue;
+            }
+            stack.push(path);
+        }
+    }
+    dirs_watched > 0
+}
+
+/// A self-cleaning temporary directory for the watcher smoke test. `Drop`
+/// removes it (best-effort) so `watcher_smoke_test` leaves nothing behind even
+/// on an early return.
+struct TempProbe(PathBuf);
+
+impl Drop for TempProbe {
+    fn drop(&mut self) {
+        let _ = std::fs::remove_dir_all(&self.0);
+    }
+}
+
+/// Self-contained filesystem-watcher smoke test for `hh doctor`: create a
+/// temporary directory, watch it, write a file inside it, and confirm the
+/// watcher delivers at least one event within a short deadline. Returns
+/// `Ok(())` if an event arrived and `Err(message)` otherwise (notify init
+/// failed, the watch could not be added, the watcher reported an error, or no
+/// event arrived in time). This exercises the same `notify` backend the
+/// recorder uses, so a failure here explains why a session recorded 0 file
+/// changes despite files changing. Read-only with respect to the user's data
+/// dir — it writes only under a throwaway temp directory it cleans up itself.
+#[allow(clippy::missing_errors_doc)] // returns an ad-hoc reason string, not a typed error
+pub fn watcher_smoke_test() -> std::result::Result<(), String> {
+    use std::sync::mpsc;
+    // A unique-ish name from pid + a nanosecond stamp (no tempfile dependency
+    // in the binary; `std::env::temp_dir` is enough for a one-shot probe).
+    let stamp = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map_or(0, |d| d.as_nanos());
+    let root =
+        std::env::temp_dir().join(format!("hh-doctor-smoke-{}-{}", std::process::id(), stamp));
+    std::fs::create_dir_all(&root).map_err(|e| format!("create temp dir: {e}"))?;
+    // Declared before `watcher` so it drops last: the watch is released before
+    // the temp directory is removed.
+    let _probe = TempProbe(root.clone());
+
+    let (tx, rx) = mpsc::channel();
+    let mut watcher = notify::recommended_watcher(move |res| {
+        let _ = tx.send(res);
     })
+    .map_err(|e| format!("notify init failed: {e}"))?;
+
+    watcher
+        .watch(&root, RecursiveMode::Recursive)
+        .map_err(|e| format!("watch failed: {e}"))?;
+
+    std::fs::write(root.join("probe.txt"), b"hh doctor smoke test")
+        .map_err(|e| format!("write probe file: {e}"))?;
+
+    let outcome = match rx.recv_timeout(Duration::from_secs(2)) {
+        Ok(Ok(_event)) => Ok(()),
+        Ok(Err(e)) => Err(format!("watcher delivered an error: {e}")),
+        Err(mpsc::RecvTimeoutError::Timeout) => Err(
+            "no file-change event within 2s — the watcher is not delivering events on this platform"
+                .to_string(),
+        ),
+        Err(mpsc::RecvTimeoutError::Disconnected) => {
+            Err("watcher channel closed before any event".to_string())
+        }
+    };
+    // Drop the watcher to release the inotify/FSEvents handle before the guard
+    // removes the directory.
+    drop(watcher);
+    outcome
 }
 
 /// Build a single `Gitignore` matcher from built-in + root `.gitignore` +
@@ -889,7 +1062,8 @@ mod tests {
             created.id.clone(),
             Instant::now(),
         )
-        .unwrap();
+        .unwrap()
+        .expect("watcher should initialize on a writable temp dir");
 
         // Arm the injection; the loop wakes up (and hits the check) every
         // POLL_INTERVAL regardless of any real filesystem event, so a few
@@ -921,5 +1095,60 @@ mod tests {
             correlates: None,
         })
         .expect("the writer must still accept appends after the watcher thread panicked");
+    }
+
+    /// FR-1.5 best-effort: when the cwd itself cannot be watched (here: it does
+    /// not exist), `spawn_watcher` must return `Ok(None)` — degrading
+    /// file-change recording with a warning — rather than `Err`, which would
+    /// abort the whole recording. The recorder continues with PTY + adapter
+    /// capture. (The accompanying stderr warning is asserted end-to-end in the
+    /// `hh/tests` integration suite.)
+    #[test]
+    fn spawn_watcher_degrades_when_cwd_unwatchable() {
+        use hh_core::store::Store;
+        let tmp = tempfile::tempdir().unwrap();
+        let store = Store::open(&tmp.path().join("hh.db"), &tmp.path().join("blobs")).unwrap();
+        let writer = Arc::new(Mutex::new(store.event_writer().unwrap()));
+        let blobs = Arc::new(BlobStore::new(store.blobs().root().to_path_buf()));
+        let opts = WatchOptions {
+            // A path that does not exist and cannot be watched.
+            cwd: tmp.path().join("does-not-exist"),
+            max_file_size: 4 * 1024 * 1024,
+            record_binary: false,
+            extra_ignore: Vec::new(),
+            internal_exclude: Vec::new(),
+        };
+        let outcome = spawn_watcher(opts, writer, blobs, "session".into(), Instant::now());
+        assert!(
+            outcome.is_ok(),
+            "watcher init failure must not abort the recording"
+        );
+        assert!(
+            outcome.unwrap().is_none(),
+            "an unwatchable cwd must degrade to Ok(None), not a handle"
+        );
+    }
+
+    /// The per-directory fallback walk skips ignored directories (built-in
+    /// `.git`/`node_modules`/`target`) so it does not waste watches on — or
+    /// descend into — the very subtrees the matcher would filter anyway. This
+    /// exercises `add_per_dir_watches` directly against a real `notify` watcher.
+    #[test]
+    fn add_per_dir_watches_skips_ignored_dirs() {
+        let tmp = tempfile::tempdir().unwrap();
+        let cwd = tmp.path();
+        std::fs::create_dir_all(cwd.join("keep")).unwrap();
+        std::fs::create_dir_all(cwd.join("node_modules").join("deep")).unwrap();
+        std::fs::create_dir_all(cwd.join("target")).unwrap();
+        let matcher = build_matcher(cwd, &[]).unwrap();
+        let (ntx, _nrx) = std::sync::mpsc::channel();
+        let mut watcher = notify::recommended_watcher(
+            move |r: std::result::Result<notify::Event, notify::Error>| {
+                let _ = ntx.send(r);
+            },
+        )
+        .expect("notify watcher init");
+        // Must report the cwd as watched (at least one dir) and not error.
+        assert!(add_per_dir_watches(&mut watcher, cwd, &matcher, &[]));
     }
 }

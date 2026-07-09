@@ -18,6 +18,7 @@ use std::process::ExitCode;
 use clap::Parser;
 use cli::{Cli, Command};
 use hh_core::config::{Config, Paths};
+use hh_core::event::{AdapterStatus, AgentKind};
 use hh_core::store::Store;
 use owo_colors::OwoColorize;
 
@@ -40,6 +41,7 @@ fn run(cli: Cli) -> anyhow::Result<ExitCode> {
         Command::List(args) => list_command(&args),
         Command::Delete(args) => delete_command(&args),
         Command::McpProxy(args) => mcp_proxy_command(args),
+        Command::Doctor(args) => doctor_command(&args),
     }
 }
 
@@ -64,6 +66,10 @@ fn open_store() -> anyhow::Result<(Store, Paths, Config)> {
         );
         Config::default()
     });
+    // Warn if the user wrote halfhand.toml / hh.toml (silently ignored — only
+    // config.toml is read). Catches the "my ignore globs never applied" class of
+    // silent misconfiguration before it causes a confusing recording.
+    hh_core::config::warn_on_ignored_config_files(&paths0.config_path);
     let paths = Paths::resolve(&config).map_err(|e| {
         anyhow::anyhow!("could not resolve data directory\n  why: {e}\n  hint: set HH_DATA_DIR to a writable directory")
     })?;
@@ -187,8 +193,287 @@ fn print_mcp_epilogue(outcome: &hh_record::McpProxyOutcome) {
     }
 }
 
+/// `hh doctor` (v1.0.0 addendum: a feature ships with a docs page + snapshot).
+/// A read-only diagnostic that runs a fixed set of health checks against the
+/// recording stack and prints one `✓`/`✗` line per check, exiting nonzero if any
+/// fail. The checks target the failure modes behind the "silently recorded 0
+/// steps" class of bug:
+/// - data dir writability — the recorder cannot persist without it;
+/// - DB integrity (`PRAGMA integrity_check`) — a corrupt DB explains missing
+///   sessions/steps;
+/// - config resolution + non-canonical config detection — `halfhand.toml` is
+///   silently ignored (only `config.toml` is read), so ignore globs / a custom
+///   data dir quietly never apply;
+/// - Claude Code JSONL discoverability + a parse-test of the newest transcript
+///   for the current cwd — the adapter tailer reads these, and a missing /
+///   unparseable transcript is the direct cause of 0 recorded steps;
+/// - a watcher smoke test — confirms `notify` delivers file-change events on
+///   this platform (a watcher that silently never fires explains 0 files
+///   changed).
+///
+/// `--json` emits a stable object with a per-check array for scripting.
+fn doctor_command(args: &cli::DoctorArgs) -> anyhow::Result<ExitCode> {
+    let (store, paths, _config) = open_store()?;
+    let cwd = std::env::current_dir().unwrap_or_else(|_| PathBuf::from("."));
+
+    let checks = [
+        check_data_dir_writable(&paths.data_dir),
+        check_db_integrity(&store),
+        check_config_resolution(&paths.config_path),
+        check_claude_jsonl_discoverable(&cwd),
+        check_watcher_smoke(),
+    ];
+    let any_failed = checks.iter().any(|c| !c.passed);
+
+    if args.json {
+        let arr: Vec<serde_json::Value> = checks.iter().map(doctor_check_to_json).collect();
+        let obj = serde_json::json!({
+            "schema": inspect::SCHEMA_VERSION,
+            "status": if any_failed { "fail" } else { "ok" },
+            "checks": arr,
+        });
+        println!("{obj}");
+    } else {
+        print!("{}", render_doctor_plain(&checks, render::use_color()));
+    }
+
+    Ok(if any_failed {
+        ExitCode::from(1)
+    } else {
+        ExitCode::SUCCESS
+    })
+}
+
+/// One `hh doctor` check result: a stable name, pass/fail, and a human detail.
+struct DoctorCheck {
+    /// Stable, machine-readable check name (used as the JSON `name` field).
+    name: &'static str,
+    /// `true` when the check passed.
+    passed: bool,
+    /// Human-readable outcome / suggested fix.
+    detail: String,
+}
+
+impl DoctorCheck {
+    /// A passing check with `detail`.
+    fn pass(name: &'static str, detail: impl Into<String>) -> Self {
+        Self {
+            name,
+            passed: true,
+            detail: detail.into(),
+        }
+    }
+
+    /// A failing check with `detail` (which should include a suggested fix).
+    fn fail(name: &'static str, detail: impl Into<String>) -> Self {
+        Self {
+            name,
+            passed: false,
+            detail: detail.into(),
+        }
+    }
+}
+
+/// Build the JSON object for one doctor check (`hh doctor --json`).
+fn doctor_check_to_json(c: &DoctorCheck) -> serde_json::Value {
+    serde_json::json!({
+        "name": c.name,
+        "status": if c.passed { "ok" } else { "fail" },
+        "detail": c.detail,
+    })
+}
+
+/// Render the doctor checks as plain `✓`/`✗ name — detail` lines (one accent
+/// color: green pass, red fail). Factored out so a snapshot test can lock the
+/// human-readable output without depending on a TTY, the real data dir, or the
+/// real Claude transcript.
+fn render_doctor_plain(checks: &[DoctorCheck], color: bool) -> String {
+    use std::fmt::Write;
+    let mut out = String::new();
+    for c in checks {
+        let glyph = if c.passed {
+            if color {
+                "✓".green().to_string()
+            } else {
+                "✓".to_string()
+            }
+        } else if color {
+            "✗".red().to_string()
+        } else {
+            "✗".to_string()
+        };
+        let _ = writeln!(
+            out,
+            "{glyph} {name} — {detail}",
+            name = c.name,
+            detail = c.detail
+        );
+    }
+    out
+}
+
+/// Check 1: the data dir is writable. Writes and removes a self-cleaning probe
+/// file so the test exercises real create+write+delete permissions, not just
+/// `metadata`.
+fn check_data_dir_writable(data_dir: &std::path::Path) -> DoctorCheck {
+    const NAME: &str = "data dir writable";
+    if let Err(e) = std::fs::create_dir_all(data_dir) {
+        return DoctorCheck::fail(
+            NAME,
+            format!(
+                "could not create {}: {e} — set HH_DATA_DIR to a writable directory",
+                data_dir.display()
+            ),
+        );
+    }
+    let probe = data_dir.join(format!(".hh-doctor-probe-{}", std::process::id()));
+    match std::fs::write(&probe, b"hh doctor") {
+        Ok(()) => {
+            let _ = std::fs::remove_file(&probe);
+            DoctorCheck::pass(NAME, format!("{} is writable", data_dir.display()))
+        }
+        Err(e) => DoctorCheck::fail(
+            NAME,
+            format!(
+                "cannot write to {}: {e} — check permissions on the data directory",
+                data_dir.display()
+            ),
+        ),
+    }
+}
+
+/// Check 2: SQLite integrity via `PRAGMA integrity_check` (read-only probe).
+fn check_db_integrity(store: &Store) -> DoctorCheck {
+    const NAME: &str = "database integrity";
+    match store.integrity_check() {
+        Ok(s) if s == "ok" => DoctorCheck::pass(NAME, "PRAGMA integrity_check: ok"),
+        Ok(s) => DoctorCheck::fail(
+            NAME,
+            format!("integrity_check reports `{s}` — back up the data dir and re-record"),
+        ),
+        Err(e) => DoctorCheck::fail(NAME, format!("could not run integrity_check: {e}")),
+    }
+}
+
+/// Check 3: config resolution. Reports the canonical config path and fails if a
+/// non-canonical file (`halfhand.toml` / `hh.toml`) is present — those are
+/// silently ignored, so their settings (ignore globs, data dir) never apply.
+fn check_config_resolution(config_path: &std::path::Path) -> DoctorCheck {
+    const NAME: &str = "config resolution";
+    let ignored = hh_core::config::ignored_noncanonical_config_files(config_path);
+    let mut detail = format!("config: {}", config_path.display());
+    if !config_path.exists() {
+        detail.push_str(" (absent — defaults in effect)");
+    }
+    if ignored.is_empty() {
+        return DoctorCheck::pass(NAME, detail);
+    }
+    let names: Vec<String> = ignored.iter().map(|p| p.display().to_string()).collect();
+    DoctorCheck::fail(
+        NAME,
+        format!(
+            "{detail}; ignored non-canonical file(s): {} — move their contents into \
+             config.toml so they take effect",
+            names.join(", ")
+        ),
+    )
+}
+
+/// Check 4: Claude Code transcript discoverability for the current cwd, plus a
+/// parse-test of the newest transcript's first record. The adapter tailer reads
+/// these `~/.claude/projects/<slug>/*.jsonl` files; a missing or unparseable
+/// transcript is the direct cause of a session that finalizes `ok` with 0
+/// steps. Read-only with respect to the user's data (opens the transcript, does
+/// not write anything).
+fn check_claude_jsonl_discoverable(cwd: &std::path::Path) -> DoctorCheck {
+    const NAME: &str = "claude jsonl discoverable";
+    use std::io::BufRead;
+    let Some(projects) = hh_core::adapter::claude_projects_dir() else {
+        return DoctorCheck::fail(
+            NAME,
+            "HOME/USERPROFILE not set — cannot locate ~/.claude/projects",
+        );
+    };
+    if !projects.is_dir() {
+        return DoctorCheck::fail(
+            NAME,
+            format!(
+                "{} not found — no Claude Code transcripts on this machine",
+                projects.display()
+            ),
+        );
+    }
+    let Some(transcript) = hh_core::adapter::newest_jsonl_for_cwd(cwd) else {
+        return DoctorCheck::fail(
+            NAME,
+            format!(
+                "no transcript found for cwd {} under {} — run a Claude Code session \
+                 from this directory first",
+                cwd.display(),
+                projects.display()
+            ),
+        );
+    };
+    let file = match std::fs::File::open(&transcript) {
+        Ok(f) => f,
+        Err(e) => {
+            return DoctorCheck::fail(
+                NAME,
+                format!("found {} but could not open it: {e}", transcript.display()),
+            )
+        }
+    };
+    let mut first_line = String::new();
+    if let Err(e) = std::io::BufReader::new(file).read_line(&mut first_line) {
+        return DoctorCheck::fail(
+            NAME,
+            format!("could not read {}: {e}", transcript.display()),
+        );
+    }
+    match serde_json::from_str::<serde_json::Value>(first_line.trim()) {
+        Ok(v) => match v.get("type").and_then(|t| t.as_str()) {
+            Some(ty) => DoctorCheck::pass(
+                NAME,
+                format!("{} (newest record type: {ty})", transcript.display()),
+            ),
+            None => DoctorCheck::fail(
+                NAME,
+                format!(
+                    "{} first line parsed as JSON but has no `type` field — \
+                     unexpected transcript format",
+                    transcript.display()
+                ),
+            ),
+        },
+        Err(e) => DoctorCheck::fail(
+            NAME,
+            format!("{} first line is not valid JSON: {e}", transcript.display()),
+        ),
+    }
+}
+
+/// Check 5: watcher smoke test — confirms `notify` delivers a file-change event
+/// on this platform. Delegated to the recorder layer so the binary needs no new
+/// `notify`/`tempfile` dependency (CLAUDE.md: state why a dependency is added;
+/// here none is, by reusing `hh_record`).
+fn check_watcher_smoke() -> DoctorCheck {
+    const NAME: &str = "watcher smoke test";
+    match hh_record::watcher_smoke_test() {
+        Ok(()) => DoctorCheck::pass(NAME, "file-change event delivered"),
+        Err(reason) => DoctorCheck::fail(NAME, reason),
+    }
+}
+
 /// Print the one-line epilogue (FR-1.6):
 /// `✓ Recorded session a1b2c3 · 4m32s · 42 steps · 7 files changed · hh replay a1b2c3`
+///
+/// Then, on stderr (so it never corrupts the agent's captured stdout), surface
+/// adapter degradation (FR-1.5): the recorder carries a `degrade_reason` from the
+/// tailer and prints it here — *after* the child exits and the terminal is
+/// restored — rather than from the tailer thread mid-session, where the agent's
+/// alternate-screen TUI would bury it. Also warns when an adapter-active
+/// claude-code session recorded 0 steps over a nontrivial duration, the symptom
+/// of a broken adapter (the tailer never found a transcript).
 fn print_epilogue(outcome: &hh_record::RunOutcome) {
     let color = render::use_color();
     let check = if color {
@@ -203,6 +488,30 @@ fn print_epilogue(outcome: &hh_record::RunOutcome) {
         steps = outcome.steps,
         files = outcome.files_changed,
     );
+
+    // Adapter degradation: surface the carried reason on stderr (FR-1.5).
+    if outcome.adapter_status == AdapterStatus::Degraded {
+        if let Some(reason) = outcome.degrade_reason.as_deref() {
+            eprintln!("hh: warning: adapter degraded: {reason}");
+        } else {
+            eprintln!("hh: warning: adapter degraded; run `hh doctor` to diagnose");
+        }
+    }
+
+    // 0-steps guard: a claude-code session that ran an adapter but captured no
+    // steps over >60 s almost certainly means the adapter never found the
+    // transcript (the original silent-breakage symptom). Tell the user plainly.
+    if outcome.agent_kind == AgentKind::ClaudeCode
+        && outcome.adapter_status != AdapterStatus::None
+        && outcome.steps == 0
+        && outcome.duration_ms > 60_000
+    {
+        eprintln!(
+            "hh: warning: recorded 0 steps for a claude-code session over {} \
+             — the adapter may be broken; run `hh doctor`",
+            render::humanize_ms(outcome.duration_ms)
+        );
+    }
 }
 
 /// `hh list` (FR-5.1): list recorded sessions newest-first as an aligned table
@@ -304,21 +613,30 @@ fn confirm_delete(session: &hh_core::SessionRow) -> anyhow::Result<()> {
 /// Render the session list as an aligned plain-text table (FR-5.1). Respects
 /// `NO_COLOR` and non-TTY output (plain, pipe-safe per CLAUDE.md): one accent
 /// color (green) on the id; the STATUS column carries a colored glyph per
-/// state (ok=green ✓, error=red ✗, interrupted=yellow ●, recording=cyan ●),
-/// via the shared [`render::render_status`] so `hh list` and `hh inspect`
-/// speak the same visual language.
+/// state (ok=green ✓, error=red ✗, interrupted=yellow ●, recording=cyan ●) plus
+/// a `⚠` marker when the adapter ended degraded, via the shared
+/// [`render::render_status_with_adapter`] so `hh list` and `hh inspect` speak
+/// the same visual language.
 fn print_session_table(rows: &[hh_core::SessionRow]) {
     if rows.is_empty() {
         println!("no sessions recorded yet — run `hh run -- <command>` to record one");
         return;
     }
-    let color = render::use_color();
-    let now = render::now_unix_ms();
+    print!(
+        "{}",
+        format_session_table(rows, render::use_color(), render::now_unix_ms())
+    );
+}
 
-    // Build cell strings, then column-align them. Status carries a glyph.
+/// Pure formatter behind [`print_session_table`], factored out so a snapshot
+/// test can lock the alignment (headers lined up with data, degraded marker
+/// present) without depending on a TTY or wall-clock.
+fn format_session_table(rows: &[hh_core::SessionRow], color: bool, now: i64) -> String {
+    // Build cell strings, then column-align by *visible* width. Status carries
+    // a glyph (+ ⚠ when the adapter degraded, so the row is visibly not clean).
     let mut lines: Vec<Line> = Vec::with_capacity(rows.len());
     for r in rows {
-        let status = render::render_status(r.status, color);
+        let status = render::render_status_with_adapter(r.status, r.adapter_status, color);
         let id_field = r.short_id.clone();
         let id = if color {
             id_field.green().to_string()
@@ -346,39 +664,45 @@ fn print_session_table(rows: &[hh_core::SessionRow]) {
         "ID", "STATUS", "AGENT", "STARTED", "DURATION", "STEPS", "FILES", "COMMAND",
     ];
     let widths = compute_widths(&headers, &lines);
+    let last = headers.len() - 1;
 
-    let mut header_line = String::new();
+    let mut out = String::new();
     for (i, h) in headers.iter().enumerate() {
-        pad_into(&mut header_line, h, widths[i]);
-    }
-    println!("{header_line}");
-    let mut sep = String::new();
-    for &w in &widths {
-        for _ in 0..w {
-            sep.push('-');
+        if i == last {
+            out.push_str(h);
+        } else {
+            pad_into(&mut out, h, widths[i]);
         }
-        sep.push(' ');
     }
-    println!("{sep}");
+    out.push('\n');
+    for (i, &w) in widths.iter().enumerate() {
+        for _ in 0..w {
+            out.push('-');
+        }
+        if i != last {
+            out.push(' ');
+        }
+    }
+    out.push('\n');
     for l in &lines {
-        let mut row = String::new();
-        pad_into(&mut row, &l.id, widths[0]);
-        pad_into(&mut row, &l.status, widths[1]);
-        pad_into(&mut row, &l.agent, widths[2]);
-        pad_into(&mut row, &l.started, widths[3]);
-        pad_into(&mut row, &l.duration, widths[4]);
-        pad_into(&mut row, &l.steps, widths[5]);
-        pad_into(&mut row, &l.files, widths[6]);
-        row.push_str(&l.command);
-        println!("{row}");
+        pad_into(&mut out, &l.id, widths[0]);
+        pad_into(&mut out, &l.status, widths[1]);
+        pad_into(&mut out, &l.agent, widths[2]);
+        pad_into(&mut out, &l.started, widths[3]);
+        pad_into(&mut out, &l.duration, widths[4]);
+        pad_into(&mut out, &l.steps, widths[5]);
+        pad_into(&mut out, &l.files, widths[6]);
+        out.push_str(&l.command);
+        out.push('\n');
     }
+    out
 }
 
 /// A row's rendered cells for the list table.
 struct Line {
     /// Short id (colored if enabled).
     id: String,
-    /// `glyph status` (colored if enabled).
+    /// `glyph status [⚠]` (colored if enabled).
     status: String,
     /// Agent kind.
     agent: String,
@@ -394,24 +718,26 @@ struct Line {
     command: String,
 }
 
-/// Return the column widths for the list table: `max(header.len, max cell.len)`
-/// per column. The COMMAND column is left unbounded (last column, no padding).
+/// Return the column widths for the list table: `max(header width, max cell
+/// visible width)` per column. Widths are measured by [`render::visible_width`]
+/// (ANSI escapes stripped) so colored cells do not push columns out of
+/// alignment. The COMMAND column is left unbounded (last column, no padding).
 fn compute_widths(headers: &[&str; 8], lines: &[Line]) -> [usize; 8] {
     let cell = |l: &Line, i: usize| -> usize {
         match i {
-            0 => l.id.len(),
-            1 => l.status.len(),
-            2 => l.agent.len(),
-            3 => l.started.len(),
-            4 => l.duration.len(),
-            5 => l.steps.len(),
-            6 => l.files.len(),
-            _ => l.command.len(),
+            0 => render::visible_width(&l.id),
+            1 => render::visible_width(&l.status),
+            2 => render::visible_width(&l.agent),
+            3 => render::visible_width(&l.started),
+            4 => render::visible_width(&l.duration),
+            5 => render::visible_width(&l.steps),
+            6 => render::visible_width(&l.files),
+            _ => render::visible_width(&l.command),
         }
     };
     let mut widths = [0usize; 8];
     for (i, h) in headers.iter().enumerate() {
-        widths[i] = h.len();
+        widths[i] = h.chars().count();
         for l in lines {
             widths[i] = widths[i].max(cell(l, i));
         }
@@ -419,10 +745,11 @@ fn compute_widths(headers: &[&str; 8], lines: &[Line]) -> [usize; 8] {
     widths
 }
 
-/// Append `s` to `out` left-justified in `width` plus one trailing space.
+/// Append `s` to `out` left-justified in `width` plus one trailing space, padding
+/// by *visible* width so embedded ANSI escapes do not eat the padding.
 fn pad_into(out: &mut String, s: &str, width: usize) {
     out.push_str(s);
-    let pad = width.saturating_sub(s.len());
+    let pad = width.saturating_sub(render::visible_width(s));
     for _ in 0..pad {
         out.push(' ');
     }
@@ -489,5 +816,134 @@ fn print_error(e: &anyhow::Error) {
     eprintln!("{prefix} {e:#}");
     for cause in e.chain().skip(1) {
         eprintln!("  caused by: {cause}");
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use hh_core::{AdapterStatus, AgentKind, SessionRow, SessionStatus};
+    use std::path::PathBuf;
+
+    fn row(short: &str, status: SessionStatus, adapter: AdapterStatus, steps: i64) -> SessionRow {
+        SessionRow {
+            id: format!("00000000-0000-7000-8000-{short}"),
+            short_id: short.to_string(),
+            // 2026-07-10T12:00:00Z → a stable "started" so relative time is
+            // deterministic only if `now` is pinned; we pass a fixed `now`.
+            started_at: 1_782_052_800_000,
+            ended_at: Some(1_782_053_120_000),
+            exit_code: Some(0),
+            status,
+            agent_kind: AgentKind::ClaudeCode,
+            adapter_status: adapter,
+            command: vec!["claude".into()],
+            cwd: PathBuf::from("/tmp/work"),
+            step_count: steps,
+            files_changed: 7,
+        }
+    }
+
+    #[test]
+    fn visible_width_strips_ansi_escapes() {
+        // Plain text counts one per char.
+        assert_eq!(render::visible_width("hello"), 5);
+        assert_eq!(render::visible_width("✓ ok"), 4);
+        // ANSI-colored text measures its visible width, not byte length.
+        let colored = "\x1b[32m✓ ok\x1b[0m";
+        assert_eq!(render::visible_width(colored), 4, "escapes must not count");
+        assert_ne!(colored.len(), 4);
+    }
+
+    #[test]
+    fn session_table_aligns_headers_and_marks_degraded() {
+        // Two claude-code sessions: one clean, one whose adapter degraded. The
+        // snapshot locks (a) headers lining up with row data and (b) the ⚠
+        // marker on the degraded row. color=false → no ANSI escapes, so the
+        // snapshot is deterministic and also exercises the pipe-safe path.
+        let rows = [
+            row("a1b2c3", SessionStatus::Ok, AdapterStatus::Active, 42),
+            row("d4e5f6", SessionStatus::Ok, AdapterStatus::Degraded, 0),
+        ];
+        let table = format_session_table(&rows, false, 1_782_052_810_000);
+        insta::assert_snapshot!(table);
+        // Sanity: the degraded row carries the warning glyph; the clean row does not.
+        let lines: Vec<&str> = table.lines().collect();
+        assert!(
+            lines.iter().any(|l| l.contains("⚠")),
+            "degraded row must show ⚠"
+        );
+        assert!(
+            lines.iter().any(|l| l.contains("✓ ok") && !l.contains("⚠")),
+            "clean row must show ✓ ok without ⚠"
+        );
+    }
+
+    #[test]
+    fn session_table_aligns_under_color() {
+        // The alignment bug: with byte-length padding, ANSI escapes in colored
+        // cells inflated their "width" and shifted every column right of them out
+        // of line with the (plain) headers. visible-width padding fixes it. This
+        // snapshot (color=true, deterministic ANSI from owo_colors) locks that the
+        // header row and the data rows align column-for-column despite escapes.
+        let rows = [
+            row("a1b2c3", SessionStatus::Ok, AdapterStatus::Active, 42),
+            row("d4e5f6", SessionStatus::Ok, AdapterStatus::Degraded, 0),
+        ];
+        let table = format_session_table(&rows, true, 1_782_052_810_000);
+        insta::assert_snapshot!(table);
+        // Column alignment under color: the STATUS header and each row's status
+        // glyph start at the same byte offset once escapes are stripped. Measure
+        // visible offsets of "STATUS"/"✓" in each line.
+        let vis_offset = |line: &str, needle: &str| -> Option<usize> {
+            Some(render::visible_width(line.split(needle).next()?))
+        };
+        let lines: Vec<&str> = table.lines().collect();
+        let hdr = vis_offset(lines[0], "STATUS");
+        let r1 = vis_offset(lines[2], "✓");
+        let r2 = vis_offset(lines[3], "✓");
+        assert_eq!(hdr, r1, "header STATUS column must align with row status");
+        assert_eq!(hdr, r2, "header STATUS column must align with degraded row");
+    }
+
+    /// `hh doctor` renders one `✓`/`✗ name — detail` line per check, color=false
+    /// so the snapshot is deterministic and pipe-safe. Locks both glyphs and the
+    /// "name — detail" shape across the five checks.
+    #[test]
+    fn doctor_plain_renders_pass_and_fail_lines() {
+        let checks = [
+            DoctorCheck::pass(
+                "data dir writable",
+                "/home/me/.local/share/halfhand is writable",
+            ),
+            DoctorCheck::pass("database integrity", "PRAGMA integrity_check: ok"),
+            DoctorCheck::fail(
+                "config resolution",
+                "config: /home/me/.config/halfhand/config.toml (absent — defaults in effect); \
+                 ignored non-canonical file(s): /home/me/.config/halfhand/halfhand.toml \
+                 — move their contents into config.toml so they take effect",
+            ),
+            DoctorCheck::pass(
+                "claude jsonl discoverable",
+                "/home/me/.claude/projects/-home-me-work/abc.jsonl (newest record type: user)",
+            ),
+            DoctorCheck::pass("watcher smoke test", "file-change event delivered"),
+        ];
+        let out = render_doctor_plain(&checks, false);
+        insta::assert_snapshot!(out);
+        // Sanity: four passes and one fail glyph, no ANSI escapes.
+        assert_eq!(out.matches('✓').count(), 4, "four passing checks");
+        assert_eq!(out.matches('✗').count(), 1, "one failing check");
+        assert!(!out.contains('\x1b'), "color=false must emit no escapes");
+    }
+
+    /// `hh doctor --json` builds one object per check with stable fields.
+    #[test]
+    fn doctor_check_to_json_shape() {
+        let pass = DoctorCheck::pass("watcher smoke test", "file-change event delivered");
+        let fail = DoctorCheck::fail("database integrity", "corrupt");
+        assert_eq!(doctor_check_to_json(&pass)["status"], "ok");
+        assert_eq!(doctor_check_to_json(&fail)["status"], "fail");
+        assert_eq!(doctor_check_to_json(&fail)["name"], "database integrity");
     }
 }

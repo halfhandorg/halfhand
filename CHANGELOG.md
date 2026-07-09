@@ -11,7 +11,54 @@ in CI rather than tracking `latest` until 1.0.
 
 ## [Unreleased]
 
+### Diagnostics
+- A degraded Claude Code adapter session now self-documents in the database,
+  not just on stderr: the specific degrade reason is persisted as an `error`
+  event (`body_json = {"adapter":"claude-code","reason":"…"}`), so
+  `SELECT … WHERE kind='error'` explains *why* a session recorded no structured
+  steps — previously such a query returned empty and the failure was a silent
+  mystery. Reasons are now specific: `no jsonl matched cwd slug <slug>` (with
+  the slug dir it looked in + candidate counts), `jsonl found (<file>) but 0
+  records parsed (read N line(s); first parse error at line K: <msg>)`,
+  `found a transcript at <file> but could not read it`, or `discovery selected
+  file <file> but it's a directory`. A found-but-empty transcript now degrades
+  with `0 records parsed` instead of finalizing `active` with 0 steps. Set
+  `HH_DEBUG=1` during `hh run` to capture a discovery+parse trace (computed
+  slug, projects dir, candidate files, selected transcript, records read,
+  events produced, first conversion failure) to stderr. Note: a degraded
+  session now reports 1 step (the `error` event itself) rather than 0.
+
 ### Fixed
+- **Silent recording breakage** (the reported "0 steps / 0 files but
+  `status=ok`" symptom): the Claude Code adapter's transcript locator used a
+  fixed 3 s deadline and matched the *first* `cwd`-bearing record, so on
+  recent Claude versions — which write `~/.claude/projects/<slug>/*.jsonl`
+  lazily (only on first output) and omit `cwd` from the early `system`/meta
+  records — the locator either timed out before the file appeared or rejected
+  it on the cwd-less head, finalized `ok` with 0 structured steps, and printed
+  no warning. The locator now polls until the session stops, snapshots
+  pre-existing transcripts so it only matches one created *during* this
+  session, and scans past cwd-less records to the first cwd-bearing one (and
+  verifies it belongs to this session's cwd). Every degrade path now carries
+  an actionable `degrade_reason` printed after the child exits (FR-1.5), and
+  the `hh run` epilogue warns when an adapter-active claude-code session
+  records 0 steps over >60 s.
+- A `halfhand.toml` (or `hh.toml`) config file is silently ignored — only
+  `config.toml` is read — so ignore globs / a custom `data_dir` quietly never
+  applied. `hh` now warns on stderr at startup and `hh doctor` reports it as a
+  failing check, naming the ignored file and where to move its contents.
+- The FS watcher no longer aborts `hh run` with "recording failed" when its
+  cwd is unwatchable (e.g. `notify` rejects a recursive watch with `EACCES`).
+  It degrades instead: a single stderr warning points at `hh doctor`, file
+  recording is skipped, and the PTY + adapter session still records
+  (`status=ok`). A per-directory fallback also keeps file recording working
+  when one unreadable subdir would have blacked out the whole tree.
+- `hh list` column headers no longer drift out of alignment with the data
+  when color is enabled: padding now measures *visible* width (ANSI escapes
+  stripped) instead of byte length, so colored status cells no longer push
+  every column to their right out of line. `hh list` also shows a `⚠` marker on
+  rows whose adapter ended `degraded`, so a silently-broken session is no
+  longer indistinguishable from a clean one.
 - `BlobStore::get` / `remove_if_unreferenced` now reject a malformed hash
   (wrong length, non-hex, or non-ASCII bytes) instead of risking a byte-slice
   panic on a multi-byte UTF-8 character at offset 2, or a path-traversal write
@@ -30,6 +77,21 @@ in CI rather than tracking `latest` until 1.0.
   transitively via `ignore`.
 
 ### Added
+- `hh doctor` (read-only diagnostic): runs five health checks — data dir
+  writability, `PRAGMA integrity_check`, config resolution + non-canonical
+  config detection, Claude Code transcript discoverability for the cwd (with a
+  parse-test of the newest transcript), and a `notify` watcher smoke test —
+  printing one `✓`/`✗` line per check and exiting nonzero if any fail. `--json`
+  emits a stable `schema:1` object with a per-check array. Docs: see
+  `docs/doctor.md`; `--help` carries an example.
+- Regression tests for the silent-breakage fix: an end-to-end file-change
+  recording test, an adapter test against both Claude JSONL fixture
+  generations (including the new-format transcript with `mode` /
+  `permissionMode` / `fileHistorySnapshot` and no `cwd` on the early records),
+  an integration test asserting the watcher-init-failure warning reaches
+  stderr and the session still records `ok` (not "recording failed"), and an
+  adapter degraded-warning-at-finalize test. `hh list` / `hh doctor` rendering
+  is locked with insta snapshots.
 - `cargo fuzz` targets (`fuzz/`, nightly toolchain) for the four
   untrusted/external-input parsers: Claude JSONL transcript lines, MCP
   JSON-RPC framing, `config.toml`, and blob decompression. Seeded from

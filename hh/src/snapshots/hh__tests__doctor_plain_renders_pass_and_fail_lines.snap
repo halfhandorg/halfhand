@@ -1,0 +1,9 @@
+---
+source: hh/src/main.rs
+expression: out
+---
+✓ data dir writable — /home/me/.local/share/halfhand is writable
+✓ database integrity — PRAGMA integrity_check: ok
+✗ config resolution — config: /home/me/.config/halfhand/config.toml (absent — defaults in effect); ignored non-canonical file(s): /home/me/.config/halfhand/halfhand.toml — move their contents into config.toml so they take effect
+✓ claude jsonl discoverable — /home/me/.claude/projects/-home-me-work/abc.jsonl (newest record type: user)
+✓ watcher smoke test — file-change event delivered

@@ -69,9 +69,16 @@ marked `interrupted`.
 | `hh inspect <id\|last>` | Print non-interactive detail: summary, `--step N`, `--json`, `--diff` (FR-4). |
 | `hh list` | List recorded sessions, newest first; `--json`, `--limit` (FR-5). |
 | `hh delete <id\|last> --yes` | Delete a session and garbage-collect its blobs (FR-6.1). |
+| `hh doctor` | Diagnose the recording stack and print pass/fail per check; `--json`. |
 
 Every subcommand takes `--help` with a usage example. Run `hh --help` for the
 overview.
+
+If a session finalized `ok` but recorded `0 steps` or `0 files changed`, run
+`hh doctor` — it checks data-dir writability, DB integrity, config resolution,
+Claude Code transcript discoverability for the cwd, and a filesystem-watcher
+smoke test, and exits nonzero if any check fails. See
+[`docs/doctor.md`](docs/doctor.md).
 
 ## Structured capture with adapters
 

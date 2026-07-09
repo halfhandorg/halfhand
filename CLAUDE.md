@@ -8,7 +8,7 @@ SRS, say so before writing code.
 ## Rust standards (non-negotiable)
 - Edition 2021, MSRV 1.75. Workspace crates: hh-core, hh-record, hh (bin).
 - No unwrap()/expect() outside #[cfg(test)] and the top of main(). Use ? with
-  context. thiserror for library error enums, anyhow::Context in the binary.
+  context. this error for library error enums, anyhow::Context in the binary.
 - cargo clippy --workspace --all-targets -- -D warnings must pass after every
   task. Enable clippy::pedantic at crate level and #[allow] individual lints
   with a one-line justification comment.
@@ -34,3 +34,26 @@ SRS, say so before writing code.
   set HH_DATA_DIR).
 - Snapshot tests with insta for rendered output and adapter conversions.
 - Do not mock SQLite; use real in-temp-dir databases.
+
+# v1.0.0 addendum — the stability era
+
+Halfhand is heading to 1.0.0. From now on, in addition to the existing
+standards:
+
+- Backward compatibility is a feature. Any change to CLI flags, --json output,
+  the DB schema, exit codes, or env vars must be additive, or go through the
+  deprecation policy in STABILITY.md (once it exists). If a task requires a
+  breaking change, stop and propose it before implementing.
+- Every parser that consumes untrusted or external input (Claude/Codex/Gemini
+  JSONL, MCP JSON-RPC framing, imported bundles, config files) must have a
+  fuzz target and must never panic on malformed input — errors only.
+- Storage invariants are property-tested, not example-tested: blob refcounts,
+  migration idempotency, step-number assignment, export→import round-trips.
+- Performance is regression-gated: criterion benches live in benches/, and CI
+  fails on >15% regression vs the committed baseline (use critcmp or
+  cargo-criterion JSON diffing; a nightly job, not per-PR, is acceptable).
+- New user-facing features ship with: docs page, --help example, CHANGELOG
+  entry, and at least one insta snapshot of their human-readable output —
+  in the same PR, or the feature is not done.
+- Exit codes are part of the contract: 0 ok, 1 generic error, 2 usage error,
+  3 session-not-found, 4 redaction/policy block. Document and test them.

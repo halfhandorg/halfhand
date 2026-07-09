@@ -109,6 +109,17 @@ impl Store {
         &self.blobs
     }
 
+    /// Run `PRAGMA integrity_check` and return its result. A healthy database
+    /// yields `"ok"`; a corrupt one yields the first reported fault line. Used by
+    /// `hh doctor` as a non-mutating health probe (integrity_check is read-only).
+    pub fn integrity_check(&self) -> Result<String> {
+        let row: String = self
+            .conn
+            .query_row("PRAGMA integrity_check", [], |r| r.get(0))
+            .map_err(StorageError::Sqlite)?;
+        Ok(row)
+    }
+
     /// Create a new session row (FR-1.2).
     pub fn create_session(&self, new: &NewSession) -> Result<CreatedSession> {
         let id = new.id.to_string();

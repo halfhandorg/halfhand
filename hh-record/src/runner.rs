@@ -20,7 +20,7 @@ use std::time::{Duration, Instant};
 
 use hh_core::adapter::{Adapter, AdapterContext, AdapterHandle, AdapterOutcome};
 use hh_core::blob::BlobStore;
-use hh_core::event::{AdapterStatus, Event, EventKind, NewSession};
+use hh_core::event::{AdapterStatus, AgentKind, Event, EventKind, NewSession};
 use hh_core::store::{EventWriter, Store};
 use portable_pty::{native_pty_system, CommandBuilder, PtySize};
 use signal_hook::consts::{SIGINT, SIGTERM};
@@ -83,6 +83,19 @@ pub struct RunOutcome {
     pub files_changed: i64,
     /// Final session status (`ok` | `error` | `interrupted`).
     pub status: &'static str,
+    /// Agent kind detected for the session (FR-1.5); the binary uses this to
+    /// decide whether a 0-step session warrants an "adapter may be broken"
+    /// epilogue warning (only meaningful for adapter-active kinds).
+    pub agent_kind: AgentKind,
+    /// Final adapter status. `None` for PTY-only sessions that never ran an
+    /// adapter; `Active` if the adapter tailed a transcript; `Degraded` if it
+    /// could not (the binary surfaces [`Self::degrade_reason`] when so).
+    pub adapter_status: AdapterStatus,
+    /// When [`Self::adapter_status`] is [`AdapterStatus::Degraded`], a single
+    /// actionable line the binary prints to stderr *after* the child exits and
+    /// the terminal is restored (FR-1.5), instead of from the tailer thread
+    /// mid-session where the agent's TUI would bury it.
+    pub degrade_reason: Option<String>,
 }
 
 /// Lock the shared writer, recovering from poisoning instead of failing.
@@ -182,6 +195,9 @@ pub fn run(store: &Store, opts: &RunOptions) -> crate::Result<RunOutcome> {
         internal_exclude: opts.internal_exclude.clone(),
     };
     let blobs = Arc::new(BlobStore::new(store.blobs().root().to_path_buf()));
+    // FR-1.5 best-effort: a watcher that cannot be set up (e.g. an unreadable
+    // subdir under cwd) degrades to `None` with a stderr warning rather than
+    // aborting the whole recording — PTY + adapter capture continue.
     let watcher = spawn_watcher(
         watch_opts,
         Arc::clone(&writer),
@@ -355,8 +371,10 @@ pub fn run(store: &Store, opts: &RunOptions) -> crate::Result<RunOutcome> {
     // the master is already closed so any further write fails fast.
     drop(stdin_thread);
 
-    // Stop the FS watcher.
-    watcher.stop_and_join();
+    // Stop the FS watcher (if it was set up at all).
+    if let Some(w) = watcher {
+        w.stop_and_join();
+    }
 
     // Stop the structured-event adapter: setting the flag ends the tailer's
     // poll so the drain thread hits EOF. Join the drain thread first (every
@@ -402,6 +420,13 @@ pub fn run(store: &Store, opts: &RunOptions) -> crate::Result<RunOutcome> {
         steps,
         files_changed,
         status,
+        agent_kind,
+        adapter_status: adapter_outcome
+            .as_ref()
+            .map_or(adapter_status, |o| o.status),
+        degrade_reason: adapter_outcome
+            .as_ref()
+            .and_then(|o| o.degrade_reason.clone()),
     })
 }
 
@@ -640,6 +665,38 @@ fn finalize(
     // outright — a panic in any recording source must not also abort finalize.
     {
         let mut w = lock_writer(writer);
+        // FR-1.5: persist the adapter's degrade reason as an `error` event so a
+        // degraded session self-documents in the DB (queryable as
+        // `kind='error'`), not just on stderr. The adapter owns no writer (it is
+        // kept unit-testable without a database), so the recorder writes this
+        // once it observes the Degraded outcome — before the writer closes so
+        // the event is durable and receives a step ordinal like any other. This
+        // turns a silent "active, 0 steps" / "degraded, no explanation" into a
+        // one-line DB diagnosis ("no jsonl matched cwd slug …", "jsonl found but
+        // 0 records parsed …", "parse error at line N: …", …).
+        if let Some(o) = adapter_outcome {
+            if o.status == AdapterStatus::Degraded {
+                let reason = o
+                    .degrade_reason
+                    .clone()
+                    .unwrap_or_else(|| "adapter degraded (no reason recorded)".to_string());
+                let ev = Event {
+                    session_id: session_id.to_string(),
+                    ts_ms: 0,
+                    kind: EventKind::Error,
+                    step: None,
+                    summary: truncate_summary(&format!("adapter degraded: {reason}")),
+                    body_json: Some(serde_json::json!({
+                        "reason": reason,
+                        "adapter": "claude-code",
+                    })),
+                    blob_hash: None,
+                    blob_size: None,
+                    correlates: None,
+                };
+                let _ = w.append_event(ev);
+            }
+        }
         w.flush().map_err(crate::RecordError::from)?;
         w.close().map_err(crate::RecordError::from)?;
     }
@@ -701,12 +758,16 @@ fn hostname() -> Option<String> {
 /// warning, exactly like the "no transcript found" degrade path.
 fn adapter_outcome_from_join(result: std::thread::Result<AdapterOutcome>) -> AdapterOutcome {
     result.unwrap_or_else(|_| {
-        eprintln!(
-            "hh: warning: claude adapter thread panicked; session continues, \
-             recording as adapter_status=degraded"
-        );
+        // Don't print here: the agent's TUI may still own the terminal. Surface
+        // the reason via `degrade_reason` so the binary prints it after the child
+        // exits and the terminal is restored (FR-1.5).
         AdapterOutcome {
             status: AdapterStatus::Degraded,
+            degrade_reason: Some(
+                "claude adapter thread panicked; session continues, \
+                 recording as adapter_status=degraded — run `hh doctor`"
+                    .to_string(),
+            ),
             ..Default::default()
         }
     })
@@ -802,6 +863,12 @@ mod tests {
         assert_eq!(outcome.status, AdapterStatus::Degraded);
         assert!(outcome.model.is_none());
         assert!(outcome.usage_json.is_none());
+        // The panic reason is surfaced via degrade_reason (printed by the binary
+        // after the child exits), not via a mid-session stderr eprintln.
+        assert!(
+            outcome.degrade_reason.is_some(),
+            "panic degrade must carry a degrade_reason"
+        );
     }
 
     /// The non-panicking path is unaffected: a normal outcome passes through.

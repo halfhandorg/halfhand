@@ -46,7 +46,15 @@ fn help_lists_every_subcommand_and_examples() {
     let out = hh().arg("--help").output().unwrap();
     assert!(out.status.success());
     let stdout = String::from_utf8_lossy(&out.stdout);
-    for sub in ["run", "replay", "inspect", "list", "delete", "mcp-proxy"] {
+    for sub in [
+        "run",
+        "replay",
+        "inspect",
+        "list",
+        "delete",
+        "mcp-proxy",
+        "doctor",
+    ] {
         assert!(stdout.contains(sub), "missing `{sub}` in --help: {stdout}");
     }
     assert!(
@@ -57,7 +65,15 @@ fn help_lists_every_subcommand_and_examples() {
 
 #[test]
 fn every_subcommand_help_has_an_example() {
-    for sub in ["run", "replay", "inspect", "list", "delete", "mcp-proxy"] {
+    for sub in [
+        "run",
+        "replay",
+        "inspect",
+        "list",
+        "delete",
+        "mcp-proxy",
+        "doctor",
+    ] {
         let out = hh().args([sub, "--help"]).output().unwrap();
         assert!(out.status.success(), "`hh {sub} --help` failed");
         let stdout = String::from_utf8_lossy(&out.stdout);
@@ -1354,9 +1370,22 @@ fn claude_adapter_degrades_on_missing_projects_dir() {
         String::from_utf8_lossy(&out.stderr)
     );
     let stderr = String::from_utf8_lossy(&out.stderr);
+    // FR-1.5: the degrade reason is surfaced as exactly one stderr warning
+    // *after* the child exits (terminal restored), not from the tailer thread
+    // mid-session. The reason text names the failure ("projects directory does
+    // not exist") and points the user at `hh doctor`.
+    let degraded_count = stderr.matches("adapter degraded").count();
+    assert_eq!(
+        degraded_count, 1,
+        "expected exactly one `adapter degraded` warning on stderr, got {degraded_count}: {stderr}"
+    );
     assert!(
-        stderr.contains("claude adapter") && stderr.contains("warning"),
-        "expected a single adapter warning on stderr: {stderr}"
+        stderr.contains("projects directory does not exist"),
+        "the warning must name the failure: {stderr}"
+    );
+    assert!(
+        stderr.contains("hh doctor"),
+        "the warning must point the user at `hh doctor`: {stderr}"
     );
 
     let conn = open_db(temp.data.path());
@@ -1373,6 +1402,90 @@ fn claude_adapter_degrades_on_missing_projects_dir() {
     assert_eq!(
         status, "ok",
         "PTY session should still be recorded + finalized ok"
+    );
+
+    // FR-1.5 (step 1): the degrade reason is also persisted as an `error` event
+    // so a degraded session self-documents in the DB (queryable as kind='error'),
+    // not just on stderr. Previously `SELECT … WHERE kind IN ('lifecycle','error')`
+    // for a degraded session returned empty — the silent-mystery symptom that
+    // made adapter breakage undiagnosable from the DB. Now it carries the reason.
+    let error_count = count_events(&conn, "error");
+    assert_eq!(
+        error_count, 1,
+        "a degraded session must persist exactly one error event carrying the reason"
+    );
+    let body: String = conn
+        .query_row(
+            "SELECT body_json FROM events
+             WHERE kind = 'error'
+               AND session_id = (SELECT id FROM sessions ORDER BY started_at DESC LIMIT 1)
+             LIMIT 1",
+            [],
+            |r| r.get(0),
+        )
+        .unwrap();
+    let v: serde_json::Value = serde_json::from_str(&body).unwrap();
+    let reason = v["reason"].as_str().unwrap_or("");
+    assert!(
+        reason.contains("projects directory does not exist"),
+        "the persisted error event must carry the specific reason, got: {reason}"
+    );
+}
+
+/// FR-1.5 best-effort (regression for the "recording failed" abort): when the
+/// cwd itself is unwatchable (no read permission → `notify` rejects the watch
+/// with `EACCES`), `hh run` must NOT abort with "recording failed". It degrades:
+/// prints a watcher warning pointing at `hh doctor` and still records the PTY
+/// session (`status=ok`). This is the direct guard for the reported symptom —
+/// `hh run` on an unwatchable cwd used to abort the whole recording.
+#[cfg(unix)]
+#[test]
+fn run_warns_and_continues_when_cwd_unwatchable() {
+    use std::os::unix::fs::PermissionsExt;
+    let temp = Temp::new();
+    // A work dir the recorder cannot watch: execute (so the process can run in
+    // it) but no read (so inotify rejects the watch with EACCES).
+    let unw = tempfile::tempdir().expect("temp work dir");
+    std::fs::set_permissions(unw.path(), std::fs::Permissions::from_mode(0o300))
+        .expect("chmod no-read");
+
+    let out = hh()
+        .args(["run", "--", "true"])
+        .env("HH_DATA_DIR", temp.data.path())
+        .current_dir(unw.path())
+        .stdin(Stdio::null())
+        .output()
+        .expect("hh run should execute");
+    // Restore read so TempDir can clean up on drop even if assertions below fail.
+    let _ = std::fs::set_permissions(unw.path(), std::fs::Permissions::from_mode(0o700));
+
+    assert!(
+        out.status.success(),
+        "`hh run` must not abort when the cwd is unwatchable; stderr: {}",
+        String::from_utf8_lossy(&out.stderr)
+    );
+    let stderr = String::from_utf8_lossy(&out.stderr);
+    assert!(
+        stderr.contains("could not watch") && stderr.contains("hh doctor"),
+        "expected a watcher-degraded warning pointing at `hh doctor`: {stderr}"
+    );
+    assert!(
+        !stderr.contains("recording failed"),
+        "watcher init failure must not abort the recording: {stderr}"
+    );
+
+    // The PTY session still finalizes ok — degradation, not failure.
+    let conn = open_db(temp.data.path());
+    let status: String = conn
+        .query_row(
+            "SELECT status FROM sessions ORDER BY started_at DESC LIMIT 1",
+            [],
+            |r| r.get(0),
+        )
+        .unwrap();
+    assert_eq!(
+        status, "ok",
+        "session must finalize ok despite the unwatchable cwd"
     );
 }
 

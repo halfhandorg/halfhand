@@ -145,6 +145,46 @@ impl Config {
     }
 }
 
+/// Other filenames users commonly reach for, in addition to the canonical
+/// `config.toml`. If any exists alongside the canonical config file it is
+/// *ignored* (only `config.toml` is read) — and silent misconfiguration (ignore
+/// globs never applied, a custom data dir never honored) is a bug, so we warn
+/// loudly and tell the user exactly what to move where.
+const NONCANONICAL_CONFIG_NAMES: &[&str] = &["halfhand.toml", "hh.toml"];
+
+/// Warn on stderr if a non-canonical config file (e.g. `halfhand.toml`) exists
+/// alongside the canonical `config_path` (`config.toml`). Idempotent and
+/// best-effort: a missing parent dir or an unreadable file is silently skipped
+/// (the canonical path is the source of truth). Called by the binary on every
+/// store open so the user learns their config is being ignored.
+pub fn warn_on_ignored_config_files(config_path: &Path) {
+    for candidate in ignored_noncanonical_config_files(config_path) {
+        eprintln!(
+            "hh: warning: found {cand} but Halfhand reads {canonical}; ignoring {cand} \
+             — move its contents into {canonical} so they take effect",
+            cand = candidate.display(),
+            canonical = config_path.display(),
+        );
+    }
+}
+
+/// Return the non-canonical config files (e.g. `halfhand.toml`, `hh.toml`) that
+/// exist alongside `config_path`. Empty when none are present (the common,
+/// correctly-configured case). Used by `hh doctor` to report this class of
+/// silent misconfiguration in its structured output, where the stderr warning
+/// from [`warn_on_ignored_config_files`] would not be captured (e.g. `--json`).
+#[must_use]
+pub fn ignored_noncanonical_config_files(config_path: &Path) -> Vec<PathBuf> {
+    let Some(dir) = config_path.parent() else {
+        return Vec::new();
+    };
+    NONCANONICAL_CONFIG_NAMES
+        .iter()
+        .map(|name| dir.join(name))
+        .filter(|c| c.exists())
+        .collect()
+}
+
 /// Read the config file into a TOML table, returning `Ok(None)` if it does not
 /// exist (not an error — the file is entirely optional per SRS §4.2).
 fn read_or_default_config(path: &Path) -> Result<Option<toml::Table>> {
@@ -477,5 +517,23 @@ feature = \"x\"
         let p = Paths::with_data_dir(PathBuf::from("/tmp/hh-test"));
         assert_eq!(p.db_path, PathBuf::from("/tmp/hh-test/hh.db"));
         assert_eq!(p.blobs_dir, PathBuf::from("/tmp/hh-test/blobs"));
+    }
+
+    #[test]
+    fn warn_on_ignored_halfhand_toml() {
+        // A halfhand.toml sitting next to the canonical config.toml is ignored;
+        // the function must not panic and must tolerate a missing parent dir.
+        let tmp = TempDir::new().unwrap();
+        let canonical = tmp.path().join("config.toml");
+        std::fs::write(
+            tmp.path().join("halfhand.toml"),
+            "[record]\nignore = [\"x\"]\n",
+        )
+        .unwrap();
+        // No panic; the warning goes to stderr (not asserted here — behavior is
+        // covered by an integration assertion on captured stderr elsewhere).
+        warn_on_ignored_config_files(&canonical);
+        // Missing canonical parent dir: still no panic.
+        warn_on_ignored_config_files(Path::new("/no/such/dir/config.toml"));
     }
 }

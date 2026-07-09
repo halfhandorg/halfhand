@@ -68,6 +68,24 @@ pub enum Command {
         after_help = "Example:\n  hh mcp-proxy -- uvx my-mcp-server\n  hh mcp-proxy --session-hint api-server -- node server.js"
     )]
     McpProxy(McpProxyArgs),
+
+    /// Diagnose the recording stack and report pass/fail per check.
+    ///
+    /// `hh doctor` is a read-only health probe: it does not mutate the database
+    /// or write to the data dir beyond a self-cleaning watcher probe. Each check
+    /// prints a `✓`/`✗` line and the command exits nonzero if any check fails,
+    /// so it is safe to run from CI or before a session you suspect is broken.
+    #[command(after_help = "Example:\n  hh doctor\n  hh doctor --json | jq")]
+    Doctor(DoctorArgs),
+}
+
+/// Arguments for `hh doctor`.
+#[derive(Args, Debug)]
+pub struct DoctorArgs {
+    /// Emit machine-readable JSON (one object with a per-check array) instead
+    /// of plain pass/fail lines.
+    #[arg(long)]
+    pub json: bool,
 }
 
 /// Arguments for `hh run`.

@@ -1,0 +1,8 @@
+---
+source: hh/src/main.rs
+expression: table
+---
+ID     STATUS AGENT       STARTED  DURATION STEPS FILES COMMAND
+------ ------ ----------- -------- -------- ----- ----- -------
+a1b2c3 ✓ ok   claude-code just now 5m20s    42    7     claude
+d4e5f6 ✓ ok ⚠ claude-code just now 5m20s    0     7     claude

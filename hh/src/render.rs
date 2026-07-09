@@ -8,7 +8,7 @@
 
 use std::io::IsTerminal;
 
-use hh_core::SessionStatus;
+use hh_core::{AdapterStatus, SessionStatus};
 use owo_colors::OwoColorize;
 
 /// Whether to emit ANSI color on stdout: disabled by `NO_COLOR` or non-TTY
@@ -49,6 +49,28 @@ pub(crate) fn render_status(status: SessionStatus, color: bool) -> String {
         SessionStatus::Error => field.red().to_string(),
         SessionStatus::Interrupted => field.yellow().to_string(),
         SessionStatus::Recording => field.cyan().to_string(),
+    }
+}
+
+/// Render the `glyph status` field, appending a visible `⚠` warning glyph when
+/// the adapter ended `Degraded` (FR-1.5). A session that finalized `ok` but
+/// whose adapter never found a transcript must not look identical to a clean
+/// one in `hh list`; the glyph is plain unicode (visible even with `NO_COLOR`
+/// and in piped output) and yellow when color is enabled.
+pub(crate) fn render_status_with_adapter(
+    status: SessionStatus,
+    adapter: AdapterStatus,
+    color: bool,
+) -> String {
+    let base = render_status(status, color);
+    if adapter == AdapterStatus::Degraded {
+        if color {
+            format!("{base} {}", "⚠".yellow())
+        } else {
+            format!("{base} ⚠")
+        }
+    } else {
+        base
     }
 }
 
@@ -141,4 +163,49 @@ pub(crate) fn now_unix_ms() -> i64 {
     std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)
         .map_or(0, |d| i64::try_from(d.as_millis()).unwrap_or(i64::MAX))
+}
+
+/// The visible (printed) width of `s` in terminal columns, i.e. the char count
+/// with ANSI CSI escape sequences (`\x1b[...m`) stripped. The list/inspect
+/// tables pad columns by width, so they must measure what the user actually
+/// sees — measuring byte length instead lets color escapes inflate a cell's
+/// "width" and misalign every column to the right of a colored cell (the
+/// "headers don't line up with the data" bug). Char count is an approximation
+/// (a few glyphs like `⚠` render double-wide on some terminals) but it is
+/// stable and far closer than raw byte length; perfect alignment under color
+/// is not attainable without a unicode-width table dependency CLAUDE.md
+/// steers us away from.
+pub(crate) fn visible_width(s: &str) -> usize {
+    #[derive(Clone, Copy, PartialEq)]
+    enum State {
+        Normal,
+        Esc, // just saw ESC; next char decides the escape kind
+        Csi, // inside ESC [ ... ; skip until the final byte 0x40..=0x7E
+    }
+    let mut count = 0usize;
+    let mut state = State::Normal;
+    for c in s.chars() {
+        match state {
+            State::Normal => {
+                if c == '\u{1b}' {
+                    state = State::Esc;
+                } else {
+                    count += 1;
+                }
+            }
+            State::Esc => {
+                // `ESC [` opens a CSI sequence (color codes use this); anything
+                // else is a one-char escape that ended at this control byte.
+                state = if c == '[' { State::Csi } else { State::Normal };
+            }
+            State::Csi => {
+                // Skip parameter/intermediate bytes; the final byte (0x40..=0x7E,
+                // e.g. 'm') closes the sequence.
+                if ('\u{40}'..='\u{7E}').contains(&c) {
+                    state = State::Normal;
+                }
+            }
+        }
+    }
+    count
 }
