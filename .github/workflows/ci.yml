@@ -119,7 +119,14 @@ jobs:
       # implement its `Adapter` trait, and the v1.0.0 addendum requires CLI
       # flags/--json/DB schema/exit codes/env vars to be additive-only. This
       # extends that discipline to hh-core's Rust API surface.
+      #
+      # `--release-type minor` is required: hh-core's Cargo.toml version never
+      # bumps per-PR, so current == baseline version and semver-checks cannot
+      # infer what to check — verified locally that *without* this flag it
+      # silently runs 0 of 253 lints and always reports "no update required"
+      # (looks like a pass, isn't one). `minor` means "additions are fine,
+      # breakage is not" — exactly CLAUDE.md's additive-only rule.
       - name: cargo semver-checks check-release -p hh-core
         run: |
           git fetch origin main
-          cargo semver-checks check-release -p hh-core --baseline-rev origin/main
+          cargo semver-checks check-release -p hh-core --baseline-rev origin/main --release-type minor
