@@ -327,6 +327,26 @@ impl fmt::Display for Theme {
     }
 }
 
+/// Fuzz-only entry point into the config.toml parser (`cargo fuzz` target
+/// `config_toml`). Gated behind the `fuzzing` feature so it never widens the
+/// crate's normal public API.
+#[cfg(feature = "fuzzing")]
+pub mod fuzzing {
+    use super::{merge_table, warn_unknown_keys, Config};
+
+    /// Mirrors [`Config::load`]'s parse+merge logic on arbitrary TOML text
+    /// (skipping the file-read step, which is plain `std::fs::read_to_string`
+    /// with no parsing of its own). Must never panic — only ever `Ok`/`Err`.
+    pub fn fuzz_parse(s: &str) {
+        let Ok(table) = toml::from_str::<toml::Table>(s) else {
+            return;
+        };
+        warn_unknown_keys(&table);
+        let mut cfg = Config::default();
+        let _ = merge_table(&mut cfg, &table);
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

@@ -17,6 +17,16 @@ const ZSTD_LEVEL: i32 = 3;
 /// BLAKE3 hex length (64 chars).
 const HASH_HEX_LEN: usize = 64;
 
+/// True if `hash` is a well-formed BLAKE3 hex digest: exactly
+/// [`HASH_HEX_LEN`] ASCII hex characters. Rejected up front so a malformed
+/// hash (e.g. from a corrupted DB row) can never reach [`BlobStore::blob_path`]'s
+/// byte slice — a multi-byte UTF-8 character at byte offset 2 would panic
+/// there — and can never smuggle a path separator or `..` into the on-disk
+/// path via `{hash}.zst`.
+fn is_valid_hash(hash: &str) -> bool {
+    hash.len() == HASH_HEX_LEN && hash.bytes().all(|b| b.is_ascii_hexdigit())
+}
+
 /// A content-addressed blob store backed by a directory on disk and a
 /// `blobs` table in SQLite for refcounting.
 pub struct BlobStore {
@@ -69,7 +79,7 @@ impl BlobStore {
 
     /// Read a blob by hash, decompress it, and return the bytes.
     pub fn get(&self, hash: &str) -> Result<Vec<u8>> {
-        if hash.len() != HASH_HEX_LEN {
+        if !is_valid_hash(hash) {
             return Err(BlobError::HashMismatch {
                 expected: format!("{HASH_HEX_LEN}-char blake3 hex"),
                 actual: hash.to_string(),
@@ -122,6 +132,13 @@ impl BlobStore {
     pub fn remove_if_unreferenced(&self, hash: &str, refcount: i64) -> Result<bool> {
         if refcount > 0 {
             return Ok(false);
+        }
+        if !is_valid_hash(hash) {
+            return Err(BlobError::HashMismatch {
+                expected: format!("{HASH_HEX_LEN}-char blake3 hex"),
+                actual: hash.to_string(),
+            }
+            .into());
         }
         let path = self.blob_path(hash);
         match fs::remove_file(&path) {
@@ -223,6 +240,48 @@ fn write_file_secure(path: &Path, bytes: &[u8]) -> Result<()> {
         let _ = fs::set_permissions(path, fs::Permissions::from_mode(0o600));
     }
     Ok(())
+}
+
+/// Fuzz-only entry points into the blob store's decompression/validation path
+/// (`cargo fuzz` target `blob_decompress`). Gated behind the `fuzzing` feature
+/// so it never widens the crate's normal public API.
+#[cfg(feature = "fuzzing")]
+pub mod fuzzing {
+    use super::{BlobStore, HASH_HEX_LEN};
+    use std::sync::OnceLock;
+
+    fn store() -> &'static BlobStore {
+        static STORE: OnceLock<BlobStore> = OnceLock::new();
+        STORE.get_or_init(|| {
+            let dir = std::env::temp_dir().join(format!("hh-fuzz-blob-{}", std::process::id()));
+            BlobStore::new(dir)
+        })
+    }
+
+    /// Fuzz [`BlobStore::get`] against an arbitrary (attacker-controlled-shaped)
+    /// hash string. Must only ever return `Ok`/`Err`, never panic — this is the
+    /// guard `is_valid_hash` closes (a malformed hash used to reach `blob_path`'s
+    /// unchecked byte slice).
+    pub fn fuzz_get_arbitrary_hash(hash: &str) {
+        let _ = store().get(hash);
+    }
+
+    /// Fuzz the zstd-decompression + BLAKE3-verification path: write arbitrary
+    /// bytes directly to a fixed, well-formed hash's on-disk location (bypassing
+    /// `put()`'s content-addressing, which would only ever write valid zstd) and
+    /// call `get`, which must never panic regardless of whether the bytes are a
+    /// valid, truncated, or hostile zstd frame.
+    pub fn fuzz_decompress(bytes: &[u8]) {
+        let s = store();
+        let hash = "0".repeat(HASH_HEX_LEN);
+        let path = s.blob_path(&hash);
+        if let Some(parent) = path.parent() {
+            let _ = std::fs::create_dir_all(parent);
+        }
+        if std::fs::write(&path, bytes).is_ok() {
+            let _ = s.get(&hash);
+        }
+    }
 }
 
 #[cfg(test)]

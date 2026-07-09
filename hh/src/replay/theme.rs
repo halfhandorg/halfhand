@@ -48,7 +48,7 @@ impl Theme {
     /// kept as a method (not a bare constant) so a future theme axis (e.g. a
     /// distinct monochrome selection glyph) has a natural home.
     #[must_use]
-    #[allow(clippy::unused_self)]
+    #[allow(clippy::unused_self)] // kept as a method, not a free fn, for a future monochrome-selection theme axis
     pub fn selected_style(self) -> Style {
         Style::default().add_modifier(Modifier::REVERSED)
     }
@@ -56,7 +56,7 @@ impl Theme {
     /// Dimmed text (relative timestamps, hints, secondary labels). Same
     /// rationale as [`Self::selected_style`] for taking `self`.
     #[must_use]
-    #[allow(clippy::unused_self)]
+    #[allow(clippy::unused_self)] // same rationale as Self::selected_style
     pub fn dim_style(self) -> Style {
         Style::default().add_modifier(Modifier::DIM)
     }

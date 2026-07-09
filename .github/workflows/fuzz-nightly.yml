@@ -1,0 +1,36 @@
+name: fuzz (nightly)
+
+# Runs each fuzz target for 60s, once a night. Deliberately not part of
+# per-PR CI: cargo-fuzz needs the nightly toolchain and sanitizer builds,
+# which are slow relative to the rest of `ci.yml`. `just fuzz-all <seconds>`
+# runs the same targets locally for longer.
+
+on:
+  schedule:
+    - cron: "17 9 * * *" # 09:17 UTC daily; off the hour to avoid GH's peak load
+  workflow_dispatch: # manual trigger
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  fuzz:
+    name: fuzz (${{ matrix.target }})
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        target: [claude_jsonl, mcp_frame, config_toml, blob_decompress]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@nightly
+      - uses: taiki-e/install-action@cargo-fuzz
+      - name: cargo fuzz run ${{ matrix.target }} (60s)
+        run: cargo fuzz run ${{ matrix.target }} -- -max_total_time=60
+      - name: Upload crash artifacts
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: fuzz-crash-${{ matrix.target }}
+          path: fuzz/artifacts/${{ matrix.target }}/
+          if-no-files-found: ignore

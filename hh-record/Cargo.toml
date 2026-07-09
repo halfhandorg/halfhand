@@ -16,6 +16,11 @@ workspace = true
 [lib]
 path = "src/lib.rs"
 
+[features]
+# See hh-core's `fuzzing` feature; same rationale, for the MCP proxy's
+# line-classification logic.
+fuzzing = ["hh-core/fuzzing"]
+
 [dependencies]
 hh-core = { workspace = true }
 # Justification (SRS §6): the recorder spawns the agent in a PTY.
