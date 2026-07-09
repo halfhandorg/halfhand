@@ -811,13 +811,23 @@ mod tests {
 
     /// Panic hygiene (CLAUDE.md v1.0.0 addendum): a panic on the watcher
     /// thread must never abort the recording. This injects a real panic (via
-    /// [`INJECT_PANIC_FOR_TEST`]) into a live `run_loop` and checks: (1)
-    /// `stop_and_join` does not propagate it to the caller, (2) the file
-    /// change captured *before* the panic is durably recorded, and (3) the
-    /// shared writer — even if its `Mutex` was poisoned by the panic — still
-    /// accepts further appends (the single-writer lock is shared with the PTY
-    /// reader and adapter drain threads, so this is the difference between
-    /// "one source degrades" and "the whole session silently stops recording").
+    /// [`INJECT_PANIC_FOR_TEST`]) into a live `run_loop` — on a real thread,
+    /// with the real `notify::Watcher` — and checks: (1) `stop_and_join`
+    /// does not propagate it to the caller, (2) a write from *before* the
+    /// panic stays durable, and (3) the shared writer — even if its `Mutex`
+    /// was poisoned by the panic — still accepts further appends (the
+    /// single-writer lock is shared with the PTY reader and adapter drain
+    /// threads, so this is the difference between "one source degrades" and
+    /// "the whole session silently stops recording").
+    ///
+    /// The panic trigger doesn't depend on a real OS file-change event: the
+    /// injection check runs at the top of every `run_loop` iteration
+    /// (including timeout-driven wakeups every `POLL_INTERVAL`), so arming
+    /// the flag and waiting a few multiples of it is enough — deliberately
+    /// avoiding a dependency on FSEvents actually firing, which was observed
+    /// flaky/absent on GitHub's macOS runners (this is the first test in the
+    /// crate to exercise a real notify watcher end-to-end; every other
+    /// watcher test below is a pure-function test).
     #[test]
     fn watcher_panic_does_not_abort_recording() {
         use hh_core::event::{AdapterStatus, AgentKind, NewSession};
@@ -846,6 +856,25 @@ mod tests {
         let writer = Arc::new(Mutex::new(store.event_writer().unwrap()));
         let blobs = Arc::new(BlobStore::new(store.blobs().root().to_path_buf()));
 
+        // A write from before anything panics, appended directly (not via a
+        // real FS event — see the doc comment above) so durability is
+        // asserted deterministically.
+        writer
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+            .append_event(Event {
+                session_id: created.id.clone(),
+                ts_ms: 0,
+                kind: EventKind::Lifecycle,
+                step: None,
+                summary: "before panic".into(),
+                body_json: None,
+                blob_hash: None,
+                blob_size: None,
+                correlates: None,
+            })
+            .unwrap();
+
         let opts = WatchOptions {
             cwd: cwd.clone(),
             max_file_size: 4 * 1024 * 1024,
@@ -862,41 +891,19 @@ mod tests {
         )
         .unwrap();
 
-        // Captured normally, before anything panics. Polls rather than a
-        // fixed sleep: macOS FSEvents has real, documented multi-hundred-ms
-        // startup latency right after a watch is registered (see the module
-        // docs' FSEvents quirk note), which made a fixed 300ms flaky in CI.
-        std::fs::write(cwd.join("before.txt"), b"before").unwrap();
-        let deadline = Instant::now() + Duration::from_secs(5);
-        loop {
-            if store
-                .list_event_index(&created.id)
-                .unwrap()
-                .iter()
-                .any(|e| e.summary.contains("before.txt"))
-            {
-                break;
-            }
-            assert!(
-                Instant::now() < deadline,
-                "the write before the injected panic was never captured within 5s"
-            );
-            std::thread::sleep(Duration::from_millis(50));
-        }
-
-        // Arm the injection, then nudge the loop past its recv_timeout so it
-        // hits the panic promptly instead of waiting out POLL_INTERVAL.
+        // Arm the injection; the loop wakes up (and hits the check) every
+        // POLL_INTERVAL regardless of any real filesystem event, so a few
+        // multiples of it is a generous, platform-independent margin.
         INJECT_PANIC_FOR_TEST.store(true, Ordering::SeqCst);
-        std::fs::write(cwd.join("trigger.txt"), b"trigger").unwrap();
-        std::thread::sleep(Duration::from_millis(500));
+        std::thread::sleep(POLL_INTERVAL * 20);
 
         // Must not propagate the panic to this thread.
         handle.stop_and_join();
 
         let index = store.list_event_index(&created.id).unwrap();
         assert!(
-            index.iter().any(|e| e.summary.contains("before.txt")),
-            "the write captured before the injected panic must still be durable"
+            index.iter().any(|e| e.summary == "before panic"),
+            "the write from before the injected panic must still be durable"
         );
 
         let w = writer
