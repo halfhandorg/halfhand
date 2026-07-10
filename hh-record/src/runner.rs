@@ -393,7 +393,21 @@ pub fn run(store: &Store, opts: &RunOptions) -> crate::Result<RunOutcome> {
     // --- Finalize (FR-1.6) ----------------------------------------------
     drop(raw_guard); // restore terminal before printing the epilogue
     let duration_ms = i64::try_from(start.elapsed().as_millis()).unwrap_or(i64::MAX);
-    let code = i32::try_from(exit_status.exit_code()).unwrap_or(i32::MAX);
+    let raw_code = exit_status.exit_code();
+    // TEMPORARY (Windows CI diagnosis): a raw exit code that doesn't fit in
+    // i32 (bit 31 set) is not a real script exit value — it looks like an
+    // NT status / "killed" code, not whatever the child's own `exit N`
+    // requested. Surface it instead of silently substituting i32::MAX so the
+    // next Windows CI run's failure output (several assertions already print
+    // `stderr`) shows the actual raw value instead of forcing another guess.
+    #[cfg(windows)]
+    if i64::from(raw_code) > i64::from(i32::MAX) {
+        eprintln!(
+            "hh: debug: child exit_status raw=0x{raw_code:08x} success={} killed_by_signal={killed_by_signal}",
+            exit_status.success()
+        );
+    }
+    let code = i32::try_from(raw_code).unwrap_or(i32::MAX);
     let (exit_code, status) = if killed_by_signal {
         (Some(code), "interrupted")
     } else if exit_status.success() {
