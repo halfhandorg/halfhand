@@ -35,34 +35,60 @@ jobs:
       - name: cargo clippy --workspace --all-targets
         run: cargo clippy --workspace --all-targets -- -D warnings
 
+  # Reads the MSRV straight from the workspace `rust-version` (CLAUDE.md v1.0.0
+  # addendum) so the `test` matrix's `msrv` leg can never silently drift from
+  # what Cargo.toml declares — hardcoding "1.75" a second time in this file
+  # would just be another place for the two to disagree.
+  msrv-version:
+    name: read MSRV from Cargo.toml
+    runs-on: ubuntu-latest
+    outputs:
+      version: ${{ steps.parse.outputs.version }}
+    steps:
+      - uses: actions/checkout@v4
+      - id: parse
+        run: |
+          v=$(grep -m1 '^rust-version' Cargo.toml | sed -E 's/.*"([^"]+)".*/\1/')
+          test -n "$v"
+          echo "version=$v" >> "$GITHUB_OUTPUT"
+
+  # Windows is a fully supported platform, not build-only (promoted from the
+  # former `build-windows` build-only job): {ubuntu, macos, windows} x
+  # {stable, msrv} is the full CI matrix.
   test:
-    name: test (${{ matrix.os }})
+    name: test (${{ matrix.os }}, ${{ matrix.rust }})
+    needs: msrv-version
     strategy:
       fail-fast: false
       matrix:
-        os: [ubuntu-latest, macos-latest]
+        os: [ubuntu-latest, macos-latest, windows-latest]
+        rust: [stable, msrv]
     runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@v4
+      - name: resolve toolchain
+        id: toolchain
+        shell: bash
+        run: |
+          if [ "${{ matrix.rust }}" = "msrv" ]; then
+            echo "version=${{ needs.msrv-version.outputs.version }}" >> "$GITHUB_OUTPUT"
+          else
+            echo "version=stable" >> "$GITHUB_OUTPUT"
+          fi
       - uses: dtolnay/rust-toolchain@stable
+        with:
+          toolchain: ${{ steps.toolchain.outputs.version }}
       - name: cargo test --workspace
         run: cargo test --workspace --locked
       # NFR-2 enforcement: the binary must link no HTTP client crate. We list
       # the tree and grep for known offenders; failure here means someone added
-      # a network dependency.
+      # a network dependency. `shell: bash` because the default shell on
+      # windows-latest is PowerShell, which doesn't understand `!`/pipe-negate.
       - name: no-network-crate check
+        shell: bash
         run: |
           cargo tree --workspace -e features --depth 1 > tree.txt
           ! grep -Ei '^(ureq|reqwest|hyper|isahc|attohttpc|minreq|surf) ' tree.txt
-
-  build-windows:
-    name: build (windows, build-only per SRS §2.2)
-    runs-on: windows-latest
-    steps:
-      - uses: actions/checkout@v4
-      - uses: dtolnay/rust-toolchain@stable
-      - name: cargo build --workspace
-        run: cargo build --workspace --locked
 
   deny:
     name: cargo-deny

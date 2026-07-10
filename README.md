@@ -205,12 +205,12 @@ binary). See [`ARCHITECTURE.md`](ARCHITECTURE.md) and the
 
 This is the **v0.1.0-beta.1** release. `hh run`, `hh mcp-proxy`, `hh replay`,
 `hh inspect`, `hh list`, and `hh delete` are all implemented and tested on
-Linux and macOS.
+Linux, macOS, and Windows (`{ubuntu, macos, windows} x {stable, msrv}` in CI —
+see [`docs/platforms.md`](docs/platforms.md) for platform-specific behavior
+and known limitations).
 
 Known limitations:
 
-- **Windows PTY is best-effort.** CI builds on Windows but does not run the
-  test suite there; PTY recording on Windows is not validated.
 - **Single structured adapter.** Only Claude Code is auto-detected; other
   agents record as `generic`. More adapters are planned for v0.2.
 - **Replay is faithful playback, not deterministic re-execution** (SRS §1.4).

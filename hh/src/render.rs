@@ -14,13 +14,34 @@ use owo_colors::OwoColorize;
 /// Whether to emit ANSI color on stdout: disabled by `NO_COLOR` or non-TTY
 /// output (CLAUDE.md: plain, pipe-safe).
 pub(crate) fn use_color() -> bool {
-    std::env::var_os("NO_COLOR").is_none() && std::io::stdout().is_terminal()
+    std::env::var_os("NO_COLOR").is_none()
+        && std::io::stdout().is_terminal()
+        && windows_ansi_supported()
 }
 
 /// Whether to emit ANSI color on stderr (error/hint rendering): disabled by
 /// `NO_COLOR` or a non-TTY stderr.
 pub(crate) fn use_color_stderr() -> bool {
-    std::env::var_os("NO_COLOR").is_none() && std::io::stderr().is_terminal()
+    std::env::var_os("NO_COLOR").is_none()
+        && std::io::stderr().is_terminal()
+        && windows_ansi_supported()
+}
+
+/// On Windows, attempt to enable `ENABLE_VIRTUAL_TERMINAL_PROCESSING` on the
+/// console (so the raw ANSI escape codes this module writes are actually
+/// interpreted) and report whether that succeeded. `crossterm::ansi_support`
+/// memoizes the underlying `SetConsoleMode` call in a `Once`, so repeated
+/// calls from `use_color`/`use_color_stderr` are cheap. Unconditionally `true`
+/// on Unix, where terminals interpret ANSI natively (CLAUDE.md: "enable
+/// virtual terminal processing via crossterm").
+#[cfg(windows)]
+fn windows_ansi_supported() -> bool {
+    crossterm::ansi_support::supports_ansi()
+}
+
+#[cfg(not(windows))]
+fn windows_ansi_supported() -> bool {
+    true
 }
 
 /// The status glyph (CLAUDE.md: `✓ ✗ ●`).

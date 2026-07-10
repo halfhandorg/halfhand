@@ -23,7 +23,7 @@ discharged — by an automated test, by this manual checklist, or both.
 | AC-3 | `hh mcp-proxy` records correlated JSON-RPC traffic, spills ≥256 KiB payloads to the blob store, attaches to a parent session via `HH_SESSION_ID`, and records round-trip `latency_ms`. | `mcp_proxy_*` tests (FR-2) — `hh/tests/cli.rs`. |
 | AC-4 | Crash-safety: SIGKILL of `hh` mid-recording leaves a readable session that the next invocation reconciles to `interrupted`. | `sigkill_of_hh_mid_run_leaves_interrupted_session` (FR-1.7) — `hh/tests/cli.rs`. |
 | AC-5 | `hh inspect --json` / `hh list --json` emit output `jq` can parse and that conforms to `docs/json.md` (schema:1, documented fields). | `inspect_json_is_valid_against_jq`, `list_shows_aligned_table_and_json` (FR-4 / FR-5) — `hh/tests/cli.rs`. |
-| AC-6 | A fresh machine can install `hh` and complete the 30-second quickstart. | Manual checklist below. CI already builds from a clean checkout on Ubuntu, macOS, and Windows (build-only) on every push — the automatable part of "fresh-machine". |
+| AC-6 | A fresh machine can install `hh` and complete the 30-second quickstart. | Manual checklist below. CI already builds *and runs the full test suite* from a clean checkout on Ubuntu, macOS, and Windows on every push — the automatable part of "fresh-machine". |
 
 If a row above has no automated test listed, it is in the manual checklists
 below. Anything not in CI is run by hand for each release and the result
@@ -87,12 +87,14 @@ The only thing left to a human is the live-API-key smoke against the genuine
 
 ## AC-6 manual checklist — fresh-machine experience
 
-The automatable part (build from a clean checkout on each OS) already runs in
-`ci.yml` on every push: `cargo build/test --workspace --locked` on
-`ubuntu-latest` and `macos-latest`, plus a build-only job on `windows-latest`
-(Windows PTY is best-effort per SRS §2.2). The release workflow
+The automatable part (build + test from a clean checkout on each OS) already
+runs in `ci.yml` on every push: `cargo test --workspace --locked` on
+`ubuntu-latest`, `macos-latest`, and `windows-latest` (each on both `stable`
+and the pinned MSRV toolchain — see `docs/platforms.md` for Windows-specific
+behavior and known limitations). The release workflow
 (`.github/workflows/release.yml`) additionally builds release binaries for
-x86_64/aarch64 on macOS and Linux (musl where feasible) from a clean checkout.
+x86_64/aarch64 on macOS and Linux (musl where feasible) from a clean checkout;
+it does not yet publish Windows release binaries.
 
 The human part, run once per release on a machine without a Halfhand
 checkout:

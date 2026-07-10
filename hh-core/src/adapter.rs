@@ -1146,15 +1146,26 @@ pub fn newest_jsonl_for_cwd(cwd: &Path) -> Option<PathBuf> {
     newest_in_dir(&slug_dir, 0)
 }
 
-/// Encode `cwd` as a Claude slug: every `/` (and `\`, `.`) becomes `-`. This is
-/// inferred from a sample transcript (the SRS is absent); it is a *hint only* —
-/// the tailer falls back to a cwd-based scan when the slug dir misses.
+/// Encode `cwd` as a Claude slug: every `/` (and `\`, `.`, `:`) becomes `-`.
+/// This is inferred from a sample transcript (the SRS is absent); it is a
+/// *hint only* — the tailer falls back to a cwd-based scan when the slug dir
+/// misses.
+///
+/// `:` is included because on Windows a drive letter (`C:\Users\me`) would
+/// otherwise leave a literal colon in the slug. A colon inside a plain path
+/// component is not just unconventional there — NTFS parses `name:rest` as an
+/// alternate-data-stream reference, so `projects.join(slug)` would silently
+/// target a *stream* on a same-named file/dir instead of the transcript
+/// directory Claude Code actually wrote. Since Claude Code itself has to
+/// create that directory on disk, its real algorithm cannot emit a bare colon
+/// either — so replacing it here is the only self-consistent choice, not
+/// just a guess.
 #[must_use]
 pub(crate) fn slugify(cwd: &Path) -> String {
     cwd.to_string_lossy()
         .chars()
         .map(|c| match c {
-            '/' | '\\' | '.' => '-',
+            '/' | '\\' | '.' | ':' => '-',
             other => other,
         })
         .collect()
@@ -1393,7 +1404,46 @@ mod tests {
             slugify(Path::new("/home/saadman/switch/.claude/worktrees/x")),
             "-home-saadman-switch--claude-worktrees-x"
         );
-        assert_eq!(slugify(Path::new("C:\\Users\\me")), "C:-Users-me");
+    }
+
+    /// Windows-style cwds (DR/FR-1.5 portability): typed `PathBuf`/`Path`
+    /// fixtures, not string munging, so these exercise the same `slugify`
+    /// code path a real Windows `hh run` would. The drive-letter colon must
+    /// not survive into the slug (see `slugify`'s doc comment: a bare `:` in
+    /// a path component is NTFS alternate-data-stream syntax, so a slug
+    /// dir join would target a stream, not a directory).
+    #[test]
+    fn slugify_windows_style_paths() {
+        assert_eq!(slugify(Path::new("C:\\Users\\me")), "C--Users-me");
+        assert!(
+            !slugify(Path::new("C:\\Users\\me")).contains(':'),
+            "drive-letter colon must not survive into the slug"
+        );
+        assert_eq!(
+            slugify(Path::new("C:\\Users\\me\\switch")),
+            "C--Users-me-switch"
+        );
+        assert_eq!(
+            slugify(Path::new("C:\\Users\\me\\switch\\.claude\\worktrees\\x")),
+            "C--Users-me-switch--claude-worktrees-x"
+        );
+        // A worktree-style nested path on a non-C drive.
+        assert_eq!(
+            slugify(Path::new(
+                "D:\\code\\halfhand\\.claude\\worktrees\\windows-support"
+            )),
+            "D--code-halfhand--claude-worktrees-windows-support"
+        );
+        // UNC path (network share).
+        assert_eq!(
+            slugify(Path::new("\\\\server\\share\\me\\project")),
+            "--server-share-me-project"
+        );
+        // Path with spaces (common under Windows Program Files-style trees).
+        assert_eq!(
+            slugify(Path::new("C:\\Users\\me\\My Project")),
+            "C--Users-me-My Project"
+        );
     }
 
     #[test]

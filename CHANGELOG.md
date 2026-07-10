@@ -77,6 +77,20 @@ in CI rather than tracking `latest` until 1.0.
   transitively via `ignore`.
 
 ### Added
+- **Windows promoted from build-only to fully supported**: CI now runs the
+  full test suite on `windows-latest` (not just `cargo build`), across
+  `{ubuntu, macos, windows} x {stable, msrv}`. PTY recording is exercised
+  against portable-pty's real ConPTY backend via `.ps1` fixture agents
+  (`tests/fixtures/*.ps1`); ANSI color output enables
+  `ENABLE_VIRTUAL_TERMINAL_PROCESSING` via `crossterm::ansi_support` on
+  Windows consoles that need it; the Claude Code adapter's slug computation
+  now strips the Windows drive-letter colon (`C:-Users-me` was invalid NTFS
+  alternate-data-stream-triggering syntax) and is covered by typed
+  `Path`/`PathBuf` fixtures; recorded `file_changes.path` values are
+  normalized to `/` on every platform for consistent diff rendering. See
+  `docs/platforms.md` for platform-specific behavior and known limitations
+  (no resize-forwarding on Windows; watcher case-insensitivity on
+  case-insensitive filesystems).
 - `hh doctor` (read-only diagnostic): runs five health checks — data dir
   writability, `PRAGMA integrity_check`, config resolution + non-canonical
   config detection, Claude Code transcript discoverability for the cwd (with a

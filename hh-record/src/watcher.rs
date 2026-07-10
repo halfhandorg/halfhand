@@ -694,7 +694,7 @@ fn process(
         return Ok(());
     };
     let ts_ms = i64::try_from(start.elapsed().as_millis()).unwrap_or(i64::MAX);
-    let rel_str = rel.to_string_lossy().to_string();
+    let rel_str = to_forward_slash_string(rel);
 
     let (before_hash, after_hash, blob_hash, blob_size, is_binary) =
         if change_kind == ChangeKind::Deleted {
@@ -777,6 +777,21 @@ fn is_binary(content: &[u8]) -> bool {
     content.iter().take(8192).any(|&b| b == 0)
 }
 
+/// Render a relative path with `/` component separators regardless of the
+/// host platform. `file_changes.path` (and the mirrored `body_json.path`) is
+/// persisted to the DB and later rendered in diff headers (`hh inspect
+/// --diff`, replay) that imitate git's `a/`/`b/` convention — those always use
+/// `/`. Going through `Path::components` (not a blind `\`→`/` string replace)
+/// keeps this correct on both platforms: a literal `\` byte inside a Unix
+/// filename component is untouched, since only the separators *between*
+/// components are ever `/`.
+fn to_forward_slash_string(rel: &Path) -> String {
+    rel.components()
+        .map(|c| c.as_os_str().to_string_lossy())
+        .collect::<Vec<_>>()
+        .join("/")
+}
+
 /// Truncate a summary to the SRS §4.1 limit of 120 chars.
 fn truncate_summary(s: &str) -> String {
     const LIMIT: usize = 120;
@@ -809,6 +824,33 @@ mod tests {
         let t = truncate_summary(&long);
         assert!(t.chars().count() <= 120);
         assert!(t.ends_with('…'));
+    }
+
+    /// `file_changes.path` must read with `/` separators regardless of host
+    /// platform (diff headers imitate git's `a/`/`b/` convention).
+    #[test]
+    fn to_forward_slash_string_normalizes_separators() {
+        assert_eq!(
+            to_forward_slash_string(Path::new("src/main.rs")),
+            "src/main.rs"
+        );
+        assert_eq!(
+            to_forward_slash_string(Path::new("nested/dir/file.txt")),
+            "nested/dir/file.txt"
+        );
+        assert_eq!(to_forward_slash_string(Path::new("plain.txt")), "plain.txt");
+    }
+
+    /// On Windows, `Path::components` splits on `\` (the native separator);
+    /// this only exercises anything real when actually compiled for Windows
+    /// (on Unix a literal `\` is just a filename byte, not a separator).
+    #[cfg(windows)]
+    #[test]
+    fn to_forward_slash_string_normalizes_windows_backslashes() {
+        assert_eq!(
+            to_forward_slash_string(Path::new("nested\\dir\\file.txt")),
+            "nested/dir/file.txt"
+        );
     }
 
     #[test]

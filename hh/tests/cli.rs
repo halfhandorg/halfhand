@@ -166,8 +166,8 @@ fn run_fixture(temp: &Temp, args: &[&str]) -> std::process::Output {
 #[test]
 fn run_records_generic_session_with_terminal_and_file_changes() {
     let temp = Temp::new();
-    let fx = fixture("fixture_agent.sh").to_string_lossy().to_string();
-    let out = run_fixture(&temp, &["sh", &fx]);
+    let argv = fixture_agent_command();
+    let out = run_fixture(&temp, &argv.iter().map(String::as_str).collect::<Vec<_>>());
 
     // The fixture exits 3; hh propagates the child exit code (FR-1.6).
     assert_eq!(
@@ -327,6 +327,81 @@ fn python3_available() -> bool {
         .is_ok_and(|s| s.success())
 }
 
+/// The `hh run --` argv for the simple `fixture_agent` fixture (writes
+/// `fixture_output.txt` twice, exits 3): `sh fixture_agent.sh` on Unix,
+/// `powershell -File fixture_agent.ps1` on Windows (portable-pty's ConPTY
+/// backend, not `sh`, is what's under test there — PowerShell is guaranteed
+/// present on `windows-latest`, unlike POSIX `sh`).
+#[cfg(windows)]
+fn fixture_agent_command() -> Vec<String> {
+    powershell_command("fixture_agent.ps1")
+}
+
+#[cfg(not(windows))]
+fn fixture_agent_command() -> Vec<String> {
+    vec![
+        "sh".into(),
+        fixture("fixture_agent.sh").to_string_lossy().into_owned(),
+    ]
+}
+
+/// The `hh run --` argv for the `interactive` PTY-transparency fixture.
+#[cfg(windows)]
+fn interactive_command() -> Vec<String> {
+    powershell_command("interactive.ps1")
+}
+
+#[cfg(not(windows))]
+fn interactive_command() -> Vec<String> {
+    vec![
+        "sh".into(),
+        fixture("interactive.sh").to_string_lossy().into_owned(),
+    ]
+}
+
+/// The `hh run --` argv for the full-capture `fake_agent` fixture (ANSI
+/// output, create/modify/delete with real time gaps, ignored paths).
+#[cfg(windows)]
+fn fake_agent_command() -> Vec<String> {
+    powershell_command("fake_agent.ps1")
+}
+
+#[cfg(not(windows))]
+fn fake_agent_command() -> Vec<String> {
+    vec![
+        "python3".into(),
+        fixture("fake_agent.py").to_string_lossy().into_owned(),
+    ]
+}
+
+/// Whether `run_records_fake_agent_with_full_capture` should skip: on Unix it
+/// needs `python3` for `fake_agent.py` (probed, may be absent); on Windows it
+/// runs `fake_agent.ps1` via `powershell.exe`, which every Windows runner
+/// ships, so there's nothing to probe.
+#[cfg(windows)]
+fn fake_agent_unavailable() -> bool {
+    false
+}
+
+#[cfg(not(windows))]
+fn fake_agent_unavailable() -> bool {
+    !python3_available()
+}
+
+/// Build a `powershell -NoProfile -ExecutionPolicy Bypass -File <fixture>`
+/// argv. Windows-only helper backing the `*_command` functions above.
+#[cfg(windows)]
+fn powershell_command(fixture_name: &str) -> Vec<String> {
+    vec![
+        "powershell".into(),
+        "-NoProfile".into(),
+        "-ExecutionPolicy".into(),
+        "Bypass".into(),
+        "-File".into(),
+        fixture(fixture_name).to_string_lossy().into_owned(),
+    ]
+}
+
 /// Reassemble all `terminal_output` events of a session into the captured byte
 /// stream (FR-1.3): UTF-8 chunks carry `body_json.text`; binary chunks are
 /// fetched from the blob store via `blob_hash`. Ordered by timestamp.
@@ -423,8 +498,8 @@ fn assert_lifecycle_changes(conn: &Connection, blobs: &hh_core::BlobStore) {
 /// ignored paths producing no events, and `exit_code=3`/`status=error`.
 #[test]
 fn run_records_fake_agent_with_full_capture() {
-    if !python3_available() {
-        eprintln!("skipping fake_agent test: python3 not on PATH");
+    if fake_agent_unavailable() {
+        eprintln!("skipping fake_agent test: fixture interpreter not on PATH");
         return;
     }
     let temp = Temp::new();
@@ -432,8 +507,8 @@ fn run_records_fake_agent_with_full_capture() {
     // with a null before_hash under lazy before-blob capture).
     std::fs::write(temp.work.path().join("modified.txt"), "orig\n").unwrap();
 
-    let fx = fixture("fake_agent.py").to_string_lossy().to_string();
-    let out = run_fixture(&temp, &["python3", &fx]);
+    let argv = fake_agent_command();
+    let out = run_fixture(&temp, &argv.iter().map(String::as_str).collect::<Vec<_>>());
     assert_eq!(
         out.status.code(),
         Some(3),
@@ -502,9 +577,10 @@ fn run_records_fake_agent_with_full_capture() {
 fn run_provides_a_real_pty_to_the_child() {
     use std::io::Write;
     let temp = Temp::new();
-    let fx = fixture("interactive.sh").to_string_lossy().to_string();
+    let argv = interactive_command();
     let mut child = hh()
-        .args(["run", "--", "sh", &fx])
+        .args(["run", "--"])
+        .args(&argv)
         .env("HH_DATA_DIR", temp.data.path())
         .current_dir(temp.work.path())
         .stdin(Stdio::piped())
@@ -1511,10 +1587,8 @@ fn jq_available() -> bool {
 #[test]
 fn inspect_summary_lists_steps_and_step_detail_shows_body() {
     let temp = Temp::new();
-    let out = run_fixture(
-        &temp,
-        &["sh", &fixture("fixture_agent.sh").to_string_lossy()],
-    );
+    let argv = fixture_agent_command();
+    let out = run_fixture(&temp, &argv.iter().map(String::as_str).collect::<Vec<_>>());
     assert_eq!(out.status.code(), Some(3));
 
     // Summary view: header + a STEP/KIND/SUMMARY/TIME table.
@@ -1571,10 +1645,8 @@ fn inspect_json_is_valid_against_jq() {
         return;
     }
     let temp = Temp::new();
-    let out = run_fixture(
-        &temp,
-        &["sh", &fixture("fixture_agent.sh").to_string_lossy()],
-    );
+    let argv = fixture_agent_command();
+    let out = run_fixture(&temp, &argv.iter().map(String::as_str).collect::<Vec<_>>());
     assert_eq!(out.status.code(), Some(3));
 
     // NDJSON stream: jq -s slurps every line into an array; every object has
@@ -1639,10 +1711,8 @@ fn inspect_json_is_valid_against_jq() {
 #[test]
 fn inspect_diff_prints_unified_diff() {
     let temp = Temp::new();
-    let out = run_fixture(
-        &temp,
-        &["sh", &fixture("fixture_agent.sh").to_string_lossy()],
-    );
+    let argv = fixture_agent_command();
+    let out = run_fixture(&temp, &argv.iter().map(String::as_str).collect::<Vec<_>>());
     assert_eq!(out.status.code(), Some(3));
 
     let diff = hh()
