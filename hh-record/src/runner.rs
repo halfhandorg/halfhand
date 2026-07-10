@@ -721,16 +721,27 @@ fn finalize(
 
 /// Query the current terminal size, falling back to 24×80 on non-TTY or
 /// error (FR-1.1 resize forwarding).
-fn current_pty_size() -> PtySize {
-    match crossterm::terminal::size() {
-        Ok((cols, rows)) => PtySize {
+/// Turn a raw `(cols, rows)` reading (if any) into a [`PtySize`], rejecting a
+/// zero dimension in favor of [`PtySize::default`]'s 80x24. A headless/
+/// non-console host (e.g. a CI runner with no attached console) can report
+/// success with a zero dimension rather than an error — a 0-column or 0-row
+/// PTY is nonsensical for any child and has been observed to crash
+/// console-host programs that query window width during output formatting
+/// (Windows PowerShell's legacy console host in particular).
+fn sanitize_pty_size(size: Option<(u16, u16)>) -> PtySize {
+    match size {
+        Some((cols, rows)) if cols > 0 && rows > 0 => PtySize {
             rows,
             cols,
             pixel_width: 0,
             pixel_height: 0,
         },
-        Err(_) => PtySize::default(),
+        _ => PtySize::default(),
     }
+}
+
+fn current_pty_size() -> PtySize {
+    sanitize_pty_size(crossterm::terminal::size().ok())
 }
 
 /// Current unix-ms UTC timestamp.
@@ -843,6 +854,25 @@ mod tests {
         // After 2026-01-01 (~1_767_000_000_000) and before year 2100.
         assert!(ms > 1_767_000_000_000);
         assert!(ms < 4_000_000_000_000);
+    }
+
+    #[test]
+    fn sanitize_pty_size_passes_through_a_real_reading() {
+        let size = sanitize_pty_size(Some((120, 40)));
+        assert_eq!(size.cols, 120);
+        assert_eq!(size.rows, 40);
+    }
+
+    #[test]
+    fn sanitize_pty_size_rejects_zero_cols_or_rows() {
+        for reading in [Some((0, 24)), Some((80, 0)), Some((0, 0)), None] {
+            let size = sanitize_pty_size(reading);
+            assert_eq!(
+                size,
+                PtySize::default(),
+                "reading {reading:?} should fall back to default"
+            );
+        }
     }
 
     /// Panic hygiene (CLAUDE.md v1.0.0 addendum): injects a real panic on a
