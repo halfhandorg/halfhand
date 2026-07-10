@@ -79,7 +79,24 @@ jobs:
         with:
           toolchain: ${{ steps.toolchain.outputs.version }}
       - name: cargo test --workspace
-        run: cargo test --workspace --locked
+        shell: bash
+        run: |
+          if [ "${{ matrix.os }}" = "windows-latest" ]; then
+            # Serialize on Windows only: `cargo test`'s default parallelism
+            # spawns multiple `hh.exe` processes concurrently, each opening
+            # its own ConPTY child. ConPTY delivers Ctrl+C by enumerating
+            # "processes in the same console process group as the ConPTY
+            # host" (see docs/platforms.md's PTY section) — with several
+            # such host processes alive at once on one shared runner
+            # console, one process's signal handling can spuriously reach
+            # an unrelated sibling's child, killing it with
+            # STATUS_CONTROL_C_EXIT (surfaced here as exit code 255).
+            # Serializing means at most one ConPTY-attached child is ever
+            # alive, which sidesteps the cross-talk entirely.
+            cargo test --workspace --locked -- --test-threads=1
+          else
+            cargo test --workspace --locked
+          fi
       # NFR-2 enforcement: the binary must link no HTTP client crate. We list
       # the tree and grep for known offenders; failure here means someone added
       # a network dependency. `shell: bash` because the default shell on

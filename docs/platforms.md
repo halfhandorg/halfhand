@@ -22,6 +22,25 @@ FR-1.1):
   stdin/stdout proxying, and file-change recording are verified against the
   real backend on `windows-latest`, not skipped.
 
+### Windows CI runs `cargo test` serialized (`--test-threads=1`)
+
+`cargo test`'s default parallelism spawns multiple `hh.exe` processes at
+once, each opening its own ConPTY child. ConPTY delivers Ctrl+C by
+enumerating "processes in the same console process group as the ConPTY
+host" and signaling them directly (not by writing a byte the child reads —
+an actual Win32 console control event). On `windows-latest` runners this
+was observed to cross-talk: with several `hh.exe`/ConPTY-host processes
+alive concurrently on one shared runner console, one process's signal
+handling could spuriously reach an *unrelated* sibling's ConPTY child,
+killing it with `STATUS_CONTROL_C_EXIT` (`0xC000013A`) — surfaced through
+`hh`'s exit-code plumbing as exit code 255 instead of the child's real exit
+code. The failure was non-deterministic per test (the same trivial fixture
+command passed in one test and failed in another in the same run), which is
+the signature of a race rather than a code bug. `ci.yml`'s `test` job runs
+Windows with `-- --test-threads=1` so at most one ConPTY-attached child is
+ever alive, sidestepping the cross-talk. Non-Windows legs keep the default
+parallelism.
+
 ### Known limitation: no resize forwarding on Windows
 
 `hh run` forwards terminal resizes to the child by registering a `SIGWINCH`
