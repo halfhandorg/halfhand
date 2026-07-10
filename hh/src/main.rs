@@ -577,7 +577,7 @@ fn delete_command(args: &cli::DeleteArgs) -> anyhow::Result<ExitCode> {
 /// non-TTY stdin (piped/redirected) is refused with an actionable error
 /// pointing at `--yes`, so deletion can never happen by accident in a script.
 fn confirm_delete(session: &hh_core::SessionRow) -> anyhow::Result<()> {
-    use std::io::{IsTerminal, Write};
+    use std::io::Write;
     if !std::io::stdin().is_terminal() {
         anyhow::bail!(
             "refusing to delete without confirmation\n  \

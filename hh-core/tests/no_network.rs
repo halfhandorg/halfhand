@@ -34,12 +34,38 @@ const HTTP_CLIENT_CRATES: &[&str] = &[
     "async-h1",
 ];
 
+/// The host triple of the toolchain running this test, read from `rustc -vV`.
+///
+/// Passed to `cargo metadata --filter-platform` so the resolved graph only
+/// includes dependency edges relevant to a platform Halfhand actually ships
+/// on. Without this, `cargo metadata` resolves *every* platform recorded in
+/// `Cargo.lock`, including target-gated leaves (e.g. a `getrandom` backend
+/// that only applies to `wasm32-wasip2`) that Halfhand never builds for and
+/// that would otherwise force an unrelated, avoidable package fetch.
+fn host_triple() -> String {
+    let output = Command::new("rustc")
+        .arg("-vV")
+        .output()
+        .expect("`rustc -vV` must be runnable for the NFR-2 test");
+    String::from_utf8_lossy(&output.stdout)
+        .lines()
+        .find_map(|line| line.strip_prefix("host: "))
+        .expect("`rustc -vV` output includes a `host:` line")
+        .to_string()
+}
+
 /// `cargo metadata` resolves the full workspace graph (all three crates and
 /// their transitive deps) from `Cargo.lock` without network access.
 #[test]
 fn workspace_dependency_tree_has_no_http_client() {
     let output = Command::new(env!("CARGO"))
-        .args(["metadata", "--format-version", "1"])
+        .args([
+            "metadata",
+            "--format-version",
+            "1",
+            "--filter-platform",
+            &host_triple(),
+        ])
         .output()
         .expect("`cargo metadata` must be runnable for the NFR-2 test");
     assert!(

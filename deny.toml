@@ -17,7 +17,17 @@ yanked = "deny"
 # advisory). Pulled in transitively by `ratatui` 0.26.3 (FR-3's TUI engine)
 # for its macro-generated widget code; we never depend on `paste` directly.
 # Tracked for revisit on the next ratatui upgrade.
-ignore = ["RUSTSEC-2017-0008", "RUSTSEC-2024-0436"]
+#
+# RUSTSEC-2026-0009: stack exhaustion via deeply-nested RFC 2822 date
+# comments in the `time` crate, fixed in >=0.3.47. Every fixed release
+# declares rust-version >=1.83, newer than this workspace's pinned 1.75 MSRV
+# (Cargo.toml `rust-version`) — pulling the fix means raising the MSRV floor,
+# which is a policy call out of scope here. Accepted because Halfhand's own
+# code never reaches the vulnerable path: the only call sites
+# (`hh-core/src/adapter.rs`, `hh-core/src/store.rs`) use RFC 3339 parsing and
+# macro-defined formatting only, never RFC 2822 parsing. Revisit when the
+# MSRV floor is raised past 1.83.
+ignore = ["RUSTSEC-2017-0008", "RUSTSEC-2024-0436", "RUSTSEC-2026-0009"]
 
 [licenses]
 # Halfhand is Apache-2.0 (SRS §1). Allow permissive licenses compatible with

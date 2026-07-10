@@ -29,16 +29,24 @@ rusqlite = { version = "0.31", features = ["bundled"] }
 # Justification: config.toml + event payloads are (de)serialized.
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
-# Justification: blob store is keyed by BLAKE3 (SRS §4.1/FR-1.4).
-blake3 = "1.5"
+# Justification: blob store is keyed by BLAKE3 (SRS §4.1/FR-1.4). Upper-bounded
+# below 1.8.3: 1.8.3+ requires constant_time_eq 0.4.2, which requires
+# edition2024 (cargo >=1.85) and breaks this workspace's 1.75 MSRV.
+blake3 = ">=1.5, <1.8.3"
 # Justification: blobs are zstd-compressed (SRS §4.1/FR-1.4).
 zstd = "0.13"
-# Justification: sessions are UUIDv7 (SRS §1.3/FR-1.2).
-uuid = { version = "1.10", features = ["v7"] }
+# Justification: sessions are UUIDv7 (SRS §1.3/FR-1.2). Upper-bounded below
+# 1.21: 1.21+ requires getrandom ^0.4, which declares rust-version 1.85 and
+# breaks this workspace's 1.75 MSRV.
+uuid = { version = ">=1.10, <1.21", features = ["v7"] }
 # Justification: humanized timestamps in error/list output (SRS §6). `macros`
 # for the `format_description!` macro used in [`store::format_ts_ms`]; `parsing`
 # for RFC3339 timestamp parsing in the Claude Code adapter (FR-1.5).
-time = { version = "0.3", features = ["formatting", "macros", "parsing"] }
+# Upper-bounded below 0.3.42: 0.3.42+ declares rust-version 1.81+, breaking
+# this workspace's 1.75 MSRV. This also means the RUSTSEC-2026-0009 fix
+# (>=0.3.47, rust-version 1.83+) is currently unreachable — see deny.toml for
+# why that's accepted (we never parse RFC 2822 dates).
+time = { version = ">=0.3, <0.3.42", features = ["formatting", "macros", "parsing"] }
 # Justification: config.toml parsing (SRS §4.2). Not listed in SRS §6 but required
 # by §4.2; a minimal, widely-used, well-maintained parser.
 toml = "0.8"
@@ -57,4 +65,6 @@ tempfile = "3"
 insta = "1"
 # Justification: property tests for storage invariants (blob refcounts, step
 # assignment, migration idempotency) per CLAUDE.md's v1.0.0 addendum.
-proptest = "1"
+# Upper-bounded below 1.9: 1.9+ declares rust-version 1.82+, breaking this
+# workspace's 1.75 MSRV.
+proptest = ">=1, <1.9"
