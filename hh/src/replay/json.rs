@@ -80,12 +80,11 @@ fn tokenize(text: &str, theme: Theme) -> Vec<Line<'static>> {
                     j += 1;
                 }
                 let is_key = chars.get(j) == Some(&':');
-                let style = if is_key {
-                    theme.json_key_style()
+                if is_key {
+                    current.push(Span::styled(s, theme.json_key_style()));
                 } else {
-                    theme.json_string_style()
-                };
-                current.push(Span::styled(s, style));
+                    push_string_value(&s, theme.json_string_style(), &mut lines, &mut current);
+                }
             }
             '{' | '}' | '[' | ']' | ':' | ',' => {
                 flush(&mut buf, &mut current);
@@ -103,6 +102,43 @@ fn tokenize(text: &str, theme: Theme) -> Vec<Line<'static>> {
         lines.push(Line::from(current));
     }
     lines
+}
+
+/// Push a raw JSON string token (`raw` includes the surrounding quotes and
+/// any escapes, exactly as `serde_json::to_string_pretty` wrote it) onto the
+/// line being built. A value whose *unescaped* content contains a real
+/// newline — extremely common for tool output (file contents, command
+/// stdout) — is split so each embedded line renders as its own display
+/// line, instead of a wall of literal `\n` two-character escapes that made
+/// large tool outputs unreadable in the detail pane.
+fn push_string_value(
+    raw: &str,
+    style: ratatui::style::Style,
+    lines: &mut Vec<Line<'static>>,
+    current: &mut Vec<Span<'static>>,
+) {
+    let Ok(unescaped) = serde_json::from_str::<String>(raw) else {
+        current.push(Span::styled(raw.to_string(), style));
+        return;
+    };
+    if !unescaped.contains('\n') {
+        current.push(Span::styled(raw.to_string(), style));
+        return;
+    }
+    let mut parts = unescaped.split('\n');
+    if let Some(first) = parts.next() {
+        current.push(Span::styled(format!("\"{first}"), style));
+    }
+    let rest: Vec<&str> = parts.collect();
+    let last = rest.len().saturating_sub(1);
+    for (idx, part) in rest.into_iter().enumerate() {
+        lines.push(Line::from(std::mem::take(current)));
+        if idx == last {
+            current.push(Span::styled(format!("{part}\""), style));
+        } else {
+            current.push(Span::styled(part.to_string(), style));
+        }
+    }
 }
 
 fn flush(buf: &mut String, current: &mut Vec<Span<'static>>) {
@@ -158,12 +194,41 @@ mod tests {
     }
 
     #[test]
-    fn multiline_string_values_do_not_break_tokenizer() {
+    fn multiline_string_values_render_as_real_lines() {
         let v = serde_json::json!({"text": "line one\nline two"});
         let theme = Theme::resolve(true);
-        // Must not panic; the escaped \n inside the JSON string stays inside
-        // the quoted span (serde_json escapes it as literal `\n`, two chars).
         let lines = pretty_lines(&v, theme);
-        assert!(!lines.is_empty());
+        let text = plain(&lines);
+        // The embedded newline must become an actual line break, not a
+        // visible literal `\n` (what serde_json's escaped output looks like
+        // before this splits it) — otherwise a multi-line tool output (a
+        // Bash stdout, a file's contents) renders as one unreadable wall of
+        // `\n` escapes in the detail pane.
+        assert!(!text.contains("\\n"), "literal backslash-n leaked: {text}");
+        assert!(text.contains("\"line one"));
+        assert!(text.contains("line two\""));
+        let has_split_line = lines.iter().any(|l| {
+            let s = l
+                .spans
+                .iter()
+                .map(|sp| sp.content.as_ref())
+                .collect::<String>();
+            s.trim() == "line two\""
+        });
+        assert!(has_split_line, "line two should be on its own display line");
+    }
+
+    #[test]
+    fn multiline_string_value_with_three_lines_splits_each() {
+        let v = serde_json::json!({"text": "a\nb\nc"});
+        let theme = Theme::resolve(true);
+        let text = plain(&pretty_lines(&v, theme));
+        assert!(!text.contains("\\n"), "literal backslash-n leaked: {text}");
+        assert!(text.contains("\"a"));
+        assert!(
+            text.contains("\nb\n"),
+            "middle line should stand alone: {text}"
+        );
+        assert!(text.contains("c\""));
     }
 }

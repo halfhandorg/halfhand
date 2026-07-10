@@ -75,6 +75,13 @@ in CI rather than tracking `latest` until 1.0.
   the rest of the session with no visible cause).
 - Bumped `crossbeam-epoch` 0.9.19 → 0.9.20 (RUSTSEC-2026-0204), pulled in
   transitively via `ignore`.
+- `hh replay`'s detail pane no longer renders a multi-line tool output (a
+  `Bash` tool's stdout, a file's contents from `Read`) as one unreadable wall
+  of literal `\n` escapes — `serde_json`'s pretty-printer escapes embedded
+  newlines in string values, and the detail pane previously showed that
+  escaped form verbatim instead of real line breaks. Embedded newlines now
+  split the JSON string across real display lines, same as reading it
+  anywhere else.
 
 ### Added
 - **Windows promoted from build-only to fully supported**: CI now runs the
