@@ -74,9 +74,15 @@ in CI rather than tracking `latest` until 1.0.
   with a missing before-side ("all added"), since the original content was
   overwritten before it was observed. Files already captured via the event
   path and unchanged baseline files are skipped, so neither mechanism
-  duplicates a normal-path capture. A prompt backend (Linux inotify) pays only
-  the short quiet wait; the startup + shutdown baseline hashing is the
-  trade-off for missed-modify coverage on large trees.
+  duplicates a normal-path capture. The startup baseline is captured
+  synchronously in `spawn_watcher` before it returns (on the caller's thread,
+  not the worker), so any file written after the watch starts — by the recorded
+  child or otherwise — is guaranteed post-baseline and is never misclassified
+  as a pre-existing file the backstop would skip as "unchanged"; this also
+  closes the scheduling-dependent window that made the macOS-CI capture test
+  flaky. A prompt backend (Linux inotify) pays only the short quiet wait; the
+  startup + shutdown baseline hashing is the trade-off for missed-modify
+  coverage on large trees.
 - `hh list` column headers no longer drift out of alignment with the data
   when color is enabled: padding now measures *visible* width (ANSI escapes
   stripped) instead of byte length, so colored status cells no longer push

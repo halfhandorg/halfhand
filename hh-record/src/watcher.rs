@@ -200,6 +200,26 @@ pub fn spawn_watcher(
         return Ok(None);
     }
 
+    // Capture the startup baseline (path → content hash) synchronously on the
+    // caller's thread BEFORE spawning the worker. This makes "the watch is
+    // observing" a property that holds the instant `spawn_watcher` returns, so
+    // any file written afterwards — by the recorded child, or by a test — is
+    // guaranteed post-baseline and is never misclassified as a pre-existing
+    // file the backstop would then skip as "unchanged". Doing the scan on the
+    // worker thread instead left a window (wide in tests, narrow in prod)
+    // where a write that raced ahead of the scan was folded into the baseline
+    // and dropped — the macOS-CI `events seen: []` flake. The scan is
+    // best-effort (unreadable files/dirs are skipped); see [`scan_baseline_hashes`].
+    let mut existing: HashMap<PathBuf, String> = HashMap::new();
+    scan_baseline_hashes(
+        &opts.cwd,
+        &opts.cwd,
+        &matcher,
+        &opts.internal_exclude,
+        &opts,
+        &mut existing,
+    );
+
     let stop_for_thread = Arc::clone(&stop);
     let thread = std::thread::Builder::new()
         .name("hh-fs-watcher".into())
@@ -214,6 +234,7 @@ pub fn spawn_watcher(
                 session_id,
                 start,
                 stop_for_thread,
+                existing,
             );
         })
         .map_err(|e| crate::RecordError::Pty(format!("spawn watcher thread: {e}")))?;
@@ -399,29 +420,20 @@ fn run_loop(
     session_id: String,
     start: Instant,
     stop: Arc<AtomicBool>,
+    // Baseline of files (path → startup content hash) that existed under `cwd`
+    // before the watch started observing, captured synchronously in
+    // [`spawn_watcher`] on the caller's thread *before* the worker is spawned
+    // — so anything written after `spawn_watcher` returns is post-baseline and
+    // never misclassified as a pre-existing file. See [`spawn_watcher`] and
+    // [`rescan_for_missed_changes`] for how this baseline is used (spurious-
+    // create correction + missed-modify detection). The baseline content is
+    // NOT stored as a blob (no refcount for `before_hash`); only its hash is
+    // kept, so a backstopped modify renders with a missing before-side ("all
+    // added") — the original was overwritten before we observed it.
+    mut existing: HashMap<PathBuf, String>,
 ) {
     let mut known: HashMap<PathBuf, String> = HashMap::new();
     let mut pending: HashMap<PathBuf, Pending> = HashMap::new();
-    // Baseline of files that exist under `cwd` before the watch starts
-    // observing changes, mapped to their startup content hash. This serves two
-    // purposes: (1) a raw `Created` event on one of them can be recognized as
-    // spurious (see `resolve_first_seen`), and (2) the shutdown backstop
-    // ([`rescan_for_missed_changes`]) can detect a *modify* of a pre-existing
-    // file whose event the watcher missed, by comparing the current hash to
-    // this baseline. The baseline content itself is NOT stored as a blob (that
-    // would need a refcount the store doesn't keep for `before_hash`); only the
-    // hash is kept, so a backstopped modify renders with a missing before-side
-    // ("all added") — acceptable, since the original was overwritten before we
-    // observed it. See the decisions summary.
-    let mut existing: HashMap<PathBuf, String> = HashMap::new();
-    scan_baseline_hashes(
-        &opts.cwd,
-        &opts.cwd,
-        &matcher,
-        &opts.internal_exclude,
-        &opts,
-        &mut existing,
-    );
     while !stop.load(Ordering::Acquire) {
         // Panic-hygiene test hook (never compiled outside `cfg(test)`): lets a
         // test flip a flag and observe that a real panic on this thread is
@@ -1422,8 +1434,15 @@ mod tests {
     /// cover it: the grace drain in [`run_loop`] catches *late* events, and the
     /// [`rescan_for_missed_changes`] backstop catches the *absent*-event case
     /// deterministically (it does not depend on `notify` delivering anything).
-    /// This test exercises the race end-to-end with a real `notify` watcher:
-    /// write a file, immediately stop, assert the `file_change` event landed.
+    ///
+    /// This test is deterministic, not a flaky race, because the startup
+    /// baseline is captured synchronously in [`spawn_watcher`] before it
+    /// returns: `race.txt` is written AFTER `spawn_watcher` returns, so it is
+    /// guaranteed post-baseline and the backstop records it as a `Created`
+    /// even when `notify` delivers nothing. (Earlier, when the baseline scan
+    /// ran on the worker thread, macOS scheduling could run it AFTER the write
+    /// and fold `race.txt` into the baseline — the backstop then saw it as
+    /// "unchanged" and skipped it, producing the `events seen: []` flake.)
     #[test]
     fn watcher_captures_write_then_immediate_stop() {
         use hh_core::event::{AdapterStatus, AgentKind, EventKind, NewSession};
