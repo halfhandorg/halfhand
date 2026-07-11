@@ -68,9 +68,12 @@ fn open_store() -> anyhow::Result<(Store, Paths, Config)> {
         );
         Config::default()
     });
-    // Warn if the user wrote halfhand.toml / hh.toml (silently ignored — only
-    // config.toml is read). Catches the "my ignore globs never applied" class of
-    // silent misconfiguration before it causes a confusing recording.
+    // Warn if the user wrote halfhand.toml / hh.toml *alongside* config.toml
+    // (then it is silently ignored — only config.toml is read). When
+    // config.toml is absent, Config::load above already fell back to the
+    // legacy file and loaded it, so this is a no-op in that case. Catches the
+    // "my ignore globs never applied" class of silent misconfiguration before
+    // it causes a confusing recording.
     hh_core::config::warn_on_ignored_config_files(&paths0.config_path);
     let paths = Paths::resolve(&config).map_err(|e| {
         anyhow::anyhow!("could not resolve data directory\n  why: {e}\n  hint: set HH_DATA_DIR to a writable directory")
@@ -358,8 +361,10 @@ fn check_db_integrity(store: &Store) -> DoctorCheck {
 }
 
 /// Check 3: config resolution. Reports the canonical config path and fails if a
-/// non-canonical file (`halfhand.toml` / `hh.toml`) is present — those are
-/// silently ignored, so their settings (ignore globs, data dir) never apply.
+/// non-canonical file (`halfhand.toml` / `hh.toml`) is present *alongside* a
+/// present `config.toml` — then it is silently ignored, so its settings (ignore
+/// globs, data dir) never apply. When `config.toml` is absent, a legacy file is
+/// loaded as a fallback (see `Config::load`), so this check passes instead.
 fn check_config_resolution(config_path: &std::path::Path) -> DoctorCheck {
     const NAME: &str = "config resolution";
     let ignored = hh_core::config::ignored_noncanonical_config_files(config_path);
