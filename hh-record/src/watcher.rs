@@ -390,14 +390,23 @@ fn run_loop(
     let mut known: HashMap<PathBuf, String> = HashMap::new();
     let mut pending: HashMap<PathBuf, Pending> = HashMap::new();
     // Baseline of files that exist under `cwd` before the watch starts
-    // observing changes, so a raw `Created` event on one of them can be
-    // recognized as spurious (see `resolve_first_seen`).
-    let mut existing: HashSet<PathBuf> = HashSet::new();
-    scan_existing_files(
+    // observing changes, mapped to their startup content hash. This serves two
+    // purposes: (1) a raw `Created` event on one of them can be recognized as
+    // spurious (see `resolve_first_seen`), and (2) the shutdown backstop
+    // ([`rescan_for_missed_changes`]) can detect a *modify* of a pre-existing
+    // file whose event the watcher missed, by comparing the current hash to
+    // this baseline. The baseline content itself is NOT stored as a blob (that
+    // would need a refcount the store doesn't keep for `before_hash`); only the
+    // hash is kept, so a backstopped modify renders with a missing before-side
+    // ("all added") — acceptable, since the original was overwritten before we
+    // observed it. See the decisions summary.
+    let mut existing: HashMap<PathBuf, String> = HashMap::new();
+    scan_baseline_hashes(
         &opts.cwd,
         &opts.cwd,
         &matcher,
         &opts.internal_exclude,
+        &opts,
         &mut existing,
     );
     while !stop.load(Ordering::Acquire) {
@@ -482,6 +491,24 @@ fn run_loop(
         start,
         &mut known,
     );
+    // Deterministic backstop: re-walk cwd for any file the watcher never
+    // observed (the grace drain only helps when an event is *late*; this
+    // catches the case where the backend delivered *nothing* — e.g. macOS
+    // FSEvents on CI runners, observed flaky/absent). Files already in `known`
+    // (captured via the event path) or unchanged from the `existing` baseline
+    // are skipped, so this never duplicates a normal-path capture. A pre-
+    // existing file whose content hash differs from its baseline is recorded as
+    // a missed `Modified`.
+    rescan_for_missed_changes(
+        &opts,
+        &matcher,
+        &writer,
+        &blobs,
+        &session_id,
+        start,
+        &mut known,
+        &existing,
+    );
     // Drop the watcher to release the inotify/fsevents handle.
     drop(watcher);
 }
@@ -494,7 +521,7 @@ fn fold_event(
     event: &notify::Event,
     matcher: &Gitignore,
     opts: &WatchOptions,
-    existing: &mut HashSet<PathBuf>,
+    existing: &mut HashMap<PathBuf, String>,
     pending: &mut HashMap<PathBuf, Pending>,
 ) {
     for path in &event.paths {
@@ -503,6 +530,122 @@ fn fold_event(
             coalesce(pending, path.clone(), kind);
         }
     }
+}
+
+/// Final shutdown backstop (FR-1.4 robustness): re-walk `cwd` and record any
+/// capturable file change the watcher never observed.
+///
+/// This is deterministic and does **not** depend on the OS event source
+/// delivering anything. It is the safety net for backends that drop or never
+/// deliver events — notably macOS FSEvents, which is observed flaky/absent on
+/// GitHub's macOS runners (a quick-exiting agent can write a file and exit
+/// before `fseventsd` reports anything, and the grace drain only helps when
+/// the event is merely *late*, not *absent*). Without this backstop such a
+/// session finalizes with "0 file changes" and `hh inspect --diff` reports
+/// "no file changes in this session" despite files being written.
+///
+/// For each capturable file currently on disk:
+/// - in `known` → already recorded via the event path, skip (no duplicate);
+/// - in `existing` (present at baseline) → compare its current content hash
+///   to the baseline hash captured at startup. Unchanged → skip. Changed →
+///   record as a missed `Modified`, seeding `known[path] = baseline_hash` so
+///   [`process`] records `before = baseline`, `after = current`. The baseline
+///   blob was never stored (only its hash was kept), so the diff before-side
+///   is missing and the change renders as "all added" — the original content
+///   was overwritten before we observed it, so there is nothing to diff
+///   against. This is the one cosmetic gap of the hash-only baseline; it is
+///   documented and preferable to dropping the change entirely;
+/// - not in `known` and not in `existing` → created during the session with no
+///   event observed → record as `Created`.
+///
+/// Files larger than `max_file_size` are never capturable, so they are skipped
+/// by the hash comparison (and [`process`] would skip them anyway).
+#[allow(clippy::too_many_arguments)] // recorder wiring threaded through to the writer
+fn rescan_for_missed_changes(
+    opts: &WatchOptions,
+    matcher: &Gitignore,
+    writer: &Arc<Mutex<EventWriter>>,
+    blobs: &Arc<BlobStore>,
+    session_id: &str,
+    start: Instant,
+    known: &mut HashMap<PathBuf, String>,
+    existing: &HashMap<PathBuf, String>,
+) {
+    let mut current: HashSet<PathBuf> = HashSet::new();
+    scan_existing_files(
+        &opts.cwd,
+        &opts.cwd,
+        matcher,
+        &opts.internal_exclude,
+        &mut current,
+    );
+    for path in current {
+        if known.contains_key(&path) {
+            continue;
+        }
+        if let Some(baseline_hash) = existing.get(&path) {
+            // Baseline file: detect a missed modify by comparing the current
+            // content hash to the startup baseline hash. Unchanged → skip.
+            let Some(current_hash) = read_hash_if_capturable(&path, opts) else {
+                continue;
+            };
+            if current_hash == *baseline_hash {
+                continue;
+            }
+            // Modified during the session but the event was missed. Seed
+            // `known` with the baseline hash so `process` records
+            // `before = baseline`, `after = current`.
+            known.insert(path.clone(), baseline_hash.clone());
+            if let Err(e) = process(
+                &path,
+                ChangeKind::Modified,
+                opts,
+                writer,
+                blobs,
+                session_id,
+                start,
+                known,
+            ) {
+                eprintln!(
+                    "hh: warning: file change capture failed for {}: {e}",
+                    path.display()
+                );
+            }
+        } else {
+            // Not in the baseline and not already recorded → created during
+            // the session with no event observed.
+            if let Err(e) = process(
+                &path,
+                ChangeKind::Created,
+                opts,
+                writer,
+                blobs,
+                session_id,
+                start,
+                known,
+            ) {
+                eprintln!(
+                    "hh: warning: file change capture failed for {}: {e}",
+                    path.display()
+                );
+            }
+        }
+    }
+}
+
+/// Read `path` and return its BLAKE3 content hash, or `None` if it is not
+/// capturable (missing, larger than `max_file_size`, or unreadable). Used by
+/// the shutdown backstop to compare a baseline file's current content against
+/// its startup hash without storing a blob.
+fn read_hash_if_capturable(path: &Path, opts: &WatchOptions) -> Option<String> {
+    let meta = std::fs::metadata(path).ok()?;
+    if meta.len() > opts.max_file_size {
+        return None;
+    }
+    let mut f = std::fs::File::open(path).ok()?;
+    let mut content = Vec::with_capacity(usize::try_from(meta.len()).unwrap_or(0));
+    f.read_to_end(&mut content).ok()?;
+    Some(BlobStore::hash(&content))
 }
 
 /// A debounced, not-yet-processed change to one path. `suppress` is set when a
@@ -657,6 +800,65 @@ fn scan_existing_files(
     }
 }
 
+/// Like [`scan_existing_files`] but records each capturable file's startup
+/// content hash (BLAKE3) into `out`, not just its path. Run once at watch
+/// startup to build the baseline that [`rescan_for_missed_changes`] diffs
+/// against at shutdown. The baseline content itself is NOT stored as a blob —
+/// only its hash — so a backstopped modify renders with a missing before-side.
+///
+/// Files larger than `max_file_size` are never capturable, so they are skipped
+/// here (no point hashing a file the watcher would never record). Best-effort:
+/// an unreadable subdirectory or an unreadable file (permissions, race) is
+/// skipped rather than failing the whole scan — a missing baseline entry just
+/// means that file, if later modified, is backstopped as a `Created` rather
+/// than a `Modified`, which is a safe over-report.
+fn scan_baseline_hashes(
+    dir: &Path,
+    cwd: &Path,
+    matcher: &Gitignore,
+    internal_exclude: &[PathBuf],
+    opts: &WatchOptions,
+    out: &mut HashMap<PathBuf, String>,
+) {
+    let Ok(entries) = std::fs::read_dir(dir) else {
+        return;
+    };
+    for entry in entries.flatten() {
+        let path = entry.path();
+        if internal_exclude.iter().any(|excl| path.starts_with(excl)) {
+            continue;
+        }
+        let Ok(rel) = path.strip_prefix(cwd) else {
+            continue;
+        };
+        let Ok(file_type) = entry.file_type() else {
+            continue;
+        };
+        let is_dir = file_type.is_dir();
+        if matcher.matched_path_or_any_parents(rel, is_dir).is_ignore() {
+            continue;
+        }
+        if is_dir {
+            scan_baseline_hashes(&path, cwd, matcher, internal_exclude, opts, out);
+        } else {
+            // Skip oversized files (the watcher would never capture them, so a
+            // baseline hash for them is useless I/O). A metadata error (file
+            // raced away, unreadable) is silently dropped — see the doc comment.
+            if let Ok(meta) = std::fs::metadata(&path) {
+                if meta.len() > opts.max_file_size {
+                    continue;
+                }
+                if let Ok(mut f) = std::fs::File::open(&path) {
+                    let mut content = Vec::with_capacity(usize::try_from(meta.len()).unwrap_or(0));
+                    if f.read_to_end(&mut content).is_ok() {
+                        out.insert(path, BlobStore::hash(&content));
+                    }
+                }
+            }
+        }
+    }
+}
+
 /// Resolve a raw classified [`ChangeKind`] against the set of paths already
 /// known to exist, correcting for a macOS FSEvents quirk: `fseventsd` can tag
 /// the *first-ever* notification it delivers for a path with
@@ -666,18 +868,26 @@ fn scan_existing_files(
 /// of `modified` (its very first observed event wins the merge in
 /// [`merge_kind`]).
 ///
-/// `existing` is updated as change kinds are resolved, so a later
-/// delete-then-recreate of the same path within the same session is still
-/// reported as a genuine `Created`.
+/// `existing` maps a baseline path to its startup content hash. It is updated
+/// as change kinds are resolved, so a later delete-then-recreate of the same
+/// path within the same session is still reported as a genuine `Created`. A
+/// pre-existing baseline hash is preserved across a `Created`→`Modified`
+/// downgrade (it is not overwritten) so the shutdown backstop can still
+/// diff against it; a genuinely new path is inserted with an empty sentinel
+/// hash (no baseline) purely to mark it seen — the backstop skips any path
+/// already in `known`, so the sentinel is never compared.
 fn resolve_first_seen(
     kind: ChangeKind,
     path: &Path,
-    existing: &mut HashSet<PathBuf>,
+    existing: &mut HashMap<PathBuf, String>,
 ) -> ChangeKind {
     match kind {
-        ChangeKind::Created if existing.contains(path) => ChangeKind::Modified,
+        ChangeKind::Created if existing.contains_key(path) => ChangeKind::Modified,
         ChangeKind::Created | ChangeKind::Modified => {
-            existing.insert(path.to_path_buf());
+            // Mark the path seen so a later raw `Created` (the FSEvents quirk
+            // firing again) downgrades to `Modified`. `or_default` preserves a
+            // pre-existing baseline hash (set at startup) for the backstop.
+            existing.entry(path.to_path_buf()).or_default();
             kind
         }
         ChangeKind::Deleted => {
@@ -987,21 +1197,27 @@ mod tests {
     fn resolve_first_seen_downgrades_created_for_known_existing_path() {
         // A path already in the baseline set was on disk before the watch
         // started: a raw `Created` for it is the macOS FSEvents quirk, not a
-        // real creation.
+        // real creation. The baseline hash is preserved (not overwritten).
         let path = PathBuf::from("/tmp/modified.txt");
-        let mut existing: HashSet<PathBuf> = [path.clone()].into_iter().collect();
+        let mut existing: HashMap<PathBuf, String> = [(path.clone(), "baseline-hash".into())]
+            .into_iter()
+            .collect();
         let kind = resolve_first_seen(ChangeKind::Created, &path, &mut existing);
         assert_eq!(kind, ChangeKind::Modified);
+        assert_eq!(
+            existing.get(&path).map(String::as_str),
+            Some("baseline-hash")
+        );
     }
 
     #[test]
     fn resolve_first_seen_keeps_created_for_new_path_and_tracks_it() {
         let path = PathBuf::from("/tmp/created.txt");
-        let mut existing: HashSet<PathBuf> = HashSet::new();
+        let mut existing: HashMap<PathBuf, String> = HashMap::new();
         let kind = resolve_first_seen(ChangeKind::Created, &path, &mut existing);
         assert_eq!(kind, ChangeKind::Created);
         // Now tracked, so a later edit is a genuine Modified, not re-downgraded.
-        assert!(existing.contains(&path));
+        assert!(existing.contains_key(&path));
     }
 
     #[test]
@@ -1009,12 +1225,14 @@ mod tests {
         // A baseline path that gets deleted then recreated within the same
         // session must report the recreate as a real Created, not Modified.
         let path = PathBuf::from("/tmp/doomed.txt");
-        let mut existing: HashSet<PathBuf> = [path.clone()].into_iter().collect();
+        let mut existing: HashMap<PathBuf, String> = [(path.clone(), "baseline-hash".into())]
+            .into_iter()
+            .collect();
         assert_eq!(
             resolve_first_seen(ChangeKind::Deleted, &path, &mut existing),
             ChangeKind::Deleted
         );
-        assert!(!existing.contains(&path));
+        assert!(!existing.contains_key(&path));
         assert_eq!(
             resolve_first_seen(ChangeKind::Created, &path, &mut existing),
             ChangeKind::Created
@@ -1169,16 +1387,18 @@ mod tests {
         .expect("the writer must still accept appends after the watcher thread panicked");
     }
 
-    /// Shutdown grace drain (FR-1.4 robustness on macOS FSEvents): a write
-    /// performed immediately before `stop_and_join` must still be captured.
+    /// Shutdown capture (FR-1.4 robustness on macOS FSEvents): a write
+    /// performed immediately before `stop_and_join` must still be recorded.
     /// On macOS, FSEvents can deliver a write event AFTER the process that
-    /// performed it has exited; the old behavior (stop the worker the instant
-    /// `stop` is set, then flush only what was already pending) dropped that
-    /// late event, so a quick-exiting agent finalized with "0 file changes".
-    /// The grace drain in [`run_loop`] keeps receiving for a bounded window
-    /// after `stop`, catching the late event. This test exercises the race
-    /// end-to-end with a real `notify` watcher: write a file, immediately
-    /// stop, and assert the `file_change` event landed.
+    /// performed it has exited — or never deliver it at all on GitHub's macOS
+    /// runners. The old behavior (stop the worker the instant `stop` is set,
+    /// then flush only what was already pending) dropped that event, so a
+    /// quick-exiting agent finalized with "0 file changes". Two mechanisms now
+    /// cover it: the grace drain in [`run_loop`] catches *late* events, and the
+    /// [`rescan_for_missed_changes`] backstop catches the *absent*-event case
+    /// deterministically (it does not depend on `notify` delivering anything).
+    /// This test exercises the race end-to-end with a real `notify` watcher:
+    /// write a file, immediately stop, assert the `file_change` event landed.
     #[test]
     fn watcher_captures_write_then_immediate_stop() {
         use hh_core::event::{AdapterStatus, AgentKind, EventKind, NewSession};
@@ -1225,7 +1445,7 @@ mod tests {
         .expect("watcher should initialize on a writable temp dir");
 
         // Write a file and stop the watcher immediately — the FSEvents event
-        // for this write may not have been delivered yet.
+        // for this write may not have been delivered (or never will be).
         std::fs::write(cwd.join("race.txt"), b"written just before stop\n").unwrap();
         handle.stop_and_join();
 
@@ -1234,12 +1454,131 @@ mod tests {
             index
                 .iter()
                 .any(|e| { e.kind == EventKind::FileChange && e.summary.contains("race.txt") }),
-            "a write immediately before stop must be captured by the grace drain; \
-             events seen: {:?}",
+            "a write immediately before stop must be captured (grace drain + \
+             rescan backstop); events seen: {:?}",
             index
                 .iter()
                 .map(|e| (e.kind, e.summary.clone()))
                 .collect::<Vec<_>>()
+        );
+    }
+
+    /// Deterministic unit test for [`rescan_for_missed_changes`] — the backstop
+    /// that catches file changes the watcher never observed. Unlike
+    /// [`watcher_captures_write_then_immediate_stop`] this does NOT spawn a
+    /// real `notify` watcher, so it is fully deterministic and not subject to
+    /// macOS FSEvents flakiness: it calls the backstop directly with a
+    /// hand-built `existing` baseline (path → startup hash) and `known` set.
+    /// Asserts:
+    /// - an unobserved new file is recorded as `Created`;
+    /// - a pre-existing file whose current hash differs from its baseline is
+    ///   recorded as `Modified` (the missed-modify case the hash baseline
+    ///   enables);
+    /// - an unchanged baseline file and an already-recorded file are NOT
+    ///   re-recorded (no duplicates).
+    #[test]
+    fn rescan_for_missed_changes_records_unobserved_creates_and_modifies() {
+        use hh_core::event::{AdapterStatus, AgentKind, EventKind, NewSession};
+        use hh_core::store::Store;
+
+        let tmp = tempfile::tempdir().unwrap();
+        let cwd = tmp.path().join("work");
+        std::fs::create_dir_all(&cwd).unwrap();
+        let store = Store::open(&tmp.path().join("hh.db"), &tmp.path().join("blobs")).unwrap();
+        let created = store
+            .create_session(&NewSession {
+                id: hh_core::event::now_v7(),
+                started_at: 0,
+                agent_kind: AgentKind::Generic,
+                adapter_status: AdapterStatus::None,
+                command: vec!["test".into()],
+                cwd: cwd.clone(),
+                hostname: None,
+                hh_version: "test".into(),
+                model: None,
+                git_branch: None,
+                git_sha: None,
+                git_dirty: None,
+            })
+            .unwrap();
+        let writer = Arc::new(Mutex::new(store.event_writer().unwrap()));
+        let blobs = Arc::new(BlobStore::new(store.blobs().root().to_path_buf()));
+
+        // baseline.txt: existed before the watch, unchanged since. Its baseline
+        // hash equals its current content hash → must NOT be recorded.
+        let baseline_bytes = b"already here\n";
+        std::fs::write(cwd.join("baseline.txt"), baseline_bytes).unwrap();
+        // changed.txt: existed before the watch (baseline hash of "original\n")
+        // but was modified during the session to "modified\n" with no event
+        // observed → must be recorded as `Modified`.
+        std::fs::write(cwd.join("changed.txt"), b"modified\n").unwrap();
+        // recorded.txt: the watcher already captured it → in `known`. Must NOT
+        // be re-recorded.
+        std::fs::write(cwd.join("recorded.txt"), b"captured via event\n").unwrap();
+        // missed.txt: created during the session but the watcher never saw an
+        // event for it → not in `existing`, not in `known`. MUST be recorded as
+        // `Created`.
+        std::fs::write(cwd.join("missed.txt"), b"the watcher missed this\n").unwrap();
+
+        // `existing` is the startup baseline: path → content hash. For
+        // baseline.txt that is the hash of its (unchanged) content; for
+        // changed.txt it is the hash of the ORIGINAL content ("original\n"),
+        // which differs from what is on disk now.
+        let existing: HashMap<PathBuf, String> = [
+            (cwd.join("baseline.txt"), BlobStore::hash(baseline_bytes)),
+            (cwd.join("changed.txt"), BlobStore::hash(b"original\n")),
+        ]
+        .into_iter()
+        .collect();
+        // `known` holds path → content hash; the hash value is irrelevant for
+        // the backstop's skip check (it only tests key presence), so a dummy
+        // hash is fine.
+        let mut known: HashMap<PathBuf, String> = [(cwd.join("recorded.txt"), "dummyhash".into())]
+            .into_iter()
+            .collect();
+
+        let opts = WatchOptions {
+            cwd: cwd.clone(),
+            max_file_size: 4 * 1024 * 1024,
+            record_binary: false,
+            extra_ignore: Vec::new(),
+            internal_exclude: Vec::new(),
+        };
+        let matcher = build_matcher(&cwd, &[]).unwrap();
+        rescan_for_missed_changes(
+            &opts,
+            &matcher,
+            &writer,
+            &blobs,
+            &created.id,
+            Instant::now(),
+            &mut known,
+            &existing,
+        );
+
+        let index = store.list_event_index(&created.id).unwrap();
+        let summaries: Vec<String> = index.iter().map(|e| e.summary.clone()).collect();
+        assert!(
+            index
+                .iter()
+                .any(|e| e.kind == EventKind::FileChange && e.summary.contains("missed.txt")),
+            "the unobserved new file must be recorded by the backstop; events: {summaries:?}"
+        );
+        assert!(
+            index.iter().any(|e| {
+                e.kind == EventKind::FileChange
+                    && e.summary.contains("changed.txt")
+                    && e.summary.contains("modified")
+            }),
+            "a baseline file whose current hash differs must be recorded as Modified; events: {summaries:?}"
+        );
+        assert!(
+            !summaries.iter().any(|s| s.contains("baseline.txt")),
+            "an unchanged baseline file must not be recorded; events: {summaries:?}"
+        );
+        assert!(
+            !summaries.iter().any(|s| s.contains("recorded.txt")),
+            "an already-recorded file must not be duplicated; events: {summaries:?}"
         );
     }
 
