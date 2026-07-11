@@ -45,6 +45,19 @@ const BUILTIN_IGNORE: &[&str] = &[".git/", "node_modules/", "target/"];
 #[cfg(test)]
 static INJECT_PANIC_FOR_TEST: AtomicBool = AtomicBool::new(false);
 
+/// Serializes tests that run a real [`run_loop`] on a worker thread. Test-only.
+///
+/// [`INJECT_PANIC_FOR_TEST`] is a process-global `static`, so a worker spawned
+/// by one test would observe a flag armed by a *different* concurrently-running
+/// test and panic at the wrong time — aborting before its own shutdown backstop
+/// runs and turning that test into a flaky "0 events" failure (the macOS-CI
+/// `events seen: []` flake in `watcher_captures_write_then_immediate_stop`).
+/// Tests that spawn a real long-running watcher take this mutex for their
+/// duration so the injection flag is only ever seen by the worker it was meant
+/// for. `const`-constructible since Rust 1.63, so fine at the 1.75 MSRV.
+#[cfg(test)]
+static REAL_RUN_LOOP_MUTEX: Mutex<()> = Mutex::new(());
+
 /// Coalescing window for editor-style double-writes (FR-1.4). Editors save a
 /// file as a burst of filesystem events within tens of milliseconds — e.g.
 /// write-content then touch-mtime, or write-then-rename-into-place producing
@@ -58,6 +71,22 @@ const DEBOUNCE_WINDOW: Duration = Duration::from_millis(100);
 /// below [`DEBOUNCE_WINDOW`] so a pending change is processed promptly once its
 /// window elapses.
 const POLL_INTERVAL: Duration = Duration::from_millis(20);
+
+/// Shutdown grace drain: once `stop` is signaled (the child has exited), keep
+/// receiving filesystem events until the channel is quiet for this long with
+/// no arriving event, then stop. Catches in-flight events from backends that
+/// deliver asynchronously — notably macOS FSEvents, which coalesces deliveries
+/// through a daemon and can report a write AFTER the process that performed it
+/// has already exited. A prompt backend (Linux inotify) typically has nothing
+/// left to deliver, so it pays only this short quiet wait. See [`run_loop`].
+const GRACE_QUIET: Duration = Duration::from_millis(150);
+
+/// Hard cap on the shutdown grace drain ([`GRACE_QUIET`]). Bounds the extra
+/// latency a slow-delivering backend can add to `hh run` shutdown after the
+/// child has exited. The drain ends at [`GRACE_QUIET`] of silence in the
+/// common case, so this cap only bites a pathologically busy directory still
+/// emitting events long after the child is gone.
+const GRACE_MAX: Duration = Duration::from_secs(1);
 
 /// Options for the filesystem watcher (FR-1.4).
 #[derive(Debug, Clone)]
@@ -171,6 +200,26 @@ pub fn spawn_watcher(
         return Ok(None);
     }
 
+    // Capture the startup baseline (path → content hash) synchronously on the
+    // caller's thread BEFORE spawning the worker. This makes "the watch is
+    // observing" a property that holds the instant `spawn_watcher` returns, so
+    // any file written afterwards — by the recorded child, or by a test — is
+    // guaranteed post-baseline and is never misclassified as a pre-existing
+    // file the backstop would then skip as "unchanged". Doing the scan on the
+    // worker thread instead left a window (wide in tests, narrow in prod)
+    // where a write that raced ahead of the scan was folded into the baseline
+    // and dropped — the macOS-CI `events seen: []` flake. The scan is
+    // best-effort (unreadable files/dirs are skipped); see [`scan_baseline_hashes`].
+    let mut existing: HashMap<PathBuf, String> = HashMap::new();
+    scan_baseline_hashes(
+        &opts.cwd,
+        &opts.cwd,
+        &matcher,
+        &opts.internal_exclude,
+        &opts,
+        &mut existing,
+    );
+
     let stop_for_thread = Arc::clone(&stop);
     let thread = std::thread::Builder::new()
         .name("hh-fs-watcher".into())
@@ -185,6 +234,7 @@ pub fn spawn_watcher(
                 session_id,
                 start,
                 stop_for_thread,
+                existing,
             );
         })
         .map_err(|e| crate::RecordError::Pty(format!("spawn watcher thread: {e}")))?;
@@ -370,20 +420,20 @@ fn run_loop(
     session_id: String,
     start: Instant,
     stop: Arc<AtomicBool>,
+    // Baseline of files (path → startup content hash) that existed under `cwd`
+    // before the watch started observing, captured synchronously in
+    // [`spawn_watcher`] on the caller's thread *before* the worker is spawned
+    // — so anything written after `spawn_watcher` returns is post-baseline and
+    // never misclassified as a pre-existing file. See [`spawn_watcher`] and
+    // [`rescan_for_missed_changes`] for how this baseline is used (spurious-
+    // create correction + missed-modify detection). The baseline content is
+    // NOT stored as a blob (no refcount for `before_hash`); only its hash is
+    // kept, so a backstopped modify renders with a missing before-side ("all
+    // added") — the original was overwritten before we observed it.
+    mut existing: HashMap<PathBuf, String>,
 ) {
     let mut known: HashMap<PathBuf, String> = HashMap::new();
     let mut pending: HashMap<PathBuf, Pending> = HashMap::new();
-    // Baseline of files that exist under `cwd` before the watch starts
-    // observing changes, so a raw `Created` event on one of them can be
-    // recognized as spurious (see `resolve_first_seen`).
-    let mut existing: HashSet<PathBuf> = HashSet::new();
-    scan_existing_files(
-        &opts.cwd,
-        &opts.cwd,
-        &matcher,
-        &opts.internal_exclude,
-        &mut existing,
-    );
     while !stop.load(Ordering::Acquire) {
         // Panic-hygiene test hook (never compiled outside `cfg(test)`): lets a
         // test flip a flag and observe that a real panic on this thread is
@@ -395,19 +445,56 @@ fn run_loop(
             "hh-record test: injected watcher panic"
         );
         match nrx.recv_timeout(POLL_INTERVAL) {
-            Ok(Ok(event)) => {
-                for path in &event.paths {
-                    if let Some(kind) = classify(path, event.kind, &matcher, &opts) {
-                        let kind = resolve_first_seen(kind, path, &mut existing);
-                        coalesce(&mut pending, path.clone(), kind);
-                    }
-                }
-            }
+            Ok(Ok(event)) => fold_event(&event, &matcher, &opts, &mut existing, &mut pending),
             Ok(Err(e)) => eprintln!("hh: warning: fs watcher error: {e}"),
             Err(std::sync::mpsc::RecvTimeoutError::Timeout) => {}
             Err(std::sync::mpsc::RecvTimeoutError::Disconnected) => break,
         }
         // Flush any pending changes whose debounce window has elapsed.
+        flush_due(
+            &mut pending,
+            &opts,
+            &writer,
+            &blobs,
+            &session_id,
+            start,
+            &mut known,
+        );
+    }
+    // --- Shutdown grace drain (FR-1.4 robustness) ------------------------
+    // `stop` was signaled: the child has exited and the recorder is shutting
+    // down. But the OS filesystem event source may still have in-flight
+    // events — notably macOS FSEvents, which coalesces deliveries through a
+    // daemon and can report a write AFTER the process that performed it has
+    // already exited. Stopping immediately (the old behavior) dropped those
+    // late events, so a quick-exiting agent could finalize with "0 file
+    // changes" even though it wrote files. Drain for a bounded window
+    // instead: keep receiving until the channel is quiet for [`GRACE_QUIET`]
+    // (caught up) or [`GRACE_MAX`] elapses (hard cap), whichever is first. A
+    // prompt backend (Linux inotify, events already delivered) pays only the
+    // short quiet wait.
+    let drain_start = Instant::now();
+    loop {
+        let cap_left = GRACE_MAX
+            .checked_sub(drain_start.elapsed())
+            .unwrap_or(Duration::ZERO);
+        if cap_left.is_zero() {
+            break;
+        }
+        let wait = if GRACE_QUIET < cap_left {
+            GRACE_QUIET
+        } else {
+            cap_left
+        };
+        match nrx.recv_timeout(wait) {
+            Ok(Ok(event)) => fold_event(&event, &matcher, &opts, &mut existing, &mut pending),
+            Ok(Err(e)) => eprintln!("hh: warning: fs watcher error: {e}"),
+            // Quiet for `wait` with no event, or channel closed → caught up.
+            Err(
+                std::sync::mpsc::RecvTimeoutError::Timeout
+                | std::sync::mpsc::RecvTimeoutError::Disconnected,
+            ) => break,
+        }
         flush_due(
             &mut pending,
             &opts,
@@ -429,8 +516,161 @@ fn run_loop(
         start,
         &mut known,
     );
+    // Deterministic backstop: re-walk cwd for any file the watcher never
+    // observed (the grace drain only helps when an event is *late*; this
+    // catches the case where the backend delivered *nothing* — e.g. macOS
+    // FSEvents on CI runners, observed flaky/absent). Files already in `known`
+    // (captured via the event path) or unchanged from the `existing` baseline
+    // are skipped, so this never duplicates a normal-path capture. A pre-
+    // existing file whose content hash differs from its baseline is recorded as
+    // a missed `Modified`.
+    rescan_for_missed_changes(
+        &opts,
+        &matcher,
+        &writer,
+        &blobs,
+        &session_id,
+        start,
+        &mut known,
+        &existing,
+    );
     // Drop the watcher to release the inotify/fsevents handle.
     drop(watcher);
+}
+
+/// Fold a raw `notify` event into the debounced `pending` map: classify each
+/// path against the ignore matcher, drop spurious first-seen "creates" on
+/// pre-existing files, and coalesce. Shared by the live loop and the shutdown
+/// grace drain so the two stay in sync.
+fn fold_event(
+    event: &notify::Event,
+    matcher: &Gitignore,
+    opts: &WatchOptions,
+    existing: &mut HashMap<PathBuf, String>,
+    pending: &mut HashMap<PathBuf, Pending>,
+) {
+    for path in &event.paths {
+        if let Some(kind) = classify(path, event.kind, matcher, opts) {
+            let kind = resolve_first_seen(kind, path, existing);
+            coalesce(pending, path.clone(), kind);
+        }
+    }
+}
+
+/// Final shutdown backstop (FR-1.4 robustness): re-walk `cwd` and record any
+/// capturable file change the watcher never observed.
+///
+/// This is deterministic and does **not** depend on the OS event source
+/// delivering anything. It is the safety net for backends that drop or never
+/// deliver events — notably macOS FSEvents, which is observed flaky/absent on
+/// GitHub's macOS runners (a quick-exiting agent can write a file and exit
+/// before `fseventsd` reports anything, and the grace drain only helps when
+/// the event is merely *late*, not *absent*). Without this backstop such a
+/// session finalizes with "0 file changes" and `hh inspect --diff` reports
+/// "no file changes in this session" despite files being written.
+///
+/// For each capturable file currently on disk:
+/// - in `known` → already recorded via the event path, skip (no duplicate);
+/// - in `existing` (present at baseline) → compare its current content hash
+///   to the baseline hash captured at startup. Unchanged → skip. Changed →
+///   record as a missed `Modified`, seeding `known[path] = baseline_hash` so
+///   [`process`] records `before = baseline`, `after = current`. The baseline
+///   blob was never stored (only its hash was kept), so the diff before-side
+///   is missing and the change renders as "all added" — the original content
+///   was overwritten before we observed it, so there is nothing to diff
+///   against. This is the one cosmetic gap of the hash-only baseline; it is
+///   documented and preferable to dropping the change entirely;
+/// - not in `known` and not in `existing` → created during the session with no
+///   event observed → record as `Created`.
+///
+/// Files larger than `max_file_size` are never capturable, so they are skipped
+/// by the hash comparison (and [`process`] would skip them anyway).
+#[allow(clippy::too_many_arguments)] // recorder wiring threaded through to the writer
+fn rescan_for_missed_changes(
+    opts: &WatchOptions,
+    matcher: &Gitignore,
+    writer: &Arc<Mutex<EventWriter>>,
+    blobs: &Arc<BlobStore>,
+    session_id: &str,
+    start: Instant,
+    known: &mut HashMap<PathBuf, String>,
+    existing: &HashMap<PathBuf, String>,
+) {
+    let mut current: HashSet<PathBuf> = HashSet::new();
+    scan_existing_files(
+        &opts.cwd,
+        &opts.cwd,
+        matcher,
+        &opts.internal_exclude,
+        &mut current,
+    );
+    for path in current {
+        if known.contains_key(&path) {
+            continue;
+        }
+        if let Some(baseline_hash) = existing.get(&path) {
+            // Baseline file: detect a missed modify by comparing the current
+            // content hash to the startup baseline hash. Unchanged → skip.
+            let Some(current_hash) = read_hash_if_capturable(&path, opts) else {
+                continue;
+            };
+            if current_hash == *baseline_hash {
+                continue;
+            }
+            // Modified during the session but the event was missed. Seed
+            // `known` with the baseline hash so `process` records
+            // `before = baseline`, `after = current`.
+            known.insert(path.clone(), baseline_hash.clone());
+            if let Err(e) = process(
+                &path,
+                ChangeKind::Modified,
+                opts,
+                writer,
+                blobs,
+                session_id,
+                start,
+                known,
+            ) {
+                eprintln!(
+                    "hh: warning: file change capture failed for {}: {e}",
+                    path.display()
+                );
+            }
+        } else {
+            // Not in the baseline and not already recorded → created during
+            // the session with no event observed.
+            if let Err(e) = process(
+                &path,
+                ChangeKind::Created,
+                opts,
+                writer,
+                blobs,
+                session_id,
+                start,
+                known,
+            ) {
+                eprintln!(
+                    "hh: warning: file change capture failed for {}: {e}",
+                    path.display()
+                );
+            }
+        }
+    }
+}
+
+/// Read `path` and return its BLAKE3 content hash, or `None` if it is not
+/// capturable (missing, larger than `max_file_size`, or unreadable). Used by
+/// the shutdown backstop to compare a baseline file's current content against
+/// its startup hash without storing a blob.
+fn read_hash_if_capturable(path: &Path, opts: &WatchOptions) -> Option<String> {
+    let meta = std::fs::metadata(path).ok()?;
+    if meta.len() > opts.max_file_size {
+        return None;
+    }
+    let mut f = std::fs::File::open(path).ok()?;
+    let mut content = Vec::with_capacity(usize::try_from(meta.len()).unwrap_or(0));
+    f.read_to_end(&mut content).ok()?;
+    Some(BlobStore::hash(&content))
 }
 
 /// A debounced, not-yet-processed change to one path. `suppress` is set when a
@@ -585,6 +825,65 @@ fn scan_existing_files(
     }
 }
 
+/// Like [`scan_existing_files`] but records each capturable file's startup
+/// content hash (BLAKE3) into `out`, not just its path. Run once at watch
+/// startup to build the baseline that [`rescan_for_missed_changes`] diffs
+/// against at shutdown. The baseline content itself is NOT stored as a blob —
+/// only its hash — so a backstopped modify renders with a missing before-side.
+///
+/// Files larger than `max_file_size` are never capturable, so they are skipped
+/// here (no point hashing a file the watcher would never record). Best-effort:
+/// an unreadable subdirectory or an unreadable file (permissions, race) is
+/// skipped rather than failing the whole scan — a missing baseline entry just
+/// means that file, if later modified, is backstopped as a `Created` rather
+/// than a `Modified`, which is a safe over-report.
+fn scan_baseline_hashes(
+    dir: &Path,
+    cwd: &Path,
+    matcher: &Gitignore,
+    internal_exclude: &[PathBuf],
+    opts: &WatchOptions,
+    out: &mut HashMap<PathBuf, String>,
+) {
+    let Ok(entries) = std::fs::read_dir(dir) else {
+        return;
+    };
+    for entry in entries.flatten() {
+        let path = entry.path();
+        if internal_exclude.iter().any(|excl| path.starts_with(excl)) {
+            continue;
+        }
+        let Ok(rel) = path.strip_prefix(cwd) else {
+            continue;
+        };
+        let Ok(file_type) = entry.file_type() else {
+            continue;
+        };
+        let is_dir = file_type.is_dir();
+        if matcher.matched_path_or_any_parents(rel, is_dir).is_ignore() {
+            continue;
+        }
+        if is_dir {
+            scan_baseline_hashes(&path, cwd, matcher, internal_exclude, opts, out);
+        } else {
+            // Skip oversized files (the watcher would never capture them, so a
+            // baseline hash for them is useless I/O). A metadata error (file
+            // raced away, unreadable) is silently dropped — see the doc comment.
+            if let Ok(meta) = std::fs::metadata(&path) {
+                if meta.len() > opts.max_file_size {
+                    continue;
+                }
+                if let Ok(mut f) = std::fs::File::open(&path) {
+                    let mut content = Vec::with_capacity(usize::try_from(meta.len()).unwrap_or(0));
+                    if f.read_to_end(&mut content).is_ok() {
+                        out.insert(path, BlobStore::hash(&content));
+                    }
+                }
+            }
+        }
+    }
+}
+
 /// Resolve a raw classified [`ChangeKind`] against the set of paths already
 /// known to exist, correcting for a macOS FSEvents quirk: `fseventsd` can tag
 /// the *first-ever* notification it delivers for a path with
@@ -594,18 +893,26 @@ fn scan_existing_files(
 /// of `modified` (its very first observed event wins the merge in
 /// [`merge_kind`]).
 ///
-/// `existing` is updated as change kinds are resolved, so a later
-/// delete-then-recreate of the same path within the same session is still
-/// reported as a genuine `Created`.
+/// `existing` maps a baseline path to its startup content hash. It is updated
+/// as change kinds are resolved, so a later delete-then-recreate of the same
+/// path within the same session is still reported as a genuine `Created`. A
+/// pre-existing baseline hash is preserved across a `Created`→`Modified`
+/// downgrade (it is not overwritten) so the shutdown backstop can still
+/// diff against it; a genuinely new path is inserted with an empty sentinel
+/// hash (no baseline) purely to mark it seen — the backstop skips any path
+/// already in `known`, so the sentinel is never compared.
 fn resolve_first_seen(
     kind: ChangeKind,
     path: &Path,
-    existing: &mut HashSet<PathBuf>,
+    existing: &mut HashMap<PathBuf, String>,
 ) -> ChangeKind {
     match kind {
-        ChangeKind::Created if existing.contains(path) => ChangeKind::Modified,
+        ChangeKind::Created if existing.contains_key(path) => ChangeKind::Modified,
         ChangeKind::Created | ChangeKind::Modified => {
-            existing.insert(path.to_path_buf());
+            // Mark the path seen so a later raw `Created` (the FSEvents quirk
+            // firing again) downgrades to `Modified`. `or_default` preserves a
+            // pre-existing baseline hash (set at startup) for the backstop.
+            existing.entry(path.to_path_buf()).or_default();
             kind
         }
         ChangeKind::Deleted => {
@@ -915,21 +1222,27 @@ mod tests {
     fn resolve_first_seen_downgrades_created_for_known_existing_path() {
         // A path already in the baseline set was on disk before the watch
         // started: a raw `Created` for it is the macOS FSEvents quirk, not a
-        // real creation.
+        // real creation. The baseline hash is preserved (not overwritten).
         let path = PathBuf::from("/tmp/modified.txt");
-        let mut existing: HashSet<PathBuf> = [path.clone()].into_iter().collect();
+        let mut existing: HashMap<PathBuf, String> = [(path.clone(), "baseline-hash".into())]
+            .into_iter()
+            .collect();
         let kind = resolve_first_seen(ChangeKind::Created, &path, &mut existing);
         assert_eq!(kind, ChangeKind::Modified);
+        assert_eq!(
+            existing.get(&path).map(String::as_str),
+            Some("baseline-hash")
+        );
     }
 
     #[test]
     fn resolve_first_seen_keeps_created_for_new_path_and_tracks_it() {
         let path = PathBuf::from("/tmp/created.txt");
-        let mut existing: HashSet<PathBuf> = HashSet::new();
+        let mut existing: HashMap<PathBuf, String> = HashMap::new();
         let kind = resolve_first_seen(ChangeKind::Created, &path, &mut existing);
         assert_eq!(kind, ChangeKind::Created);
         // Now tracked, so a later edit is a genuine Modified, not re-downgraded.
-        assert!(existing.contains(&path));
+        assert!(existing.contains_key(&path));
     }
 
     #[test]
@@ -937,12 +1250,14 @@ mod tests {
         // A baseline path that gets deleted then recreated within the same
         // session must report the recreate as a real Created, not Modified.
         let path = PathBuf::from("/tmp/doomed.txt");
-        let mut existing: HashSet<PathBuf> = [path.clone()].into_iter().collect();
+        let mut existing: HashMap<PathBuf, String> = [(path.clone(), "baseline-hash".into())]
+            .into_iter()
+            .collect();
         assert_eq!(
             resolve_first_seen(ChangeKind::Deleted, &path, &mut existing),
             ChangeKind::Deleted
         );
-        assert!(!existing.contains(&path));
+        assert!(!existing.contains_key(&path));
         assert_eq!(
             resolve_first_seen(ChangeKind::Created, &path, &mut existing),
             ChangeKind::Created
@@ -998,13 +1313,25 @@ mod tests {
     /// (including timeout-driven wakeups every `POLL_INTERVAL`), so arming
     /// the flag and waiting a few multiples of it is enough — deliberately
     /// avoiding a dependency on FSEvents actually firing, which was observed
-    /// flaky/absent on GitHub's macOS runners (this is the first test in the
-    /// crate to exercise a real notify watcher end-to-end; every other
-    /// watcher test below is a pure-function test).
+    /// flaky/absent on GitHub's macOS runners. The process-global injection
+    /// flag is why this test and [`watcher_captures_write_then_immediate_stop`]
+    /// (the only other test that runs a real `run_loop`) take
+    /// [`REAL_RUN_LOOP_MUTEX`]: without serialization a *concurrent* worker
+    /// would observe the armed flag, panic before its own backstop runs, and
+    /// turn that test into the macOS-CI `events seen: []` flake.
     #[test]
     fn watcher_panic_does_not_abort_recording() {
         use hh_core::event::{AdapterStatus, AgentKind, NewSession};
         use hh_core::store::Store;
+
+        // Serialize with the other real-`run_loop` test: this test arms the
+        // process-global `INJECT_PANIC_FOR_TEST` flag, which a concurrently-
+        // running worker from `watcher_captures_write_then_immediate_stop`
+        // would observe and panic on, aborting before its backstop runs. Hold
+        // the guard for the whole test so the flag is only seen by OUR worker.
+        let _real_run_guard = REAL_RUN_LOOP_MUTEX
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
 
         let tmp = tempfile::tempdir().unwrap();
         let cwd = tmp.path().join("work");
@@ -1095,6 +1422,217 @@ mod tests {
             correlates: None,
         })
         .expect("the writer must still accept appends after the watcher thread panicked");
+    }
+
+    /// Shutdown capture (FR-1.4 robustness on macOS FSEvents): a write
+    /// performed immediately before `stop_and_join` must still be recorded.
+    /// On macOS, FSEvents can deliver a write event AFTER the process that
+    /// performed it has exited — or never deliver it at all on GitHub's macOS
+    /// runners. The old behavior (stop the worker the instant `stop` is set,
+    /// then flush only what was already pending) dropped that event, so a
+    /// quick-exiting agent finalized with "0 file changes". Two mechanisms now
+    /// cover it: the grace drain in [`run_loop`] catches *late* events, and the
+    /// [`rescan_for_missed_changes`] backstop catches the *absent*-event case
+    /// deterministically (it does not depend on `notify` delivering anything).
+    ///
+    /// This test is deterministic, not a flaky race, because the startup
+    /// baseline is captured synchronously in [`spawn_watcher`] before it
+    /// returns: `race.txt` is written AFTER `spawn_watcher` returns, so it is
+    /// guaranteed post-baseline and the backstop records it as a `Created`
+    /// even when `notify` delivers nothing. (Earlier, when the baseline scan
+    /// ran on the worker thread, macOS scheduling could run it AFTER the write
+    /// and fold `race.txt` into the baseline — the backstop then saw it as
+    /// "unchanged" and skipped it, producing the `events seen: []` flake.)
+    #[test]
+    fn watcher_captures_write_then_immediate_stop() {
+        use hh_core::event::{AdapterStatus, AgentKind, EventKind, NewSession};
+        use hh_core::store::Store;
+
+        // Serialize with `watcher_panic_does_not_abort_recording`: that test
+        // arms the process-global `INJECT_PANIC_FOR_TEST` flag, which OUR worker
+        // would observe if it ran concurrently and panic — aborting before the
+        // backstop runs and turning this into the macOS-CI `events seen: []`
+        // flake. Hold the guard so the flag is only seen by that test's worker.
+        let _real_run_guard = REAL_RUN_LOOP_MUTEX
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
+
+        let tmp = tempfile::tempdir().unwrap();
+        let cwd = tmp.path().join("work");
+        std::fs::create_dir_all(&cwd).unwrap();
+        let store = Store::open(&tmp.path().join("hh.db"), &tmp.path().join("blobs")).unwrap();
+        let created = store
+            .create_session(&NewSession {
+                id: hh_core::event::now_v7(),
+                started_at: 0,
+                agent_kind: AgentKind::Generic,
+                adapter_status: AdapterStatus::None,
+                command: vec!["test".into()],
+                cwd: cwd.clone(),
+                hostname: None,
+                hh_version: "test".into(),
+                model: None,
+                git_branch: None,
+                git_sha: None,
+                git_dirty: None,
+            })
+            .unwrap();
+        let writer = Arc::new(Mutex::new(store.event_writer().unwrap()));
+        let blobs = Arc::new(BlobStore::new(store.blobs().root().to_path_buf()));
+
+        let opts = WatchOptions {
+            cwd: cwd.clone(),
+            max_file_size: 4 * 1024 * 1024,
+            record_binary: false,
+            extra_ignore: Vec::new(),
+            internal_exclude: Vec::new(),
+        };
+        let handle = spawn_watcher(
+            opts,
+            Arc::clone(&writer),
+            Arc::clone(&blobs),
+            created.id.clone(),
+            Instant::now(),
+        )
+        .unwrap()
+        .expect("watcher should initialize on a writable temp dir");
+
+        // Write a file and stop the watcher immediately — the FSEvents event
+        // for this write may not have been delivered (or never will be).
+        std::fs::write(cwd.join("race.txt"), b"written just before stop\n").unwrap();
+        handle.stop_and_join();
+
+        let index = store.list_event_index(&created.id).unwrap();
+        assert!(
+            index
+                .iter()
+                .any(|e| { e.kind == EventKind::FileChange && e.summary.contains("race.txt") }),
+            "a write immediately before stop must be captured (grace drain + \
+             rescan backstop); events seen: {:?}",
+            index
+                .iter()
+                .map(|e| (e.kind, e.summary.clone()))
+                .collect::<Vec<_>>()
+        );
+    }
+
+    /// Deterministic unit test for [`rescan_for_missed_changes`] — the backstop
+    /// that catches file changes the watcher never observed. Unlike
+    /// [`watcher_captures_write_then_immediate_stop`] this does NOT spawn a
+    /// real `notify` watcher, so it is fully deterministic and not subject to
+    /// macOS FSEvents flakiness: it calls the backstop directly with a
+    /// hand-built `existing` baseline (path → startup hash) and `known` set.
+    /// Asserts:
+    /// - an unobserved new file is recorded as `Created`;
+    /// - a pre-existing file whose current hash differs from its baseline is
+    ///   recorded as `Modified` (the missed-modify case the hash baseline
+    ///   enables);
+    /// - an unchanged baseline file and an already-recorded file are NOT
+    ///   re-recorded (no duplicates).
+    #[test]
+    fn rescan_for_missed_changes_records_unobserved_creates_and_modifies() {
+        use hh_core::event::{AdapterStatus, AgentKind, EventKind, NewSession};
+        use hh_core::store::Store;
+
+        let tmp = tempfile::tempdir().unwrap();
+        let cwd = tmp.path().join("work");
+        std::fs::create_dir_all(&cwd).unwrap();
+        let store = Store::open(&tmp.path().join("hh.db"), &tmp.path().join("blobs")).unwrap();
+        let created = store
+            .create_session(&NewSession {
+                id: hh_core::event::now_v7(),
+                started_at: 0,
+                agent_kind: AgentKind::Generic,
+                adapter_status: AdapterStatus::None,
+                command: vec!["test".into()],
+                cwd: cwd.clone(),
+                hostname: None,
+                hh_version: "test".into(),
+                model: None,
+                git_branch: None,
+                git_sha: None,
+                git_dirty: None,
+            })
+            .unwrap();
+        let writer = Arc::new(Mutex::new(store.event_writer().unwrap()));
+        let blobs = Arc::new(BlobStore::new(store.blobs().root().to_path_buf()));
+
+        // baseline.txt: existed before the watch, unchanged since. Its baseline
+        // hash equals its current content hash → must NOT be recorded.
+        let baseline_bytes = b"already here\n";
+        std::fs::write(cwd.join("baseline.txt"), baseline_bytes).unwrap();
+        // changed.txt: existed before the watch (baseline hash of "original\n")
+        // but was modified during the session to "modified\n" with no event
+        // observed → must be recorded as `Modified`.
+        std::fs::write(cwd.join("changed.txt"), b"modified\n").unwrap();
+        // recorded.txt: the watcher already captured it → in `known`. Must NOT
+        // be re-recorded.
+        std::fs::write(cwd.join("recorded.txt"), b"captured via event\n").unwrap();
+        // missed.txt: created during the session but the watcher never saw an
+        // event for it → not in `existing`, not in `known`. MUST be recorded as
+        // `Created`.
+        std::fs::write(cwd.join("missed.txt"), b"the watcher missed this\n").unwrap();
+
+        // `existing` is the startup baseline: path → content hash. For
+        // baseline.txt that is the hash of its (unchanged) content; for
+        // changed.txt it is the hash of the ORIGINAL content ("original\n"),
+        // which differs from what is on disk now.
+        let existing: HashMap<PathBuf, String> = [
+            (cwd.join("baseline.txt"), BlobStore::hash(baseline_bytes)),
+            (cwd.join("changed.txt"), BlobStore::hash(b"original\n")),
+        ]
+        .into_iter()
+        .collect();
+        // `known` holds path → content hash; the hash value is irrelevant for
+        // the backstop's skip check (it only tests key presence), so a dummy
+        // hash is fine.
+        let mut known: HashMap<PathBuf, String> = [(cwd.join("recorded.txt"), "dummyhash".into())]
+            .into_iter()
+            .collect();
+
+        let opts = WatchOptions {
+            cwd: cwd.clone(),
+            max_file_size: 4 * 1024 * 1024,
+            record_binary: false,
+            extra_ignore: Vec::new(),
+            internal_exclude: Vec::new(),
+        };
+        let matcher = build_matcher(&cwd, &[]).unwrap();
+        rescan_for_missed_changes(
+            &opts,
+            &matcher,
+            &writer,
+            &blobs,
+            &created.id,
+            Instant::now(),
+            &mut known,
+            &existing,
+        );
+
+        let index = store.list_event_index(&created.id).unwrap();
+        let summaries: Vec<String> = index.iter().map(|e| e.summary.clone()).collect();
+        assert!(
+            index
+                .iter()
+                .any(|e| e.kind == EventKind::FileChange && e.summary.contains("missed.txt")),
+            "the unobserved new file must be recorded by the backstop; events: {summaries:?}"
+        );
+        assert!(
+            index.iter().any(|e| {
+                e.kind == EventKind::FileChange
+                    && e.summary.contains("changed.txt")
+                    && e.summary.contains("modified")
+            }),
+            "a baseline file whose current hash differs must be recorded as Modified; events: {summaries:?}"
+        );
+        assert!(
+            !summaries.iter().any(|s| s.contains("baseline.txt")),
+            "an unchanged baseline file must not be recorded; events: {summaries:?}"
+        );
+        assert!(
+            !summaries.iter().any(|s| s.contains("recorded.txt")),
+            "an already-recorded file must not be duplicated; events: {summaries:?}"
+        );
     }
 
     /// FR-1.5 best-effort: when the cwd itself cannot be watched (here: it does

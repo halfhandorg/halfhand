@@ -57,6 +57,32 @@ in CI rather than tracking `latest` until 1.0.
   recording is skipped, and the PTY + adapter session still records
   (`status=ok`). A per-directory fallback also keeps file recording working
   when one unreadable subdir would have blacked out the whole tree.
+- The FS watcher now drains in-flight events for a bounded window (150 ms of
+  silence, capped at 1 s) after the child exits, before finalizing, and then
+  runs a deterministic re-scan of `cwd` as a backstop. On macOS, FSEvents can
+  deliver a write event *after* the process that performed it has already
+  exited — or never deliver it at all on GitHub's macOS runners. The old
+  behavior stopped the watcher the instant the child was gone and dropped that
+  event, so a quick-exiting agent could finalize with "0 file changes" and
+  `hh inspect --diff` reported "no file changes in this session" despite files
+  being written. The grace drain catches *late* events; the re-scan backstop
+  catches the *absent*-event case deterministically (it does not depend on
+  `notify` delivering anything). At startup the watcher now hashes every
+  capturable baseline file (storing only the hash, not a blob), so the backstop
+  can also detect a missed *modify* of a pre-existing file (current hash ≠
+  baseline hash) and record it as `Modified` — a backstopped modify renders
+  with a missing before-side ("all added"), since the original content was
+  overwritten before it was observed. Files already captured via the event
+  path and unchanged baseline files are skipped, so neither mechanism
+  duplicates a normal-path capture. The startup baseline is captured
+  synchronously in `spawn_watcher` before it returns (on the caller's thread,
+  not the worker), so any file written after the watch starts — by the recorded
+  child or otherwise — is guaranteed post-baseline and is never misclassified
+  as a pre-existing file the backstop would skip as "unchanged"; this also
+  closes the scheduling-dependent window that made the macOS-CI capture test
+  flaky. A prompt backend (Linux inotify) pays only the short quiet wait; the
+  startup + shutdown baseline hashing is the trade-off for missed-modify
+  coverage on large trees.
 - `hh list` column headers no longer drift out of alignment with the data
   when color is enabled: padding now measures *visible* width (ANSI escapes
   stripped) instead of byte length, so colored status cells no longer push
