@@ -57,6 +57,15 @@ in CI rather than tracking `latest` until 1.0.
   recording is skipped, and the PTY + adapter session still records
   (`status=ok`). A per-directory fallback also keeps file recording working
   when one unreadable subdir would have blacked out the whole tree.
+- The FS watcher now drains in-flight events for a bounded window (150 ms of
+  silence, capped at 1 s) after the child exits, before finalizing. On macOS,
+  FSEvents can deliver a write event *after* the process that performed it has
+  already exited; the old behavior stopped the watcher the instant the child
+  was gone and dropped that late event, so a quick-exiting agent could finalize
+  with "0 file changes" and `hh inspect --diff` reported "no file changes in
+  this session" despite files being written. The grace drain catches those
+  late events; a prompt backend (Linux inotify) pays only the short quiet
+  wait.
 - `hh list` column headers no longer drift out of alignment with the data
   when color is enabled: padding now measures *visible* width (ANSI escapes
   stripped) instead of byte length, so colored status cells no longer push

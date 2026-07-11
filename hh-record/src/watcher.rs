@@ -59,6 +59,22 @@ const DEBOUNCE_WINDOW: Duration = Duration::from_millis(100);
 /// window elapses.
 const POLL_INTERVAL: Duration = Duration::from_millis(20);
 
+/// Shutdown grace drain: once `stop` is signaled (the child has exited), keep
+/// receiving filesystem events until the channel is quiet for this long with
+/// no arriving event, then stop. Catches in-flight events from backends that
+/// deliver asynchronously — notably macOS FSEvents, which coalesces deliveries
+/// through a daemon and can report a write AFTER the process that performed it
+/// has already exited. A prompt backend (Linux inotify) typically has nothing
+/// left to deliver, so it pays only this short quiet wait. See [`run_loop`].
+const GRACE_QUIET: Duration = Duration::from_millis(150);
+
+/// Hard cap on the shutdown grace drain ([`GRACE_QUIET`]). Bounds the extra
+/// latency a slow-delivering backend can add to `hh run` shutdown after the
+/// child has exited. The drain ends at [`GRACE_QUIET`] of silence in the
+/// common case, so this cap only bites a pathologically busy directory still
+/// emitting events long after the child is gone.
+const GRACE_MAX: Duration = Duration::from_secs(1);
+
 /// Options for the filesystem watcher (FR-1.4).
 #[derive(Debug, Clone)]
 pub struct WatchOptions {
@@ -395,19 +411,56 @@ fn run_loop(
             "hh-record test: injected watcher panic"
         );
         match nrx.recv_timeout(POLL_INTERVAL) {
-            Ok(Ok(event)) => {
-                for path in &event.paths {
-                    if let Some(kind) = classify(path, event.kind, &matcher, &opts) {
-                        let kind = resolve_first_seen(kind, path, &mut existing);
-                        coalesce(&mut pending, path.clone(), kind);
-                    }
-                }
-            }
+            Ok(Ok(event)) => fold_event(&event, &matcher, &opts, &mut existing, &mut pending),
             Ok(Err(e)) => eprintln!("hh: warning: fs watcher error: {e}"),
             Err(std::sync::mpsc::RecvTimeoutError::Timeout) => {}
             Err(std::sync::mpsc::RecvTimeoutError::Disconnected) => break,
         }
         // Flush any pending changes whose debounce window has elapsed.
+        flush_due(
+            &mut pending,
+            &opts,
+            &writer,
+            &blobs,
+            &session_id,
+            start,
+            &mut known,
+        );
+    }
+    // --- Shutdown grace drain (FR-1.4 robustness) ------------------------
+    // `stop` was signaled: the child has exited and the recorder is shutting
+    // down. But the OS filesystem event source may still have in-flight
+    // events — notably macOS FSEvents, which coalesces deliveries through a
+    // daemon and can report a write AFTER the process that performed it has
+    // already exited. Stopping immediately (the old behavior) dropped those
+    // late events, so a quick-exiting agent could finalize with "0 file
+    // changes" even though it wrote files. Drain for a bounded window
+    // instead: keep receiving until the channel is quiet for [`GRACE_QUIET`]
+    // (caught up) or [`GRACE_MAX`] elapses (hard cap), whichever is first. A
+    // prompt backend (Linux inotify, events already delivered) pays only the
+    // short quiet wait.
+    let drain_start = Instant::now();
+    loop {
+        let cap_left = GRACE_MAX
+            .checked_sub(drain_start.elapsed())
+            .unwrap_or(Duration::ZERO);
+        if cap_left.is_zero() {
+            break;
+        }
+        let wait = if GRACE_QUIET < cap_left {
+            GRACE_QUIET
+        } else {
+            cap_left
+        };
+        match nrx.recv_timeout(wait) {
+            Ok(Ok(event)) => fold_event(&event, &matcher, &opts, &mut existing, &mut pending),
+            Ok(Err(e)) => eprintln!("hh: warning: fs watcher error: {e}"),
+            // Quiet for `wait` with no event, or channel closed → caught up.
+            Err(
+                std::sync::mpsc::RecvTimeoutError::Timeout
+                | std::sync::mpsc::RecvTimeoutError::Disconnected,
+            ) => break,
+        }
         flush_due(
             &mut pending,
             &opts,
@@ -431,6 +484,25 @@ fn run_loop(
     );
     // Drop the watcher to release the inotify/fsevents handle.
     drop(watcher);
+}
+
+/// Fold a raw `notify` event into the debounced `pending` map: classify each
+/// path against the ignore matcher, drop spurious first-seen "creates" on
+/// pre-existing files, and coalesce. Shared by the live loop and the shutdown
+/// grace drain so the two stay in sync.
+fn fold_event(
+    event: &notify::Event,
+    matcher: &Gitignore,
+    opts: &WatchOptions,
+    existing: &mut HashSet<PathBuf>,
+    pending: &mut HashMap<PathBuf, Pending>,
+) {
+    for path in &event.paths {
+        if let Some(kind) = classify(path, event.kind, matcher, opts) {
+            let kind = resolve_first_seen(kind, path, existing);
+            coalesce(pending, path.clone(), kind);
+        }
+    }
 }
 
 /// A debounced, not-yet-processed change to one path. `suppress` is set when a
@@ -1095,6 +1167,80 @@ mod tests {
             correlates: None,
         })
         .expect("the writer must still accept appends after the watcher thread panicked");
+    }
+
+    /// Shutdown grace drain (FR-1.4 robustness on macOS FSEvents): a write
+    /// performed immediately before `stop_and_join` must still be captured.
+    /// On macOS, FSEvents can deliver a write event AFTER the process that
+    /// performed it has exited; the old behavior (stop the worker the instant
+    /// `stop` is set, then flush only what was already pending) dropped that
+    /// late event, so a quick-exiting agent finalized with "0 file changes".
+    /// The grace drain in [`run_loop`] keeps receiving for a bounded window
+    /// after `stop`, catching the late event. This test exercises the race
+    /// end-to-end with a real `notify` watcher: write a file, immediately
+    /// stop, and assert the `file_change` event landed.
+    #[test]
+    fn watcher_captures_write_then_immediate_stop() {
+        use hh_core::event::{AdapterStatus, AgentKind, EventKind, NewSession};
+        use hh_core::store::Store;
+
+        let tmp = tempfile::tempdir().unwrap();
+        let cwd = tmp.path().join("work");
+        std::fs::create_dir_all(&cwd).unwrap();
+        let store = Store::open(&tmp.path().join("hh.db"), &tmp.path().join("blobs")).unwrap();
+        let created = store
+            .create_session(&NewSession {
+                id: hh_core::event::now_v7(),
+                started_at: 0,
+                agent_kind: AgentKind::Generic,
+                adapter_status: AdapterStatus::None,
+                command: vec!["test".into()],
+                cwd: cwd.clone(),
+                hostname: None,
+                hh_version: "test".into(),
+                model: None,
+                git_branch: None,
+                git_sha: None,
+                git_dirty: None,
+            })
+            .unwrap();
+        let writer = Arc::new(Mutex::new(store.event_writer().unwrap()));
+        let blobs = Arc::new(BlobStore::new(store.blobs().root().to_path_buf()));
+
+        let opts = WatchOptions {
+            cwd: cwd.clone(),
+            max_file_size: 4 * 1024 * 1024,
+            record_binary: false,
+            extra_ignore: Vec::new(),
+            internal_exclude: Vec::new(),
+        };
+        let handle = spawn_watcher(
+            opts,
+            Arc::clone(&writer),
+            Arc::clone(&blobs),
+            created.id.clone(),
+            Instant::now(),
+        )
+        .unwrap()
+        .expect("watcher should initialize on a writable temp dir");
+
+        // Write a file and stop the watcher immediately — the FSEvents event
+        // for this write may not have been delivered yet.
+        std::fs::write(cwd.join("race.txt"), b"written just before stop\n").unwrap();
+        handle.stop_and_join();
+
+        let index = store.list_event_index(&created.id).unwrap();
+        assert!(
+            index
+                .iter()
+                .any(|e| { e.kind == EventKind::FileChange && e.summary.contains("race.txt") }),
+            "a write immediately before stop must be captured by the grace drain; \
+             events seen: {:?}",
+            index
+                .iter()
+                .map(|e| (e.kind, e.summary.clone()))
+                .collect::<Vec<_>>()
+        );
     }
 
     /// FR-1.5 best-effort: when the cwd itself cannot be watched (here: it does
