@@ -4,7 +4,7 @@
 //! `mpsc::Receiver`; the recorder (`hh-record`) owns a drain thread that
 //! consumes them, resolves the adapter's `correlate_key` to a DB row id in
 //! [`Event::correlates`], and appends to the single-writer task. The adapter
-//! receives an [`Arc<BlobStore>`] (for >256 KiB spillover) and a stop flag, but
+//! receives an `Arc<BlobStore>` (for >256 KiB spillover) and a stop flag, but
 //! **no `EventWriter`** — keeping it unit-testable without a database and the
 //! writer ownership in `hh-record`. A future Codex adapter is a new impl + one
 //! new branch in [`select`]; `hh-record` is unchanged.

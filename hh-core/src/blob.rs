@@ -158,6 +158,48 @@ impl BlobStore {
     pub fn root(&self) -> &Path {
         &self.blobs_dir
     }
+
+    /// Enumerate the BLAKE3 hex hashes of every blob file currently on disk,
+    /// by walking `blobs/<2-char shard>/<64-hex>.zst`. Used by
+    /// [`crate::store::Store::prune_orphan_blobs`] and
+    /// [`crate::store::Store::store_stats`] for orphan detection and footprint
+    /// accounting (Area 3). Returns hashes in arbitrary directory order;
+    /// defensively skips entries whose names are not a well-formed
+    /// `<hash>.zst`, so a stray file in the blobs dir never panics.
+    pub fn iter_hashes(&self) -> Result<Vec<String>> {
+        let mut out = Vec::new();
+        if !self.blobs_dir.exists() {
+            return Ok(out);
+        }
+        for shard in fs::read_dir(&self.blobs_dir).map_err(|e| BlobError::Io {
+            path: self.blobs_dir.clone(),
+            source: e,
+        })? {
+            let shard = shard.map_err(|e| BlobError::Io {
+                path: self.blobs_dir.clone(),
+                source: e,
+            })?;
+            if !shard.file_type().is_ok_and(|t| t.is_dir()) {
+                continue;
+            }
+            let shard_path = shard.path();
+            for entry in fs::read_dir(&shard_path).map_err(|e| BlobError::Io {
+                path: shard_path.clone(),
+                source: e,
+            })? {
+                let entry = entry.map_err(|e| BlobError::Io {
+                    path: shard_path.clone(),
+                    source: e,
+                })?;
+                if let Some(hash) = entry.file_name().to_string_lossy().strip_suffix(".zst") {
+                    if is_valid_hash(hash) {
+                        out.push(hash.to_string());
+                    }
+                }
+            }
+        }
+        Ok(out)
+    }
 }
 
 /// Create a directory with `0700` permissions (NFR-4). On Unix the mode is set

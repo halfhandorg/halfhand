@@ -1,0 +1,79 @@
+name: bench (nightly)
+
+# Runs the criterion benches once a night and fails on >15% regression vs the
+# previous nightly's baseline (CLAUDE.md v1.0.0 addendum / NFR-1). Deliberately
+# not part of per-PR CI: criterion benches are slow relative to the rest of
+# `ci.yml`, and a single run is dominated by runner hardware, not code — only
+# the trend across runs on the same runner class is meaningful. `just bench`
+# runs the same benches locally.
+
+on:
+  schedule:
+    - cron: "23 9 * * *" # 09:23 UTC daily; off the hour, staggered from fuzz (09:17)
+  workflow_dispatch: # manual trigger
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  bench:
+    name: bench + regression gate
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+
+      # Rolling baseline: a unique key per run (always a "miss") restores the
+      # most recent prior baseline via the `restore-keys` prefix, then this run
+      # seeds a fresh baseline that the cache saves at job end. The unique key
+      # is what makes actions/cache re-save every run (it won't re-save on a
+      # hit), so the baseline tracks the last *passing* run. Compare is same
+      # runner class (ubuntu-latest pool), so the 15% threshold absorbs pool
+      # variance rather than absolute hardware differences.
+      - name: Restore previous run's baseline
+        id: restore-baseline
+        uses: actions/cache@v4
+        with:
+          path: bench-baseline
+          key: bench-baseline-${{ runner.os }}-${{ github.run_id }}
+          restore-keys: |
+            bench-baseline-${{ runner.os }}-
+
+      - name: cargo bench (all targets, --features fuzzing for adapter_jsonl)
+        run: cargo bench -p hh-core --features fuzzing --locked
+
+      # Fails (exit 2) if any bench's median time regressed >15% vs the baseline.
+      # First run after a cache eviction has no baseline → every bench reports
+      # "establishing" and the step passes, seeding the baseline for next time.
+      - name: Compare vs baseline (>15% regression fails)
+        run: |
+          python3 .github/scripts/bench_compare.py \
+            --current target/criterion \
+            --baseline bench-baseline \
+            --threshold 0.15
+
+      # Seed the baseline with THIS run's results so the next nightly compares
+      # against it. `if: success()` (the default) means a regressed run never
+      # becomes the new baseline — the good baseline is preserved until the
+      # regression is fixed or the baseline is intentionally refreshed.
+      - name: Seed baseline for next run
+        run: |
+          mkdir -p bench-baseline
+          find target/criterion -path '*/new/estimates.json' | while read -r est; do
+            rel="${est#target/criterion/}"          # <group>/<bench>/new/estimates.json
+            rel="$(dirname "$(dirname "$rel")")"    # <group>/<bench>
+            mkdir -p "bench-baseline/$rel"
+            cp "$est" "bench-baseline/$rel/estimates.json"
+          done
+          echo "Seeded baseline:"
+          find bench-baseline -name estimates.json | sort
+
+      - name: Upload criterion output + baseline
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: bench-nightly-${{ github.run_id }}
+          path: |
+            target/criterion
+            bench-baseline
+          if-no-files-found: ignore

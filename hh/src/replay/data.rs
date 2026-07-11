@@ -178,4 +178,59 @@ mod tests {
             .unwrap();
         assert_eq!(from_result.id, call_id);
     }
+
+    /// Area 2 big-session hardening: the body cache must stay bounded at
+    /// [`CACHE_CAPACITY`] (50) regardless of how many distinct events are
+    /// viewed — scrolling a 100k-event session must not grow memory unbounded.
+    /// This is the structural guard that the LRU from beta still holds; a
+    /// regression to an unbounded `HashMap` cache would blow this assertion.
+    #[test]
+    fn get_evicts_lru_to_stay_bounded_at_capacity() {
+        let (_tmp, store) = open();
+        let created = store.create_session(&new_session()).unwrap();
+        let writer = store.event_writer().unwrap();
+        // Append 60 distinct events — 10 more than the 50-entry cache cap — so
+        // the first 10 are evicted once the cache fills.
+        let mut ids = Vec::new();
+        for i in 0..60 {
+            let id = writer
+                .append_event(Event {
+                    session_id: created.id.clone(),
+                    ts_ms: i,
+                    kind: EventKind::AgentMessage,
+                    step: Some(i / 4 + 1),
+                    summary: format!("event {i}"),
+                    body_json: Some(serde_json::json!({"text": "x"})),
+                    blob_hash: None,
+                    blob_size: None,
+                    correlates: None,
+                })
+                .unwrap();
+            ids.push(id);
+        }
+        writer.finish().unwrap();
+
+        let mut data = ReplayData::new(store);
+        // Fetch all 60 distinct ids; the cache can hold only 50.
+        for &id in &ids {
+            let detail = data.get(id).unwrap();
+            assert_eq!(detail.id, id);
+        }
+        assert_eq!(
+            data.cache.len(),
+            50,
+            "cache is bounded at CACHE_CAPACITY after 60 distinct fetches"
+        );
+
+        // Re-fetch an evicted id (the first one inserted is the LRU victim).
+        // The put re-inserts it and evicts the current LRU, so the cache stays
+        // full at 50 — never grows.
+        let evicted = data.get(ids[0]).unwrap();
+        assert_eq!(evicted.id, ids[0]);
+        assert_eq!(
+            data.cache.len(),
+            50,
+            "re-fetching an evicted id evicts the LRU; cache stays bounded"
+        );
+    }
 }

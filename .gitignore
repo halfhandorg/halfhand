@@ -24,3 +24,6 @@ target
 .junie/
 .claude/
 hh/tests/fixtures/claude_jsonl/
+# Nightly bench-regression baseline (actions/cache artifact, not committed).
+# target/criterion (criterion output) is already ignored via target/.
+bench-baseline/

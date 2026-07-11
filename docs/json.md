@@ -1,15 +1,18 @@
 # Halfhand JSON schema
 
 `hh` emits stable, documented JSON for machine consumption. There are two
-shapes: a **session object** (one row in `hh list --json`) and an **event
-object** (the unit of `hh inspect --json`). Every object carries a `schema`
-field naming the version of this document it conforms to.
+core shapes: a **session object** (one row in `hh list --json`) and an
+**event object** (the unit of `hh inspect --json`). Every object carries a
+`schema` field naming the version of this document it conforms to.
 
 | Command | Shape | Form |
 |---|---|---|
 | `hh list --json` | array of session objects | one JSON array |
 | `hh inspect --json` | event objects, one per event, in `(ts_ms, id)` order | NDJSON — one object per line |
 | `hh inspect --json --step N` | a single step object | one JSON object |
+
+The diagnostic/lifecycle commands also emit `schema:1` objects; they are
+documented on their own pages and linked from [Other JSON outputs](#other-json-outputs).
 
 Consumers should gate on `schema` before reading any other field. Unknown
 fields must be ignored (additive changes bump `schema`; we never silently
@@ -125,3 +128,16 @@ places the real content in `body`, so consumers never handle the
 `{"overflow": true, ...}` envelope. To fetch raw file-change content
 yourself, read the blob at `blobs/<hash[0..2]>/<hash>.zst` (zstd-compressed,
 BLAKE3-keyed) using `before_hash` / `after_hash`.
+
+---
+
+## Other JSON outputs
+
+These commands emit their own `schema:1` objects (not session/event objects).
+They are documented in full on their own pages:
+
+| Command | Shape | Docs |
+|---|---|---|
+| `hh doctor --json` | `{ schema, status, checks: [{ name, status, detail }] }` | [`docs/doctor.md`](doctor.md) |
+| `hh gc --json` | `{ schema, orphan_files_removed, orphan_bytes_reclaimed, orphan_rows_removed, vacuumed }` | [`docs/gc.md`](gc.md) |
+| `hh stats --json` | `{ schema, sessions, events, blobs: {…}, disk: {…}, largest_sessions: [{ id, short_id, events }] }` | [`docs/stats.md`](stats.md) |

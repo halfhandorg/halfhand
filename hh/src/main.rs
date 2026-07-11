@@ -42,6 +42,8 @@ fn run(cli: Cli) -> anyhow::Result<ExitCode> {
         Command::Delete(args) => delete_command(&args),
         Command::McpProxy(args) => mcp_proxy_command(args),
         Command::Doctor(args) => doctor_command(&args),
+        Command::Gc(args) => gc_command(&args),
+        Command::Stats(args) => stats_command(&args),
     }
 }
 
@@ -462,6 +464,196 @@ fn check_watcher_smoke() -> DoctorCheck {
         Ok(()) => DoctorCheck::pass(NAME, "file-change event delivered"),
         Err(reason) => DoctorCheck::fail(NAME, reason),
     }
+}
+
+/// `hh gc` (Area 3): reclaim space. Prunes orphaned blob files and stale
+/// `blobs` rows (files leaked by a crash between `BlobStore::put` and the
+/// referencing event's commit, or `blobs` rows whose backing file was deleted
+/// out of band), then `VACUUM`s `hh.db` to shrink it on disk (skippable with
+/// `--no-vacuum`). Safe: it only removes blobs no live event references, never
+/// referenced data. Reports what was reclaimed.
+fn gc_command(args: &cli::GcArgs) -> anyhow::Result<ExitCode> {
+    let (store, _paths, _config) = open_store()?;
+    let prune = store
+        .prune_orphan_blobs()
+        .map_err(|e| anyhow::anyhow!("could not prune orphan blobs\n  why: {e}"))?;
+    let vacuumed = if args.no_vacuum {
+        false
+    } else {
+        store.vacuum().map_err(|e| {
+            anyhow::anyhow!(
+                "could not vacuum the database\n  why: {e}\n  hint: ensure no other `hh` process is using the data dir, or re-run with `hh gc --no-vacuum`"
+            )
+        })?;
+        true
+    };
+    if args.json {
+        let obj = serde_json::json!({
+            "schema": inspect::SCHEMA_VERSION,
+            "orphan_files_removed": prune.orphan_files_removed,
+            "orphan_bytes_reclaimed": prune.orphan_bytes_reclaimed,
+            "orphan_rows_removed": prune.orphan_rows_removed,
+            "vacuumed": vacuumed,
+        });
+        println!("{obj}");
+    } else {
+        print!("{}", render_gc_plain(&prune, vacuumed, render::use_color()));
+    }
+    Ok(ExitCode::SUCCESS)
+}
+
+/// Render the `hh gc` outcome as plain lines (Area 3). Factored out so a
+/// snapshot test can lock the human-readable output without a TTY or real data
+/// dir. `color=false` keeps the snapshot deterministic.
+fn render_gc_plain(prune: &hh_core::PruneStats, vacuumed: bool, color: bool) -> String {
+    use std::fmt::Write;
+    let mut out = String::new();
+    let check = if color {
+        "✓".green().to_string()
+    } else {
+        "✓".to_string()
+    };
+    let dot = if color {
+        "●".dimmed().to_string()
+    } else {
+        "●".to_string()
+    };
+    let _ = writeln!(
+        out,
+        "{check} Pruned {files} orphan blob file(s) · {bytes} reclaimed · {rows} stale row(s) removed",
+        files = prune.orphan_files_removed,
+        bytes = render::humanize_bytes(prune.orphan_bytes_reclaimed),
+        rows = prune.orphan_rows_removed,
+    );
+    if vacuumed {
+        let _ = writeln!(
+            out,
+            "{check} Vacuumed the database (hh.db compacted on disk)"
+        );
+    } else {
+        let _ = writeln!(
+            out,
+            "{dot} Skipped vacuum (--no-vacuum; run `hh gc` without it to compact)"
+        );
+    }
+    out
+}
+
+/// `hh stats` (Area 3): a read-only store inventory — session/event/blob
+/// counts, disk usage (the `hh.db` file plus its `-wal`/`-shm` sidecars and the
+/// compressed blob directory), and the largest sessions by event count.
+fn stats_command(args: &cli::StatsArgs) -> anyhow::Result<ExitCode> {
+    let (store, paths, _config) = open_store()?;
+    let stats = store
+        .store_stats(args.top)
+        .map_err(|e| anyhow::anyhow!("could not gather store stats\n  why: {e}"))?;
+    if args.json {
+        let largest: Vec<serde_json::Value> = stats
+            .largest_sessions
+            .iter()
+            .map(|s| {
+                serde_json::json!({
+                    "id": s.id,
+                    "short_id": s.short_id,
+                    "events": s.event_count,
+                })
+            })
+            .collect();
+        let obj = serde_json::json!({
+            "schema": inspect::SCHEMA_VERSION,
+            "sessions": stats.sessions,
+            "events": stats.events,
+            "blobs": {
+                "count": stats.blobs_count,
+                "uncompressed_bytes": stats.blobs_uncompressed_bytes,
+                "on_disk_bytes": stats.blobs_dir_bytes,
+            },
+            "disk": {
+                "db_bytes": stats.db_bytes,
+                "wal_bytes": stats.wal_bytes,
+                "shm_bytes": stats.shm_bytes,
+                "blobs_dir_bytes": stats.blobs_dir_bytes,
+                "total_bytes": stats.db_bytes + stats.wal_bytes + stats.shm_bytes + stats.blobs_dir_bytes,
+            },
+            "largest_sessions": largest,
+        });
+        println!("{obj}");
+    } else {
+        print!(
+            "{}",
+            render_stats_plain(&stats, &paths.data_dir, render::use_color())
+        );
+    }
+    Ok(ExitCode::SUCCESS)
+}
+
+/// Render the `hh stats` inventory as a plain key/value summary (Area 3).
+/// Factored out for a snapshot test. Only the data-dir path and the
+/// largest-sessions short ids (fixed 6-char width) carry the accent, matching
+/// `hh list`'s "color the id, not the numbers" convention so column alignment
+/// stays stable under color.
+fn render_stats_plain(
+    stats: &hh_core::StoreStats,
+    data_dir: &std::path::Path,
+    color: bool,
+) -> String {
+    use std::fmt::Write;
+    let mut out = String::new();
+    let dir = if color {
+        data_dir.display().to_string().cyan().to_string()
+    } else {
+        data_dir.display().to_string()
+    };
+    let _ = writeln!(out, "hh stats — {dir}");
+    let _ = writeln!(out);
+
+    let total_disk = stats.db_bytes + stats.wal_bytes + stats.shm_bytes + stats.blobs_dir_bytes;
+    let rows: [(&str, String); 4] = [
+        ("sessions", stats.sessions.to_string()),
+        ("events", stats.events.to_string()),
+        (
+            "blobs",
+            format!(
+                "{} ({} on disk, {} uncompressed)",
+                stats.blobs_count,
+                render::humanize_bytes(stats.blobs_dir_bytes),
+                render::humanize_bytes(stats.blobs_uncompressed_bytes),
+            ),
+        ),
+        (
+            "disk",
+            format!(
+                "hh.db {} · WAL {} · blobs {} · total {}",
+                render::humanize_bytes(stats.db_bytes),
+                render::humanize_bytes(stats.wal_bytes),
+                render::humanize_bytes(stats.blobs_dir_bytes),
+                render::humanize_bytes(total_disk),
+            ),
+        ),
+    ];
+    for (label, value) in &rows {
+        let _ = writeln!(out, "{label:<8}  {value}");
+    }
+
+    if !stats.largest_sessions.is_empty() {
+        let _ = writeln!(out);
+        let _ = writeln!(out, "largest sessions");
+        let w = stats
+            .largest_sessions
+            .iter()
+            .map(|s| s.event_count.to_string().len())
+            .max()
+            .unwrap_or(0);
+        for s in &stats.largest_sessions {
+            let sid = if color {
+                s.short_id.cyan().to_string()
+            } else {
+                s.short_id.clone()
+            };
+            let _ = writeln!(out, "  {sid}  {:>w$} events", s.event_count, w = w);
+        }
+    }
+    out
 }
 
 /// Print the one-line epilogue (FR-1.6):
@@ -945,5 +1137,86 @@ mod tests {
         assert_eq!(doctor_check_to_json(&pass)["status"], "ok");
         assert_eq!(doctor_check_to_json(&fail)["status"], "fail");
         assert_eq!(doctor_check_to_json(&fail)["name"], "database integrity");
+    }
+
+    /// `hh gc` plain output: a pruned line + a vacuum line (color=false for a
+    /// deterministic snapshot), and the `--no-vacuum` skip line on the second
+    /// variant. Locks the glyphs and the humanized bytes the user sees.
+    #[test]
+    fn gc_plain_renders_prune_and_vacuum() {
+        let prune = hh_core::PruneStats {
+            orphan_files_removed: 3,
+            orphan_bytes_reclaimed: 1_572_864, // 1.5 MiB
+            orphan_rows_removed: 2,
+        };
+        let out = render_gc_plain(&prune, true, false);
+        insta::assert_snapshot!(out);
+        assert!(out.contains("Pruned 3 orphan blob file(s)"));
+        assert!(
+            out.contains("1.5 MiB"),
+            "bytes must humanize to 1.5 MiB: {out}"
+        );
+        assert!(out.contains("Vacuumed"));
+        // --no-vacuum path shows the skip line instead.
+        let out2 = render_gc_plain(&prune, false, false);
+        assert!(out2.contains("Skipped vacuum"));
+    }
+
+    /// `hh stats` plain output: counts, disk usage, and the largest-sessions
+    /// list (color=false for a deterministic snapshot). Locks the layout and the
+    /// humanized bytes the user sees.
+    #[test]
+    fn stats_plain_renders_counts_and_largest() {
+        let stats = hh_core::StoreStats {
+            sessions: 2,
+            events: 5,
+            blobs_count: 1,
+            blobs_uncompressed_bytes: 14,
+            db_bytes: 3_145_728, // 3.0 MiB
+            wal_bytes: 0,
+            shm_bytes: 32_768,      // 32.0 KiB
+            blobs_dir_bytes: 1_536, // 1.5 KiB
+            largest_sessions: vec![
+                hh_core::LargestSession {
+                    id: "00000000-0000-7000-8000-000000a1b2c3".into(),
+                    short_id: "a1b2c3".into(),
+                    event_count: 4,
+                },
+                hh_core::LargestSession {
+                    id: "00000000-0000-7000-8000-0000000d4e5f6".into(),
+                    short_id: "d4e5f6".into(),
+                    event_count: 1,
+                },
+            ],
+        };
+        let out = render_stats_plain(
+            &stats,
+            std::path::Path::new("/home/me/.local/share/halfhand"),
+            false,
+        );
+        insta::assert_snapshot!(out);
+        assert!(
+            out.contains("a1b2c3"),
+            "largest session short id appears: {out}"
+        );
+        assert!(out.contains("largest sessions"));
+        assert!(out.contains("4 events"));
+        assert!(
+            out.contains("3.0 MiB"),
+            "db bytes humanize to 3.0 MiB: {out}"
+        );
+        assert!(!out.contains('\x1b'), "color=false must emit no escapes");
+    }
+
+    /// `humanize_bytes` covers plain bytes and each binary unit without f64.
+    #[test]
+    fn humanize_bytes_units() {
+        assert_eq!(render::humanize_bytes(0), "0 B");
+        assert_eq!(render::humanize_bytes(1023), "1023 B");
+        assert_eq!(render::humanize_bytes(1024), "1.0 KiB");
+        assert_eq!(render::humanize_bytes(1_572_864), "1.5 MiB");
+        assert_eq!(render::humanize_bytes(3_145_728), "3.0 MiB");
+        assert_eq!(render::humanize_bytes(1u64 << 30), "1.0 GiB");
+        assert_eq!(render::humanize_bytes(1u64 << 40), "1.0 TiB");
     }
 }
