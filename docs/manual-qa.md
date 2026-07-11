@@ -23,7 +23,7 @@ discharged — by an automated test, by this manual checklist, or both.
 | AC-3 | `hh mcp-proxy` records correlated JSON-RPC traffic, spills ≥256 KiB payloads to the blob store, attaches to a parent session via `HH_SESSION_ID`, and records round-trip `latency_ms`. | `mcp_proxy_*` tests (FR-2) — `hh/tests/cli.rs`. |
 | AC-4 | Crash-safety: SIGKILL of `hh` mid-recording leaves a readable session that the next invocation reconciles to `interrupted`. | `sigkill_of_hh_mid_run_leaves_interrupted_session` (FR-1.7) — `hh/tests/cli.rs`. |
 | AC-5 | `hh inspect --json` / `hh list --json` emit output `jq` can parse and that conforms to `docs/json.md` (schema:1, documented fields). | `inspect_json_is_valid_against_jq`, `list_shows_aligned_table_and_json` (FR-4 / FR-5) — `hh/tests/cli.rs`. |
-| AC-6 | A fresh machine can install `hh` and complete the 30-second quickstart. | Manual checklist below. CI already builds from a clean checkout on Ubuntu, macOS, and Windows (build-only) on every push — the automatable part of "fresh-machine". |
+| AC-6 | A fresh machine can install `hh` and complete the 30-second quickstart. | Manual checklist below. CI already builds and tests from a clean checkout on Ubuntu, macOS, and Windows on every push — the automatable part of "fresh-machine". |
 
 If a row above has no automated test listed, it is in the manual checklists
 below. Anything not in CI is run by hand for each release and the result
@@ -88,9 +88,9 @@ The only thing left to a human is the live-API-key smoke against the genuine
 ## AC-6 manual checklist — fresh-machine experience
 
 The automatable part (build from a clean checkout on each OS) already runs in
-`ci.yml` on every push: `cargo build/test --workspace --locked` on
-`ubuntu-latest` and `macos-latest`, plus a build-only job on `windows-latest`
-(Windows PTY is best-effort per SRS §2.2). The release workflow
+`ci.yml` on every push: `cargo test --workspace --locked` on `ubuntu-latest`,
+`macos-latest`, and `windows-latest`, plus a build-only MSRV leg on all three
+(see `docs/platforms.md`). The release workflow
 (`.github/workflows/release.yml`) additionally builds release binaries for
 x86_64/aarch64 on macOS and Linux (musl where feasible) from a clean checkout.
 
@@ -117,3 +117,21 @@ checkout:
 
 Record the result (pass/fail per line) in the release announcement. A failure
 on any line blocks the release.
+
+---
+
+## Windows interactive-stdin checklist (ConPTY)
+
+CI on Windows covers ConPTY output capture, file changes, exit codes, and
+console geometry, but not an interactive stdin round-trip (tracked in
+[#12](https://github.com/halfhandorg/halfhand/issues/12); background in
+`docs/platforms.md`). Run by hand on a Windows machine per release:
+
+- [ ] **Interactive echo.** In Windows Terminal, `hh run -- python -i`
+  (or any REPL): typed input reaches the child, the child's echo renders,
+  and Ctrl-C/`exit()` ends the session with an epilogue.
+- [ ] **Keystroke capture opt-in.** `hh run --record-input -- python -i`,
+  type a line, exit; `hh inspect last --json` shows a `terminal_output`
+  event with `"direction": "input"` carrying the typed bytes.
+- [ ] **Raw-mode restore.** After the session ends, the console echoes
+  normally (no stuck raw mode) and colors still render.

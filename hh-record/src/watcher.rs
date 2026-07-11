@@ -506,7 +506,7 @@ fn process(
         return Ok(());
     };
     let ts_ms = i64::try_from(start.elapsed().as_millis()).unwrap_or(i64::MAX);
-    let rel_str = rel.to_string_lossy().to_string();
+    let rel_str = rel_to_slash(rel);
 
     let (before_hash, after_hash, blob_hash, blob_size, is_binary) =
         if change_kind == ChangeKind::Deleted {
@@ -580,6 +580,22 @@ fn process(
     Ok(())
 }
 
+/// Render a relative path with `/` separators regardless of platform, so
+/// `file_changes.path` (DR-2: a public, documented schema) stores one canonical
+/// form. On Windows `Path::to_string_lossy` would yield `sub\nested.txt`,
+/// breaking cross-platform queries like `path LIKE 'target/%'` and making the
+/// same recording render differently per OS.
+fn rel_to_slash(rel: &Path) -> String {
+    let mut out = String::new();
+    for component in rel.components() {
+        if !out.is_empty() {
+            out.push('/');
+        }
+        out.push_str(&component.as_os_str().to_string_lossy());
+    }
+    out
+}
+
 /// Binary heuristic (FR-1.4): a NUL byte in the first 8 KiB.
 fn is_binary(content: &[u8]) -> bool {
     content.iter().take(8192).any(|&b| b == 0)
@@ -598,6 +614,18 @@ fn truncate_summary(s: &str) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn rel_to_slash_joins_components_with_forward_slashes() {
+        // Typed PathBuf fixtures: built with join() so the intermediate
+        // separator is the platform-native one, yet the stored form must
+        // always be `/`-separated.
+        let nested = PathBuf::from("sub").join("dir").join("nested.txt");
+        assert_eq!(rel_to_slash(&nested), "sub/dir/nested.txt");
+        let flat = PathBuf::from("fixture_output.txt");
+        assert_eq!(rel_to_slash(&flat), "fixture_output.txt");
+        assert_eq!(rel_to_slash(Path::new("")), "");
+    }
 
     #[test]
     fn nul_byte_is_binary() {

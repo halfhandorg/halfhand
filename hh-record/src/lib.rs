@@ -11,6 +11,10 @@
 //! `docs/adr/0001-threads-vs-tokio.md`.
 
 #![deny(missing_docs)]
+// Justification: fires only when clippy targets Windows, where the wrapped
+// `hh_core::Error` payloads exceed the lint's 128-byte budget (see the same
+// allow in hh-core); errors are cold paths in the recorder.
+#![allow(clippy::result_large_err)]
 
 mod agent;
 mod error;

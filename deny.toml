@@ -17,7 +17,17 @@ yanked = "deny"
 # advisory). Pulled in transitively by `ratatui` 0.26.3 (FR-3's TUI engine)
 # for its macro-generated widget code; we never depend on `paste` directly.
 # Tracked for revisit on the next ratatui upgrade.
-ignore = ["RUSTSEC-2017-0008", "RUSTSEC-2024-0436"]
+#
+# RUSTSEC-2026-0009: `time` <0.3.47 can exhaust the stack when *parsing*
+# attacker-controlled input of unbounded length. The fixed release (0.3.47)
+# declares rust-version 1.88, which conflicts with the workspace MSRV of 1.75
+# (Cargo.toml `rust-version`; CI builds --locked on exactly that toolchain),
+# so `time` is held at 0.3.41 — the newest MSRV-compatible release. Exposure
+# is minimal: hh parses RFC3339 timestamps only from newline-bounded JSONL
+# transcript lines written locally by Claude Code (adapter::ts_ms_from_iso);
+# there is no network input (NFR-2) and no unbounded parse. Revisit when the
+# MSRV policy is next bumped (>=1.88 lets `cargo update -p time` close this).
+ignore = ["RUSTSEC-2017-0008", "RUSTSEC-2024-0436", "RUSTSEC-2026-0009"]
 
 [licenses]
 # Halfhand is Apache-2.0 (SRS §1). Allow permissive licenses compatible with

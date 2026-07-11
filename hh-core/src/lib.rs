@@ -8,6 +8,10 @@
 //! here) and `clippy::pedantic` is enabled via the workspace lint table.
 
 #![deny(missing_docs)]
+// Justification: fires only when clippy targets Windows, where the SQLite and
+// TOML error payloads push `error::Error` past the lint's 128-byte budget;
+// errors are cold paths here and boxing every variant is not worth the churn.
+#![allow(clippy::result_large_err)]
 
 pub mod adapter;
 pub mod blob;

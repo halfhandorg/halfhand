@@ -1039,7 +1039,13 @@ fn secure_create_dir(path: &Path) -> Result<()> {
     }
     #[cfg(not(unix))]
     {
-        let _ = std::fs::create_dir_all(path);
+        // No mode bits off Unix: rely on the profile-private default ACLs of
+        // %LOCALAPPDATA%/%APPDATA% (see docs/platforms.md) and surface real
+        // create failures instead of swallowing them.
+        std::fs::create_dir_all(path).map_err(|e| StorageError::Open {
+            path: path.to_path_buf(),
+            source: e,
+        })?;
     }
     Ok(())
 }

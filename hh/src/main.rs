@@ -4,6 +4,11 @@
 //! recorder (`hh_record`). `hh run` is fully implemented (FR-1); the other
 //! subcommands return a structured "not implemented" error for now.
 
+// Justification: fires only when clippy targets Windows, where the propagated
+// `hh_core::Error` payloads exceed the lint's 128-byte budget (see the same
+// allow in hh-core); errors are cold paths in the CLI.
+#![allow(clippy::result_large_err)]
+
 include!(concat!(env!("OUT_DIR"), "/hh_version.rs"));
 
 mod cli;
@@ -268,7 +273,7 @@ fn delete_command(args: &cli::DeleteArgs) -> anyhow::Result<ExitCode> {
 /// non-TTY stdin (piped/redirected) is refused with an actionable error
 /// pointing at `--yes`, so deletion can never happen by accident in a script.
 fn confirm_delete(session: &hh_core::SessionRow) -> anyhow::Result<()> {
-    use std::io::{IsTerminal, Write};
+    use std::io::Write;
     if !std::io::stdin().is_terminal() {
         anyhow::bail!(
             "refusing to delete without confirmation\n  \

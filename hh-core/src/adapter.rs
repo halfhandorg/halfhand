@@ -791,18 +791,28 @@ pub(crate) fn ts_ms_from_iso(iso: &str, started_at_unix_ms: i64) -> Option<i64> 
 #[must_use]
 fn claude_projects_dir() -> Option<PathBuf> {
     let home = std::env::var_os("HOME").or_else(|| std::env::var_os("USERPROFILE"))?;
-    Some(PathBuf::from(home).join(".claude").join("projects"))
+    Some(projects_dir_under(&PathBuf::from(home)))
 }
 
-/// Encode `cwd` as a Claude slug: every `/` (and `\`, `.`) becomes `-`. This is
-/// inferred from a sample transcript (the SRS is absent); it is a *hint only* —
+/// The projects directory under a given home directory. Split from
+/// [`claude_projects_dir`] so the path shape is unit-testable without mutating
+/// process-global env vars (`HOME`/`USERPROFILE`) across parallel tests.
+#[must_use]
+pub(crate) fn projects_dir_under(home: &Path) -> PathBuf {
+    home.join(".claude").join("projects")
+}
+
+/// Encode `cwd` as a Claude slug: every `/`, `\`, `.` — and `:`, so a Windows
+/// drive-letter cwd like `C:\Users\me` yields `C--Users-me`, matching how
+/// Claude Code names project dirs for Windows paths — becomes `-`. This is
+/// inferred from sample transcripts (the SRS is absent); it is a *hint only* —
 /// the tailer falls back to a cwd-based scan when the slug dir misses.
 #[must_use]
 pub(crate) fn slugify(cwd: &Path) -> String {
     cwd.to_string_lossy()
         .chars()
         .map(|c| match c {
-            '/' | '\\' | '.' => '-',
+            '/' | '\\' | '.' | ':' => '-',
             other => other,
         })
         .collect()
@@ -1004,7 +1014,40 @@ mod tests {
             slugify(Path::new("/home/saadman/switch/.claude/worktrees/x")),
             "-home-saadman-switch--claude-worktrees-x"
         );
-        assert_eq!(slugify(Path::new("C:\\Users\\me")), "C:-Users-me");
+    }
+
+    #[test]
+    fn slugify_windows_style_cwds() {
+        // Typed PathBuf fixtures (not string munging): Windows-style cwds are
+        // constructed as PathBuf values and slugified. `slugify` operates on
+        // the lossy string form, so `\` components behave identically on every
+        // host platform — these assertions hold on Unix CI too.
+        let drive_root = PathBuf::from(r"C:\Users\me");
+        assert_eq!(slugify(&drive_root), "C--Users-me");
+        let nested = PathBuf::from(r"C:\Users\me\my.project\sub");
+        assert_eq!(slugify(&nested), "C--Users-me-my-project-sub");
+        // A UNC-style path: every separator collapses to `-`.
+        let unc = PathBuf::from(r"\\server\share\proj");
+        assert_eq!(slugify(&unc), "--server-share-proj");
+    }
+
+    #[test]
+    fn projects_dir_shape_per_platform_home() {
+        // Typed PathBuf fixtures for both home layouts. Built with join() so
+        // the expected value uses the platform-native separator — this is a
+        // path-shape test, not a string test.
+        let unix_home = PathBuf::from("/home/me");
+        assert_eq!(
+            projects_dir_under(&unix_home),
+            PathBuf::from("/home/me").join(".claude").join("projects")
+        );
+        let win_home = PathBuf::from(r"C:\Users\me");
+        assert_eq!(
+            projects_dir_under(&win_home),
+            PathBuf::from(r"C:\Users\me")
+                .join(".claude")
+                .join("projects")
+        );
     }
 
     #[test]

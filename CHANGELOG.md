@@ -11,6 +11,36 @@ in CI rather than tracking `latest` until 1.0.
 
 ## [Unreleased]
 
+### Added
+- Windows is a supported platform (amends SRS §2.2's build-only status): the
+  full test suite runs on `windows-latest` in CI, exercising portable-pty's
+  ConPTY backend end-to-end with Python and PowerShell fixture-agent
+  variants. Platform behavior, permission semantics (Windows ACL note), and
+  honest limitations are documented in `docs/platforms.md`; genuinely missing
+  pieces are tracked in issues #11 (resize forwarding) and #12 (interactive
+  stdin CI coverage).
+- CI matrix is now `{ubuntu, macos, windows} × {stable, MSRV}`; the MSRV leg
+  builds `--locked` on exactly the `rust-version` toolchain (1.75) declared
+  in `Cargo.toml`, with a guard that the pin cannot drift from the manifest.
+
+### Changed
+- Recorded relative paths (`file_changes.path`, event summaries) are now
+  always `/`-separated on every platform (previously platform-native, which
+  would have stored `sub\file.txt` on Windows). Recordings made on one OS
+  now query and render identically on another (DR-2).
+- The Claude Code adapter's project-dir slug also maps `:` to `-`, so a
+  Windows cwd like `C:\Users\me\proj` resolves to `C--Users-me-proj` before
+  falling back to the cwd scan.
+- `hh` enables Windows virtual terminal processing via crossterm at startup;
+  when the console cannot support ANSI, colored output degrades to plain
+  text instead of escape garbage.
+- `Cargo.lock` is kept MSRV(1.75)-compatible; `lru` is held on the 0.16 line
+  (0.17+ needs edition-2024 tooling) and several transitive deps resolved to
+  MSRV-compatible releases. `time` is held at 0.3.41 (the fix for
+  RUSTSEC-2026-0009 requires rustc 1.88); the advisory is ignored in
+  `deny.toml` with a written exposure justification and a revisit note tied
+  to the next MSRV bump.
+
 ## [0.1.0-beta.1] — 2026-07-07
 
 First public beta. Local-first CLI flight recorder for AI agents: records an

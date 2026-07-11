@@ -46,8 +46,10 @@ similar = "2.7"
 # event bodies, so scrolling the timeline does not re-hit SQLite/blob storage
 # for rows already visited. Pinned >=0.16.3 (RUSTSEC-2026-0002: 0.12's
 # `IterMut` unsound; fixed upstream, we never use `iter_mut` but take the fix
-# anyway since it's a free version bump).
-lru = "0.18"
+# anyway since it's a free version bump). Held on the 0.16 line: 0.17+ pulls
+# hashbrown 0.17 (edition 2024), which cannot build on the workspace MSRV
+# (rust-version 1.75).
+lru = "0.16.3"
 
 [dev-dependencies]
 # Justification: integration tests create throwaway data dirs (CLAUDE.md:

@@ -11,16 +11,32 @@ use std::io::IsTerminal;
 use hh_core::SessionStatus;
 use owo_colors::OwoColorize;
 
-/// Whether to emit ANSI color on stdout: disabled by `NO_COLOR` or non-TTY
-/// output (CLAUDE.md: plain, pipe-safe).
+/// Whether the terminal can render ANSI escapes. Always true on Unix; on
+/// Windows this asks crossterm, which enables virtual terminal processing on
+/// the console as a side effect (and caches the result). Modern terminals
+/// (Windows Terminal) have it on already; legacy conhost needs the enable
+/// call, and if even that fails we fall back to plain output.
+fn ansi_supported() -> bool {
+    #[cfg(windows)]
+    {
+        crossterm::ansi_support::supports_ansi()
+    }
+    #[cfg(not(windows))]
+    {
+        true
+    }
+}
+
+/// Whether to emit ANSI color on stdout: disabled by `NO_COLOR`, non-TTY
+/// output (CLAUDE.md: plain, pipe-safe), or a console without ANSI support.
 pub(crate) fn use_color() -> bool {
-    std::env::var_os("NO_COLOR").is_none() && std::io::stdout().is_terminal()
+    std::env::var_os("NO_COLOR").is_none() && std::io::stdout().is_terminal() && ansi_supported()
 }
 
 /// Whether to emit ANSI color on stderr (error/hint rendering): disabled by
-/// `NO_COLOR` or a non-TTY stderr.
+/// `NO_COLOR`, a non-TTY stderr, or a console without ANSI support.
 pub(crate) fn use_color_stderr() -> bool {
-    std::env::var_os("NO_COLOR").is_none() && std::io::stderr().is_terminal()
+    std::env::var_os("NO_COLOR").is_none() && std::io::stderr().is_terminal() && ansi_supported()
 }
 
 /// The status glyph (CLAUDE.md: `✓ ✗ ●`).

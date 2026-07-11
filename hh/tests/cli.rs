@@ -20,8 +20,45 @@ fn hh() -> Command {
 /// Absolute path to a fixture under `tests/fixtures/`.
 fn fixture(name: &str) -> PathBuf {
     Path::new(env!("CARGO_MANIFEST_DIR"))
-        .join("tests/fixtures")
+        .join("tests")
+        .join("fixtures")
         .join(name)
+}
+
+/// The Python interpreter on PATH for this platform. GitHub's Windows runners
+/// (and the python.org installer) ship `python.exe` without a `python3` alias;
+/// Unix systems conventionally expose `python3`.
+fn python() -> &'static str {
+    if cfg!(windows) {
+        "python"
+    } else {
+        "python3"
+    }
+}
+
+/// A trivial argv that exits 0 (`true` has no Windows counterpart).
+fn true_argv() -> Vec<String> {
+    if cfg!(windows) {
+        ["cmd", "/C", "exit", "0"].map(String::from).to_vec()
+    } else {
+        vec!["true".to_string()]
+    }
+}
+
+/// The fixture-agent argv for this platform: POSIX `sh` where available, the
+/// behavior-identical Python port on Windows (exercising ConPTY, FR-1.1).
+fn fixture_agent_argv() -> Vec<String> {
+    if cfg!(windows) {
+        vec![
+            python().to_string(),
+            fixture("fixture_agent.py").to_string_lossy().into_owned(),
+        ]
+    } else {
+        vec![
+            "sh".to_string(),
+            fixture("fixture_agent.sh").to_string_lossy().into_owned(),
+        ]
+    }
 }
 
 #[test]
@@ -135,9 +172,9 @@ impl Temp {
 }
 
 /// Run `hh run -- <fixture>` in `work` with `HH_DATA_DIR=data`, returning the
-/// captured output. stdin is /dev/null so the stdin proxy exits immediately
+/// captured output. stdin is null so the stdin proxy exits immediately
 /// and the test never blocks on a TTY read.
-fn run_fixture(temp: &Temp, args: &[&str]) -> std::process::Output {
+fn run_fixture<S: AsRef<std::ffi::OsStr>>(temp: &Temp, args: &[S]) -> std::process::Output {
     hh().args(["run", "--"])
         .args(args)
         .env("HH_DATA_DIR", temp.data.path())
@@ -149,9 +186,12 @@ fn run_fixture(temp: &Temp, args: &[&str]) -> std::process::Output {
 
 #[test]
 fn run_records_generic_session_with_terminal_and_file_changes() {
+    if cfg!(windows) && !python_available() {
+        eprintln!("skipping fixture-agent test: {} not on PATH", python());
+        return;
+    }
     let temp = Temp::new();
-    let fx = fixture("fixture_agent.sh").to_string_lossy().to_string();
-    let out = run_fixture(&temp, &["sh", &fx]);
+    let out = run_fixture(&temp, &fixture_agent_argv());
 
     // The fixture exits 3; hh propagates the child exit code (FR-1.6).
     assert_eq!(
@@ -239,6 +279,60 @@ fn run_records_generic_session_with_terminal_and_file_changes() {
     assert!(blob_refcount >= 1, "blob should be referenced");
 }
 
+/// The PowerShell variant of the fixture agent (Windows only): the same
+/// record-terminal-output + write-file + exit-3 flow through ConPTY with a
+/// native Windows shell as the child, complementing the Python variant used
+/// by [`run_records_generic_session_with_terminal_and_file_changes`].
+#[cfg(windows)]
+#[test]
+fn run_records_powershell_fixture_agent() {
+    let temp = Temp::new();
+    let fx = fixture("fixture_agent.ps1").to_string_lossy().into_owned();
+    let out = run_fixture(
+        &temp,
+        &[
+            "powershell",
+            "-NoProfile",
+            "-ExecutionPolicy",
+            "Bypass",
+            "-File",
+            &fx,
+        ],
+    );
+    assert_eq!(
+        out.status.code(),
+        Some(3),
+        "hh run should propagate the PowerShell fixture's exit code; stderr: {}",
+        String::from_utf8_lossy(&out.stderr)
+    );
+    let stdout = String::from_utf8_lossy(&out.stdout);
+    assert!(
+        stdout.contains("✓ Recorded session"),
+        "missing epilogue: {stdout}"
+    );
+
+    let conn = open_db(temp.data.path());
+    let (status, exit_code): (String, i64) = conn
+        .query_row(
+            "SELECT status, exit_code FROM sessions ORDER BY started_at DESC LIMIT 1",
+            [],
+            |r| Ok((r.get(0)?, r.get(1)?)),
+        )
+        .unwrap();
+    assert_eq!(status, "error");
+    assert_eq!(exit_code, 3);
+
+    // The file write was captured with a stored (slash-normalized) path.
+    let n: i64 = conn
+        .query_row(
+            "SELECT COUNT(*) FROM file_changes WHERE path = 'fixture_output.txt'",
+            [],
+            |r| r.get(0),
+        )
+        .unwrap();
+    assert!(n >= 1, "expected a file_change row for fixture_output.txt");
+}
+
 #[test]
 fn run_marks_stale_recording_sessions_interrupted_on_next_open() {
     // FR-1.7: a session left in 'recording' (e.g. hh crashed) must be marked
@@ -261,8 +355,8 @@ fn run_marks_stale_recording_sessions_interrupted_on_next_open() {
     }
 
     // Run a real (very short) session to trigger mark_stale_interrupted on open.
-    let out = run_fixture(&temp, &["true"]);
-    assert!(out.status.success(), "true should exit 0");
+    let out = run_fixture(&temp, &true_argv());
+    assert!(out.status.success(), "trivial command should exit 0");
 
     let conn = open_db(temp.data.path());
     let stale_status: String = conn
@@ -287,7 +381,8 @@ fn open_db_after_init(data_dir: &Path) -> Connection {
     // Apply migrations by running a throwaway recording, then delete its row
     // so it does not pollute the stale test. The schema persists.
     let temp_work = tempfile::tempdir().unwrap();
-    hh().args(["run", "--", "true"])
+    hh().args(["run", "--"])
+        .args(true_argv())
         .env("HH_DATA_DIR", data_dir)
         .current_dir(temp_work.path())
         .stdin(Stdio::null())
@@ -300,10 +395,11 @@ fn open_db_after_init(data_dir: &Path) -> Connection {
     conn
 }
 
-/// True if `python3` runs on PATH (the fake_agent fixture needs it). Tests that
-/// need it skip gracefully when absent rather than failing the suite.
-fn python3_available() -> bool {
-    std::process::Command::new("python3")
+/// True if the platform's Python (see [`python`]) runs on PATH (the fake_agent
+/// and mcp fixtures need it). Tests that need it skip gracefully when absent
+/// rather than failing the suite.
+fn python_available() -> bool {
+    std::process::Command::new(python())
         .arg("--version")
         .stdout(Stdio::null())
         .stderr(Stdio::null())
@@ -407,8 +503,8 @@ fn assert_lifecycle_changes(conn: &Connection, blobs: &hh_core::BlobStore) {
 /// ignored paths producing no events, and `exit_code=3`/`status=error`.
 #[test]
 fn run_records_fake_agent_with_full_capture() {
-    if !python3_available() {
-        eprintln!("skipping fake_agent test: python3 not on PATH");
+    if !python_available() {
+        eprintln!("skipping fake_agent test: python not on PATH");
         return;
     }
     let temp = Temp::new();
@@ -417,7 +513,7 @@ fn run_records_fake_agent_with_full_capture() {
     std::fs::write(temp.work.path().join("modified.txt"), "orig\n").unwrap();
 
     let fx = fixture("fake_agent.py").to_string_lossy().to_string();
-    let out = run_fixture(&temp, &["python3", &fx]);
+    let out = run_fixture(&temp, &[python(), &fx]);
     assert_eq!(
         out.status.code(),
         Some(3),
@@ -479,9 +575,48 @@ fn run_records_fake_agent_with_full_capture() {
     );
 }
 
+/// FR-1.1 transparency (Windows/ConPTY): the wrapped program runs inside a
+/// real pseudo console, so `os.get_terminal_size()` reports a nonzero width
+/// even when hh's own stdout is piped, and an ANSI-colored line passes
+/// through. Stdin round-trips through ConPTY are not asserted here — see
+/// docs/platforms.md for the manually-verified interactive story.
+#[cfg(windows)]
+#[test]
+fn run_provides_a_real_conpty_to_the_child() {
+    if !python_available() {
+        eprintln!("skipping ConPTY probe test: python not on PATH");
+        return;
+    }
+    let temp = Temp::new();
+    let fx = fixture("pty_probe.py").to_string_lossy().into_owned();
+    let out = run_fixture(&temp, &[python(), &fx]);
+    assert!(
+        out.status.success(),
+        "pty probe should exit 0; stderr: {}",
+        String::from_utf8_lossy(&out.stderr)
+    );
+    let stdout = String::from_utf8_lossy(&out.stdout);
+    let cols_line = stdout
+        .lines()
+        .find(|l| l.contains("cols="))
+        .unwrap_or_default()
+        .to_string();
+    assert!(
+        !cols_line.contains("cols=0") && cols_line.contains("cols="),
+        "child should see a real console geometry through ConPTY: {stdout}"
+    );
+    assert!(
+        stdout.contains("green-line"),
+        "colored output should pass through: {stdout}"
+    );
+}
+
 /// FR-1.1 transparency: the wrapped program runs in a real PTY, so `tput cols`
 /// succeeds (80 columns, the PTY default), ANSI bytes pass through verbatim, and
-/// stdin is forwarded to the child.
+/// stdin is forwarded to the child. Unix-only: the fixture is POSIX sh and the
+/// raw stdin round-trip is exercised through the PTY line discipline; the
+/// Windows counterpart is [`run_provides_a_real_conpty_to_the_child`].
+#[cfg(unix)]
 #[test]
 fn run_provides_a_real_pty_to_the_child() {
     use std::io::Write;
@@ -594,7 +729,7 @@ fn sigkill_of_hh_mid_run_leaves_interrupted_session() {
 #[test]
 fn list_shows_aligned_table_and_json() {
     let temp = Temp::new();
-    let out = run_fixture(&temp, &["true"]);
+    let out = run_fixture(&temp, &true_argv());
     assert!(out.status.success());
 
     // Table output (pipe → non-TTY → plain, no ANSI).
@@ -683,10 +818,10 @@ fn run_mcp_proxy(temp: &Temp, stdin_bytes: &[u8], server_args: &[&str]) -> std::
         .expect("hh mcp-proxy should exit after stdin EOF")
 }
 
-/// The echo server argv for a given fixture path (`python3 <fixture>`).
+/// The echo server argv for a given fixture path (`<python> <fixture>`).
 fn echo_server_argv() -> Vec<String> {
     let fx = fixture("mcp_echo_server.py").to_string_lossy().into_owned();
-    vec!["python3".into(), fx]
+    vec![python().into(), fx]
 }
 
 /// Count events of a given kind for the most recently started session.
@@ -706,8 +841,8 @@ fn count_events(conn: &Connection, kind: &str) -> i64 {
 /// `correlates` + `latency_ms`, and records notifications. Finalized `ok`.
 #[test]
 fn mcp_proxy_standalone_creates_mcp_only_session() {
-    if !python3_available() {
-        eprintln!("skipping mcp-proxy test: python3 not on PATH");
+    if !python_available() {
+        eprintln!("skipping mcp-proxy test: python not on PATH");
         return;
     }
     let temp = Temp::new();
@@ -799,8 +934,8 @@ fn mcp_proxy_standalone_creates_mcp_only_session() {
 /// `blob_hash` is set (mirrors the adapter + PTY capture contract).
 #[test]
 fn mcp_proxy_over_256kib_spills_to_blob() {
-    if !python3_available() {
-        eprintln!("skipping mcp-proxy spill test: python3 not on PATH");
+    if !python_available() {
+        eprintln!("skipping mcp-proxy spill test: python not on PATH");
         return;
     }
     let temp = Temp::new();
@@ -855,8 +990,8 @@ fn mcp_proxy_over_256kib_spills_to_blob() {
 /// stays NULL; status is not `ok`/`error`). The parent `hh run` owns lifecycle.
 #[test]
 fn mcp_proxy_attaches_to_existing_session() {
-    if !python3_available() {
-        eprintln!("skipping mcp-proxy attach test: python3 not on PATH");
+    if !python_available() {
+        eprintln!("skipping mcp-proxy attach test: python not on PATH");
         return;
     }
     let temp = Temp::new();
@@ -954,8 +1089,8 @@ fn mcp_proxy_attaches_to_existing_session() {
 /// create an orphan session. Nonzero exit + a message naming the missing id.
 #[test]
 fn mcp_proxy_attached_missing_session_errors() {
-    if !python3_available() {
-        eprintln!("skipping mcp-proxy missing-session test: python3 not on PATH");
+    if !python_available() {
+        eprintln!("skipping mcp-proxy missing-session test: python not on PATH");
         return;
     }
     let temp = Temp::new();
@@ -996,8 +1131,8 @@ fn mcp_proxy_attached_missing_session_errors() {
 #[test]
 fn mcp_proxy_latency_within_bound() {
     use std::fmt::Write as _;
-    if !python3_available() {
-        eprintln!("skipping mcp-proxy latency test: python3 not on PATH");
+    if !python_available() {
+        eprintln!("skipping mcp-proxy latency test: python not on PATH");
         return;
     }
     let temp = Temp::new();
@@ -1190,8 +1325,8 @@ fn record_claude_shim_session(temp: &Temp) -> std::process::Output {
 #[cfg(unix)]
 #[test]
 fn claude_adapter_e2e() {
-    if !python3_available() {
-        eprintln!("skipping claude adapter e2e: python3 not on PATH");
+    if !python_available() {
+        eprintln!("skipping claude adapter e2e: python not on PATH");
         return;
     }
     let temp = Temp::new();
@@ -1272,8 +1407,8 @@ fn claude_adapter_e2e() {
 #[cfg(unix)]
 #[test]
 fn inspect_and_list_on_claude_code_session() {
-    if !python3_available() {
-        eprintln!("skipping AC-1 read-side test: python3 not on PATH");
+    if !python_available() {
+        eprintln!("skipping AC-1 read-side test: python not on PATH");
         return;
     }
     let temp = Temp::new();
@@ -1341,8 +1476,11 @@ fn claude_adapter_degrades_on_missing_projects_dir() {
     let home = tempfile::tempdir().expect("temp HOME"); // empty — no .claude/projects
 
     let out = hh()
-        .args(["run", "--adapter", "claude-code", "--", "true"])
+        .args(["run", "--adapter", "claude-code", "--"])
+        .args(true_argv())
         .env("HH_DATA_DIR", temp.data.path())
+        // The adapter resolves the projects dir from HOME first (USERPROFILE
+        // is only the fallback), so overriding HOME isolates both platforms.
         .env("HOME", home.path())
         .current_dir(temp.work.path())
         .stdin(Stdio::null())
@@ -1350,7 +1488,7 @@ fn claude_adapter_degrades_on_missing_projects_dir() {
         .expect("hh run should execute");
     assert!(
         out.status.success(),
-        "true should exit 0; stderr: {}",
+        "trivial command should exit 0; stderr: {}",
         String::from_utf8_lossy(&out.stderr)
     );
     let stderr = String::from_utf8_lossy(&out.stderr);
@@ -1397,10 +1535,7 @@ fn jq_available() -> bool {
 #[test]
 fn inspect_summary_lists_steps_and_step_detail_shows_body() {
     let temp = Temp::new();
-    let out = run_fixture(
-        &temp,
-        &["sh", &fixture("fixture_agent.sh").to_string_lossy()],
-    );
+    let out = run_fixture(&temp, &fixture_agent_argv());
     assert_eq!(out.status.code(), Some(3));
 
     // Summary view: header + a STEP/KIND/SUMMARY/TIME table.
@@ -1457,10 +1592,7 @@ fn inspect_json_is_valid_against_jq() {
         return;
     }
     let temp = Temp::new();
-    let out = run_fixture(
-        &temp,
-        &["sh", &fixture("fixture_agent.sh").to_string_lossy()],
-    );
+    let out = run_fixture(&temp, &fixture_agent_argv());
     assert_eq!(out.status.code(), Some(3));
 
     // NDJSON stream: jq -s slurps every line into an array; every object has
@@ -1525,10 +1657,7 @@ fn inspect_json_is_valid_against_jq() {
 #[test]
 fn inspect_diff_prints_unified_diff() {
     let temp = Temp::new();
-    let out = run_fixture(
-        &temp,
-        &["sh", &fixture("fixture_agent.sh").to_string_lossy()],
-    );
+    let out = run_fixture(&temp, &fixture_agent_argv());
     assert_eq!(out.status.code(), Some(3));
 
     let diff = hh()
@@ -1552,7 +1681,7 @@ fn inspect_diff_prints_unified_diff() {
 #[test]
 fn inspect_json_and_diff_are_mutually_exclusive() {
     let temp = Temp::new();
-    run_fixture(&temp, &["true"]);
+    run_fixture(&temp, &true_argv());
     let out = hh()
         .args(["inspect", "last", "--json", "--diff"])
         .env("HH_DATA_DIR", temp.data.path())
@@ -1660,7 +1789,7 @@ fn blob_refcount(conn: &Connection, hash: &str) -> i64 {
 #[test]
 fn delete_with_yes_removes_session() {
     let temp = Temp::new();
-    run_fixture(&temp, &["true"]);
+    run_fixture(&temp, &true_argv());
     // One session exists.
     let before = hh()
         .args(["list", "--json"])
@@ -1705,7 +1834,7 @@ fn delete_with_yes_removes_session() {
 #[test]
 fn delete_refuses_without_yes_on_piped_stdin() {
     let temp = Temp::new();
-    run_fixture(&temp, &["true"]);
+    run_fixture(&temp, &true_argv());
 
     let out = hh()
         .args(["delete", "last"])

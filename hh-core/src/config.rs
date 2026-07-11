@@ -429,11 +429,16 @@ feature = \"x\"
 
     #[test]
     fn paths_precedence_default_file_env() {
-        // default: no file override, no env.
+        // default: no file override, no env. The platform default always has a
+        // `halfhand` component, but not always as the last one (`directories`
+        // on Windows yields `...\AppData\Roaming\halfhand\data`).
         std::env::remove_var("HH_DATA_DIR");
         let cfg = Config::default();
         let default_paths = Paths::resolve(&cfg).unwrap();
-        assert!(default_paths.data_dir.ends_with("halfhand"));
+        assert!(default_paths
+            .data_dir
+            .components()
+            .any(|c| c.as_os_str() == "halfhand"));
 
         // file: storage.data_dir set in config.
         let cfg_file = Config {

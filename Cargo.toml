@@ -5,6 +5,10 @@ members = ["hh-core", "hh-record", "hh"]
 [workspace.package]
 version = "0.1.0-beta.1"
 edition = "2021"
+# MSRV policy: the workspace (and its Cargo.lock) must build on exactly this
+# toolchain; CI enforces it on {ubuntu, macos, windows}. Bump deliberately —
+# keep locked dependency versions resolvable on this rustc (see the lru pin in
+# hh/Cargo.toml for an example of holding a dep back for MSRV).
 rust-version = "1.75"
 license = "Apache-2.0"
 authors = ["Saadman Rafat"]

@@ -241,6 +241,15 @@ pub fn run(store: &Store, opts: &RunOptions) -> crate::Result<RunOutcome> {
         .map_err(|e| crate::RecordError::Pty(e.to_string()))?;
     let master = pty_pair.master;
 
+    // --- ANSI passthrough (Windows) ---------------------------------------
+    // The reader thread copies the child's raw ANSI bytes to our stdout. On
+    // Windows the console renders them only with virtual terminal processing
+    // enabled; crossterm's probe enables it as a side effect (no-op on modern
+    // Windows Terminal, best-effort on legacy conhost). Unix consoles need
+    // nothing.
+    #[cfg(windows)]
+    let _ = crossterm::ansi_support::supports_ansi();
+
     // --- Raw mode on stdin TTY (transparent proxy) ------------------------
     let raw_guard = if std::io::stdin().is_terminal() {
         match crossterm::terminal::enable_raw_mode() {
