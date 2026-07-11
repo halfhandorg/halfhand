@@ -134,9 +134,30 @@ pub struct Config {
 impl Config {
     /// Load configuration from `config_path`, falling back to [`Default`] when
     /// the file does not exist. Unknown keys warn on stderr but never fail.
+    ///
+    /// When `config_path` (`config.toml`) is absent but a legacy config file
+    /// (`halfhand.toml` or `hh.toml`) exists in the same directory, that file
+    /// is loaded instead — a pre-rename config still takes effect and is never
+    /// silently ignored. A single one-line deprecation hint is emitted on stderr
+    /// pointing the user at the rename.
     pub fn load(config_path: &Path) -> Result<Self> {
         let mut cfg = Self::default();
-        let Some(table) = read_or_default_config(config_path)? else {
+        let table = match read_or_default_config(config_path)? {
+            Some(table) => Some(table),
+            None => match legacy_fallback_path(config_path) {
+                Some(legacy) => {
+                    eprintln!(
+                        "hh: note: {legacy} is a deprecated config filename; rename it to \
+                         {canonical} (loading {legacy} for now so its settings take effect).",
+                        legacy = legacy.display(),
+                        canonical = config_path.display(),
+                    );
+                    read_or_default_config(&legacy)?
+                }
+                None => None,
+            },
+        };
+        let Some(table) = table else {
             return Ok(cfg);
         };
         warn_unknown_keys(&table);
@@ -146,17 +167,35 @@ impl Config {
 }
 
 /// Other filenames users commonly reach for, in addition to the canonical
-/// `config.toml`. If any exists alongside the canonical config file it is
-/// *ignored* (only `config.toml` is read) — and silent misconfiguration (ignore
-/// globs never applied, a custom data dir never honored) is a bug, so we warn
-/// loudly and tell the user exactly what to move where.
+/// `config.toml`. When the canonical `config.toml` is *absent*, [`Config::load`]
+/// falls back to the first of these that exists in the same directory (so a
+/// pre-rename config still takes effect — it is never silently ignored). When
+/// `config.toml` *is* present, these are genuinely ignored (the canonical path
+/// wins), and silent misconfiguration (ignore globs never applied, a custom
+/// data dir never honored) is a bug, so we warn loudly and tell the user
+/// exactly what to move where.
 const NONCANONICAL_CONFIG_NAMES: &[&str] = &["halfhand.toml", "hh.toml"];
 
+/// The first existing legacy config file (e.g. `halfhand.toml`, `hh.toml`) in
+/// the same directory as `config_path`, in [`NONCANONICAL_CONFIG_NAMES`] order,
+/// or `None` when none is present. Callers are responsible for only treating
+/// this as a fallback when the canonical `config.toml` is absent (the canonical
+/// path always wins).
+fn legacy_fallback_path(config_path: &Path) -> Option<PathBuf> {
+    let dir = config_path.parent()?;
+    NONCANONICAL_CONFIG_NAMES
+        .iter()
+        .map(|name| dir.join(name))
+        .find(|c| c.exists())
+}
+
 /// Warn on stderr if a non-canonical config file (e.g. `halfhand.toml`) exists
-/// alongside the canonical `config_path` (`config.toml`). Idempotent and
-/// best-effort: a missing parent dir or an unreadable file is silently skipped
-/// (the canonical path is the source of truth). Called by the binary on every
-/// store open so the user learns their config is being ignored.
+/// alongside the canonical `config_path` (`config.toml`) — i.e. it is genuinely
+/// being ignored because the canonical file is present. No warning is emitted
+/// when `config.toml` is absent: in that case [`Config::load`] falls back to the
+/// legacy file and loads it, so nothing is ignored. Idempotent and best-effort:
+/// a missing parent dir or an unreadable file is silently skipped. Called by the
+/// binary on every store open so the user learns their config is being ignored.
 pub fn warn_on_ignored_config_files(config_path: &Path) {
     for candidate in ignored_noncanonical_config_files(config_path) {
         eprintln!(
@@ -169,12 +208,21 @@ pub fn warn_on_ignored_config_files(config_path: &Path) {
 }
 
 /// Return the non-canonical config files (e.g. `halfhand.toml`, `hh.toml`) that
-/// exist alongside `config_path`. Empty when none are present (the common,
+/// are *genuinely ignored* alongside `config_path` — i.e. only when the
+/// canonical `config.toml` is present (it wins). Empty when `config.toml` is
+/// absent (then [`Config::load`] falls back to the legacy file and loads it, so
+/// nothing is ignored) or when no legacy file is present (the common,
 /// correctly-configured case). Used by `hh doctor` to report this class of
 /// silent misconfiguration in its structured output, where the stderr warning
 /// from [`warn_on_ignored_config_files`] would not be captured (e.g. `--json`).
 #[must_use]
 pub fn ignored_noncanonical_config_files(config_path: &Path) -> Vec<PathBuf> {
+    // Legacy files are only "ignored" when the canonical config is present
+    // (it wins). When it's absent, Config::load falls back to them, so they
+    // are not ignored and must not be reported here.
+    if !config_path.exists() {
+        return Vec::new();
+    }
     let Some(dir) = config_path.parent() else {
         return Vec::new();
     };
@@ -521,19 +569,67 @@ feature = \"x\"
 
     #[test]
     fn warn_on_ignored_halfhand_toml() {
-        // A halfhand.toml sitting next to the canonical config.toml is ignored;
-        // the function must not panic and must tolerate a missing parent dir.
+        // When the canonical config.toml is present, a sibling halfhand.toml is
+        // genuinely ignored → reported as a non-canonical file.
         let tmp = TempDir::new().unwrap();
         let canonical = tmp.path().join("config.toml");
+        std::fs::write(&canonical, "[record]\nignore = [\"canonical\"]\n").unwrap();
         std::fs::write(
             tmp.path().join("halfhand.toml"),
             "[record]\nignore = [\"x\"]\n",
         )
         .unwrap();
+        let ignored = ignored_noncanonical_config_files(&canonical);
+        assert_eq!(ignored, vec![tmp.path().join("halfhand.toml")]);
         // No panic; the warning goes to stderr (not asserted here — behavior is
         // covered by an integration assertion on captured stderr elsewhere).
         warn_on_ignored_config_files(&canonical);
+
+        // When the canonical config.toml is ABSENT, halfhand.toml is loaded as a
+        // fallback (see Config::load) — it is NOT ignored, so neither function
+        // reports it.
+        let tmp2 = TempDir::new().unwrap();
+        let canonical_absent = tmp2.path().join("config.toml");
+        std::fs::write(
+            tmp2.path().join("halfhand.toml"),
+            "[record]\nignore = [\"y\"]\n",
+        )
+        .unwrap();
+        assert!(!canonical_absent.exists());
+        assert!(ignored_noncanonical_config_files(&canonical_absent).is_empty());
+        warn_on_ignored_config_files(&canonical_absent);
+
         // Missing canonical parent dir: still no panic.
         warn_on_ignored_config_files(Path::new("/no/such/dir/config.toml"));
+    }
+
+    #[test]
+    fn config_load_falls_back_to_halfhand_toml() {
+        // config.toml absent + halfhand.toml present → halfhand.toml is loaded
+        // (not ignored). The [storage] data_dir value takes effect.
+        let tmp = TempDir::new().unwrap();
+        let canonical = tmp.path().join("config.toml");
+        std::fs::write(
+            tmp.path().join("halfhand.toml"),
+            "[storage]\ndata_dir = \"/tmp/hh-from-legacy\"\n",
+        )
+        .unwrap();
+        assert!(!canonical.exists());
+        let cfg = Config::load(&canonical).unwrap();
+        assert_eq!(cfg.storage.data_dir, PathBuf::from("/tmp/hh-from-legacy"));
+    }
+
+    #[test]
+    fn config_load_canonical_wins_over_halfhand_toml() {
+        // Both present → canonical config.toml is read; halfhand.toml ignored.
+        let tmp = TempDir::new().unwrap();
+        let canonical = write_config(tmp.path(), "[storage]\ndata_dir = \"/tmp/hh-canonical\"\n");
+        std::fs::write(
+            tmp.path().join("halfhand.toml"),
+            "[storage]\ndata_dir = \"/tmp/hh-legacy\"\n",
+        )
+        .unwrap();
+        let cfg = Config::load(&canonical).unwrap();
+        assert_eq!(cfg.storage.data_dir, PathBuf::from("/tmp/hh-canonical"));
     }
 }

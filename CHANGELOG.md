@@ -43,10 +43,14 @@ in CI rather than tracking `latest` until 1.0.
   an actionable `degrade_reason` printed after the child exits (FR-1.5), and
   the `hh run` epilogue warns when an adapter-active claude-code session
   records 0 steps over >60 s.
-- A `halfhand.toml` (or `hh.toml`) config file is silently ignored — only
-  `config.toml` is read — so ignore globs / a custom `data_dir` quietly never
-  applied. `hh` now warns on stderr at startup and `hh doctor` reports it as a
-  failing check, naming the ignored file and where to move its contents.
+- A `halfhand.toml` (or `hh.toml`) config file is no longer silently ignored.
+  When `config.toml` is absent but a legacy file exists in the same directory,
+  `hh` now loads it as a fallback (so ignore globs / a custom `data_dir` take
+  effect) and emits a single one-line deprecation hint on stderr suggesting the
+  rename to `config.toml`. When `config.toml` *is* present, a sibling legacy
+  file is still genuinely ignored (the canonical path wins) — `hh` warns on
+  stderr at startup and `hh doctor` reports it as a failing check, naming the
+  ignored file and where to move its contents.
 - The FS watcher no longer aborts `hh run` with "recording failed" when its
   cwd is unwatchable (e.g. `notify` rejects a recursive watch with `EACCES`).
   It degrades instead: a single stderr warning points at `hh doctor`, file

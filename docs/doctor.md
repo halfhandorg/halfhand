@@ -25,7 +25,7 @@ modes behind that class of silent breakage.
 | --- | --- | --- |
 | `data dir writable` | Halfhand can create + write + delete a file in the data dir | The recorder cannot persist sessions. Fix the dir's permissions or set `HH_DATA_DIR` to a writable directory. |
 | `database integrity` | `PRAGMA integrity_check` returns `ok` | The SQLite DB is corrupt; back up the data dir and re-record. |
-| `config resolution` | The canonical `config.toml` is in effect and no non-canonical file is being silently ignored | A `halfhand.toml` / `hh.toml` is present but ignored — its ignore globs / `data_dir` never applied. Move its contents into `config.toml`. |
+| `config resolution` | The canonical `config.toml` is in effect and no non-canonical file is being silently ignored | A `halfhand.toml` / `hh.toml` sits *alongside* a present `config.toml` and is ignored — its ignore globs / `data_dir` never applied. Move its contents into `config.toml`. (When `config.toml` is absent, a legacy file is loaded as a fallback instead, so this check passes.) |
 | `claude jsonl discoverable` | `~/.claude/projects/<slug>/` has a transcript for the current cwd, and its first `type`-bearing record parses as JSON | The Claude Code adapter tailer reads these files; a missing or unparseable transcript is the direct cause of a session that records `0 steps`. Run a Claude Code session from this directory first. |
 | `watcher smoke test` | `notify` delivers a file-change event on this platform | A watcher that silently never fires explains `0 files changed`. |
 
