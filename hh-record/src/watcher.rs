@@ -45,6 +45,19 @@ const BUILTIN_IGNORE: &[&str] = &[".git/", "node_modules/", "target/"];
 #[cfg(test)]
 static INJECT_PANIC_FOR_TEST: AtomicBool = AtomicBool::new(false);
 
+/// Serializes tests that run a real [`run_loop`] on a worker thread. Test-only.
+///
+/// [`INJECT_PANIC_FOR_TEST`] is a process-global `static`, so a worker spawned
+/// by one test would observe a flag armed by a *different* concurrently-running
+/// test and panic at the wrong time — aborting before its own shutdown backstop
+/// runs and turning that test into a flaky "0 events" failure (the macOS-CI
+/// `events seen: []` flake in `watcher_captures_write_then_immediate_stop`).
+/// Tests that spawn a real long-running watcher take this mutex for their
+/// duration so the injection flag is only ever seen by the worker it was meant
+/// for. `const`-constructible since Rust 1.63, so fine at the 1.75 MSRV.
+#[cfg(test)]
+static REAL_RUN_LOOP_MUTEX: Mutex<()> = Mutex::new(());
+
 /// Coalescing window for editor-style double-writes (FR-1.4). Editors save a
 /// file as a burst of filesystem events within tens of milliseconds — e.g.
 /// write-content then touch-mtime, or write-then-rename-into-place producing
@@ -1288,13 +1301,25 @@ mod tests {
     /// (including timeout-driven wakeups every `POLL_INTERVAL`), so arming
     /// the flag and waiting a few multiples of it is enough — deliberately
     /// avoiding a dependency on FSEvents actually firing, which was observed
-    /// flaky/absent on GitHub's macOS runners (this is the first test in the
-    /// crate to exercise a real notify watcher end-to-end; every other
-    /// watcher test below is a pure-function test).
+    /// flaky/absent on GitHub's macOS runners. The process-global injection
+    /// flag is why this test and [`watcher_captures_write_then_immediate_stop`]
+    /// (the only other test that runs a real `run_loop`) take
+    /// [`REAL_RUN_LOOP_MUTEX`]: without serialization a *concurrent* worker
+    /// would observe the armed flag, panic before its own backstop runs, and
+    /// turn that test into the macOS-CI `events seen: []` flake.
     #[test]
     fn watcher_panic_does_not_abort_recording() {
         use hh_core::event::{AdapterStatus, AgentKind, NewSession};
         use hh_core::store::Store;
+
+        // Serialize with the other real-`run_loop` test: this test arms the
+        // process-global `INJECT_PANIC_FOR_TEST` flag, which a concurrently-
+        // running worker from `watcher_captures_write_then_immediate_stop`
+        // would observe and panic on, aborting before its backstop runs. Hold
+        // the guard for the whole test so the flag is only seen by OUR worker.
+        let _real_run_guard = REAL_RUN_LOOP_MUTEX
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
 
         let tmp = tempfile::tempdir().unwrap();
         let cwd = tmp.path().join("work");
@@ -1403,6 +1428,15 @@ mod tests {
     fn watcher_captures_write_then_immediate_stop() {
         use hh_core::event::{AdapterStatus, AgentKind, EventKind, NewSession};
         use hh_core::store::Store;
+
+        // Serialize with `watcher_panic_does_not_abort_recording`: that test
+        // arms the process-global `INJECT_PANIC_FOR_TEST` flag, which OUR worker
+        // would observe if it ran concurrently and panic — aborting before the
+        // backstop runs and turning this into the macOS-CI `events seen: []`
+        // flake. Hold the guard so the flag is only seen by that test's worker.
+        let _real_run_guard = REAL_RUN_LOOP_MUTEX
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
 
         let tmp = tempfile::tempdir().unwrap();
         let cwd = tmp.path().join("work");
