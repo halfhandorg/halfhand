@@ -77,6 +77,14 @@ pub enum Command {
     /// so it is safe to run from CI or before a session you suspect is broken.
     #[command(after_help = "Example:\n  hh doctor\n  hh doctor --json | jq")]
     Doctor(DoctorArgs),
+
+    /// Reclaim disk space: prune orphaned blobs and vacuum the database (Area 3).
+    #[command(after_help = "Example:\n  hh gc\n  hh gc --json\n  hh gc --no-vacuum")]
+    Gc(GcArgs),
+
+    /// Summarize the store: sessions, events, disk usage, largest sessions (Area 3).
+    #[command(after_help = "Example:\n  hh stats\n  hh stats --json\n  hh stats --top 10")]
+    Stats(StatsArgs),
 }
 
 /// Arguments for `hh doctor`.
@@ -167,4 +175,30 @@ pub struct McpProxyArgs {
     /// The MCP server command and its arguments, after `--`.
     #[arg(last = true, num_args = 1.., required = true)]
     pub command: Vec<String>,
+}
+
+/// Arguments for `hh gc`.
+#[derive(Args, Debug)]
+pub struct GcArgs {
+    /// Skip the (slow, disk-hungry) VACUUM; only prune orphaned blob files and
+    /// stale rows. VACUUM rebuilds `hh.db` and needs temporary free space, so
+    /// use this on a nearly-full disk.
+    #[arg(long)]
+    pub no_vacuum: bool,
+
+    /// Emit machine-readable JSON instead of plain lines.
+    #[arg(long)]
+    pub json: bool,
+}
+
+/// Arguments for `hh stats`.
+#[derive(Args, Debug)]
+pub struct StatsArgs {
+    /// Number of largest sessions (by event count) to list.
+    #[arg(long, default_value_t = 5)]
+    pub top: u32,
+
+    /// Emit machine-readable JSON instead of a table.
+    #[arg(long)]
+    pub json: bool,
 }

@@ -58,3 +58,34 @@ insta = "1"
 # Justification: property tests for storage invariants (blob refcounts, step
 # assignment, migration idempotency) per CLAUDE.md's v1.0.0 addendum.
 proptest = "1"
+# Justification: criterion benches (CLAUDE.md v1.0.0 addendum / NFR-1: "criterion
+# benches live in benches/"). `default-features = false` drops `plotters`/`rayon`
+# (HTML plots and parallel benchmark groups we do not use) so the bench dep
+# tree stays lean; `cargo_bench_support` is required for `cargo bench` to
+# dispatch to criterion's harness. Dev-only — never linked into the shipped `hh`
+# binary, so it does not affect NFR-2's no-network-crate check (criterion pulls
+# no HTTP client; verified via `cargo tree`).
+criterion = { version = "0.5", default-features = false, features = ["cargo_bench_support"] }
+# Justification: bench *setup* bulk-inserts N events into a temp DB in one
+# transaction (the writer thread's per-event channel round-trip would make a
+# 100k-event fixture take >30s to build; only the *read* paths are measured).
+# Already a normal dependency of hh-core; re-listed here so external benches
+# can name `rusqlite::Connection` directly (Cargo exposes only
+# `[dev-dependencies]` + the crate's public API to external bench crates).
+rusqlite = { version = "0.31", features = ["bundled"] }
+
+# Area 1 / NFR-1 regression-gated benches. `harness = false` because criterion
+# supplies its own `main` via `criterion_main!`. `adapter_jsonl` requires the
+# `fuzzing` feature (it calls `hh_core::adapter::fuzzing::fuzz_parse_line`, the
+# existing dev-only entry point into the otherwise-private Claude JSONL parser
+# — kept off the default, semver-checked API surface per the `fuzzing` feature's
+# stated contract). Run with `cargo bench -p hh-core --features fuzzing` (or
+# `just bench`); `cargo bench -p hh-core` runs the three ungated storage benches.
+[[bench]]
+name = "storage"
+harness = false
+
+[[bench]]
+name = "adapter_jsonl"
+harness = false
+required-features = ["fuzzing"]

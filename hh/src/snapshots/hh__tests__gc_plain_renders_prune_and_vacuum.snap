@@ -1,0 +1,6 @@
+---
+source: hh/src/main.rs
+expression: out
+---
+✓ Pruned 3 orphan blob file(s) · 1.5 MiB reclaimed · 2 stale row(s) removed
+✓ Vacuumed the database (hh.db compacted on disk)

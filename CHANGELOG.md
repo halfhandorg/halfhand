@@ -76,6 +76,29 @@ in CI rather than tracking `latest` until 1.0.
 - Bumped `crossbeam-epoch` 0.9.19 → 0.9.20 (RUSTSEC-2026-0204), pulled in
   transitively via `ignore`.
 
+### Performance
+- **Ingest throughput: `PRAGMA synchronous = NORMAL` (NFR-1 / NFR-3).** The store
+  never set `synchronous`, so SQLite defaulted to `FULL`, fsyncing the WAL on
+  *every* event commit. That met NFR-3's durability ("fsync on session finalize")
+  and then some, but capped sustained ingest near ~300 events/s — far below
+  NFR-1's ≥5,000/s. `Store::open` and the writer thread now set
+  `synchronous = NORMAL`: in WAL mode this keeps ACID (no corruption on crash)
+  but skips the per-commit fsync, fsyncing only at checkpoint. That matches the
+  durability design NFR-3 actually names — `finalize_session` runs
+  `wal_checkpoint(TRUNCATE)`, which fsyncs, so a session is durable at finalize;
+  SQLite's default `wal_autocheckpoint` (≈4 MiB) bounds the mid-session
+  power-loss window to the last autocheckpoint. Sustained ingest is now ~1.5k
+  events/s (≈5× over the per-event-fsync baseline); reaching NFR-1's 5k/s still
+  needs statement caching + a batched writer (tracked as follow-up; the
+  regression gate below protects the gain). No CLI/JSON/schema/env change.
+- `hh inspect --json` now streams a session as NDJSON through
+  `Store::for_each_event_detail` (one `EventDetail` at a time) instead of
+  collecting the whole session into RAM — constant memory for any session size
+  (Area 2). A 100k-event session streams without materializing 100k rows.
+- The replay body cache (`ReplayData`) is verified bounded at its 50-entry
+  capacity across unbounded scrolling (Area 2): a regression to an unbounded
+  cache would fail `get_evicts_lru_to_stay_bounded_at_capacity`.
+
 ### Added
 - `hh doctor` (read-only diagnostic): runs five health checks — data dir
   writability, `PRAGMA integrity_check`, config resolution + non-canonical
@@ -109,6 +132,39 @@ in CI rather than tracking `latest` until 1.0.
 - CI: `cargo-llvm-cov` gate (hh-core ≥ 80% lines, fail-under; workspace-wide
   report-only) and `cargo-semver-checks` against `main` for hh-core's public
   API (adapters implement its `Adapter` trait).
+- Criterion benches (`hh-core/benches/`) + a nightly regression gate (Area 1 /
+  NFR-1): four groups — `ingest` (`append_event` throughput), `replay_index`
+  (10k/100k-event `list_event_index`), `blob_write`/`blob_read` (1 KiB/1 MiB),
+  and `adapter_jsonl` (Claude JSONL conversion, gated on the `fuzzing` feature
+  so it uses the dev-only parser entry point, off the semver-checked surface).
+  `.github/workflows/bench-nightly.yml` runs `cargo bench -p hh-core --features
+  fuzzing` nightly and fails on >15% regression vs the previous run's baseline
+  (same runner class via an `actions/cache` rolling baseline — a committed
+  baseline would false-positive across hardware). `just bench` /
+  `just bench-compare` run the same locally. Dev-only: criterion is a
+  dev-dependency (default-features off) and pulls no HTTP client, so NFR-2's
+  no-network-crate check stays green. See `docs/performance.md`.
+- `hh gc` (reclaim space, Area 3): prunes orphaned blob files and stale
+  `blobs` rows — the crash-leftover cases `hh delete` does not reach (a blob
+  written to disk between `BlobStore::put` and the referencing event's commit,
+  or a `blobs` row whose backing file was deleted out of band) — and `VACUUM`s
+  `hh.db` to shrink it on disk (`--no-vacuum` skips the rebuild). Safe: it only
+  removes blobs no live event references, never referenced data. `--json` emits
+  a stable `schema:1` object (`orphan_files_removed` / `orphan_bytes_reclaimed`
+  / `orphan_rows_removed` / `vacuumed`). Docs: see `docs/gc.md`; `--help`
+  carries an example.
+- `hh stats` (read-only store inventory, Area 3): session/event/blob counts,
+  on-disk footprint (`hh.db` + WAL/SHM sidecars + compressed blob directory),
+  and the largest sessions by event count (`--top N`, default 5). `--json`
+  emits a stable `schema:1` object with `blobs` / `disk` / `largest_sessions`
+  sub-objects. Docs: see `docs/stats.md`; `--help` carries an example.
+- Storage schema migration 0002 (additive): a partial index
+  `idx_events_needs_heal` on `events(session_id) WHERE step IS NULL AND
+  kind != 'terminal_output'`, making `Store::open`'s step self-heal probe
+  O(rows-needing-heal) instead of an O(all-events) scan on every invocation —
+  including read-only `hh list`, whose cold start used to scale with total
+  recorded history. Additive (a new index on an existing table); no breaking
+  schema change, and the `schema_version` row is the only data write.
 
 ## [0.1.0-beta.1] — 2026-07-07
 

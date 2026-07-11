@@ -35,6 +35,6 @@ pub use event::{
 // `NewSession::id` holds it); re-exporting it lets downstream crates name the
 // type without adding `uuid` as a direct dependency.
 pub use step::assign_steps;
-pub use store::{CreatedSession, EventWriter, Store};
+pub use store::{CreatedSession, EventWriter, LargestSession, PruneStats, Store, StoreStats};
 pub use timeline::{build_timeline, StepEntry, TerminalSegment, TimelineRow};
 pub use uuid::Uuid;

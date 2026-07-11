@@ -54,6 +54,8 @@ fn help_lists_every_subcommand_and_examples() {
         "delete",
         "mcp-proxy",
         "doctor",
+        "gc",
+        "stats",
     ] {
         assert!(stdout.contains(sub), "missing `{sub}` in --help: {stdout}");
     }
@@ -73,6 +75,8 @@ fn every_subcommand_help_has_an_example() {
         "delete",
         "mcp-proxy",
         "doctor",
+        "gc",
+        "stats",
     ] {
         let out = hh().args([sub, "--help"]).output().unwrap();
         assert!(out.status.success(), "`hh {sub} --help` failed");
@@ -1907,4 +1911,186 @@ fn delete_shared_blob_survives_deleting_one_session() {
         0,
         "blob must be garbage-collected after the last session is deleted"
     );
+}
+
+// ---------------------------------------------------------------------------
+// `hh gc` + `hh stats` (Area 3) end-to-end
+// ---------------------------------------------------------------------------
+
+/// `hh gc` prunes an orphaned blob file (a file written to disk but never
+/// referenced by an event — the crash-leftover case `hh delete` does not reach)
+/// and reports it in the epilogue. `--json` carries the stable `schema:1`.
+#[test]
+fn gc_prunes_orphan_blobs_and_reports() {
+    let temp = Temp::new();
+    run_fixture(&temp, &["true"]);
+
+    // Write an orphan blob directly to disk: `BlobStore::put` writes the file
+    // but creates no `blobs` row (the row is bumped only when an event
+    // references the hash), so this file is unreferenced — exactly the leak
+    // `hh gc` must sweep.
+    let orphan_path = {
+        let store = open_store(temp.data.path());
+        let orphan = store.blobs().put(b"orphan-by-gc-test").unwrap();
+        let path = temp
+            .data
+            .path()
+            .join("blobs")
+            .join(&orphan.hash[..2])
+            .join(format!("{}.zst", orphan.hash));
+        assert!(path.exists(), "orphan blob file seeded on disk");
+        path
+        // `store` (and its DB connection) drops here, freeing the data dir so
+        // `hh gc` can take the exclusive connection VACUUM needs.
+    };
+
+    let out = hh()
+        .args(["gc"])
+        .env("HH_DATA_DIR", temp.data.path())
+        .output()
+        .unwrap();
+    assert!(
+        out.status.success(),
+        "hh gc failed: {}",
+        String::from_utf8_lossy(&out.stderr)
+    );
+    let stdout = String::from_utf8_lossy(&out.stdout);
+    assert!(
+        stdout.contains("Pruned 1 orphan blob file(s)"),
+        "expected the prune epilogue naming 1 file: {stdout}"
+    );
+    assert!(
+        stdout.contains("Vacuumed"),
+        "expected the vacuum epilogue: {stdout}"
+    );
+    assert!(
+        !orphan_path.exists(),
+        "the orphan blob must be removed by hh gc"
+    );
+
+    // `hh gc --json` carries schema:1 and, on a now-clean store, zero counts.
+    let j = hh()
+        .args(["gc", "--json"])
+        .env("HH_DATA_DIR", temp.data.path())
+        .output()
+        .unwrap();
+    assert!(j.status.success(), "hh gc --json failed");
+    let v: serde_json::Value = serde_json::from_slice(&j.stdout).expect("gc --json valid");
+    assert_eq!(v["schema"], 1);
+    assert_eq!(v["vacuumed"], true, "default hh gc vacuums");
+    assert_eq!(v["orphan_files_removed"], 0, "nothing left to prune");
+}
+
+/// `hh gc --no-vacuum` prunes but skips the (slow) VACUUM, in both plain and JSON.
+#[test]
+fn gc_no_vacuum_skips_vacuum() {
+    let temp = Temp::new();
+    run_fixture(&temp, &["true"]);
+    let out = hh()
+        .args(["gc", "--no-vacuum"])
+        .env("HH_DATA_DIR", temp.data.path())
+        .output()
+        .unwrap();
+    assert!(
+        out.status.success(),
+        "stderr: {}",
+        String::from_utf8_lossy(&out.stderr)
+    );
+    let stdout = String::from_utf8_lossy(&out.stdout);
+    assert!(
+        stdout.contains("Skipped vacuum"),
+        "expected the skip line: {stdout}"
+    );
+
+    let j = hh()
+        .args(["gc", "--no-vacuum", "--json"])
+        .env("HH_DATA_DIR", temp.data.path())
+        .output()
+        .unwrap();
+    let v: serde_json::Value = serde_json::from_slice(&j.stdout).unwrap();
+    assert_eq!(v["schema"], 1);
+    assert_eq!(
+        v["vacuumed"], false,
+        "--no-vacuum must report vacuumed=false"
+    );
+}
+
+/// `hh stats` reports counts and the largest session; `--json` carries the
+/// stable `schema:1` with a `disk` breakdown and a `largest_sessions` array.
+#[test]
+fn stats_reports_counts_and_largest() {
+    let temp = Temp::new();
+    // fixture_agent.sh records terminal + file-change events (and a blob),
+    // so `stats` has nontrivial counts to report.
+    let out = run_fixture(
+        &temp,
+        &["sh", &fixture("fixture_agent.sh").to_string_lossy()],
+    );
+    assert_eq!(out.status.code(), Some(3));
+
+    let stats = hh()
+        .args(["stats"])
+        .env("HH_DATA_DIR", temp.data.path())
+        .output()
+        .unwrap();
+    assert!(
+        stats.status.success(),
+        "hh stats failed: {}",
+        String::from_utf8_lossy(&stats.stderr)
+    );
+    let stdout = String::from_utf8_lossy(&stats.stdout);
+    assert!(
+        stdout.contains("sessions"),
+        "missing sessions row: {stdout}"
+    );
+    assert!(stdout.contains("events"), "missing events row: {stdout}");
+    assert!(stdout.contains("disk"), "missing disk row: {stdout}");
+    assert!(
+        stdout.contains("largest sessions"),
+        "missing largest-sessions section: {stdout}"
+    );
+
+    let j = hh()
+        .args(["stats", "--json"])
+        .env("HH_DATA_DIR", temp.data.path())
+        .output()
+        .unwrap();
+    assert!(j.status.success());
+    let v: serde_json::Value = serde_json::from_slice(&j.stdout).expect("stats --json valid");
+    assert_eq!(v["schema"], 1);
+    assert_eq!(v["sessions"], 1, "exactly one session recorded");
+    assert!(
+        v["events"].as_u64().unwrap() >= 1,
+        "fixture should record at least one event: {v}"
+    );
+    assert!(
+        v["disk"]["db_bytes"].as_u64().unwrap() > 0,
+        "hh.db should exist and be nonempty"
+    );
+    let largest = v["largest_sessions"]
+        .as_array()
+        .expect("largest_sessions is an array");
+    assert_eq!(largest.len(), 1, "one session → one largest entry");
+    assert!(
+        largest[0]["events"].as_u64().unwrap() >= 1,
+        "largest session should carry its event count"
+    );
+    assert!(
+        largest[0]["short_id"].as_str().unwrap().len() == 6,
+        "short_id is the 6-char id"
+    );
+
+    // `--top 0` lists no largest sessions but still reports the totals.
+    let j0 = hh()
+        .args(["stats", "--json", "--top", "0"])
+        .env("HH_DATA_DIR", temp.data.path())
+        .output()
+        .unwrap();
+    let v0: serde_json::Value = serde_json::from_slice(&j0.stdout).unwrap();
+    assert_eq!(
+        v0["largest_sessions"].as_array().unwrap().len(),
+        0,
+        "--top 0 suppresses the largest-sessions list"
+    );
+    assert_eq!(v0["sessions"], 1, "totals are independent of --top");
 }

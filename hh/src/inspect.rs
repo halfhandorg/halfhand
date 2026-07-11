@@ -55,6 +55,19 @@ pub(crate) fn inspect_command(args: &cli::InspectArgs) -> anyhow::Result<std::pr
     let session = store
         .get_session(&id)
         .map_err(|e| anyhow::anyhow!("could not load session\n  why: {e}"))?;
+
+    // Fast path (Area 2 big-session hardening): `hh inspect --json` with no
+    // `--step` and no `--failed` streams the whole session as NDJSON straight
+    // from the DB cursor in constant memory — it never materializes the event
+    // index or builds the step timeline, which for a 100k-event session would
+    // hold every row in RAM at once. The stream is byte-identical to the
+    // index-based path (same `(ts_ms, id)` order, same `event_to_json`), just
+    // O(1) memory instead of O(n).
+    if args.json && args.step.is_none() && !args.failed {
+        print_session_ndjson_stream(&store, &session)?;
+        return Ok(std::process::ExitCode::SUCCESS);
+    }
+
     let index = store
         .list_event_index(&id)
         .map_err(|e| anyhow::anyhow!("could not load session events\n  why: {e}"))?;
@@ -83,11 +96,14 @@ pub(crate) fn inspect_command(args: &cli::InspectArgs) -> anyhow::Result<std::pr
 
     let color = render::use_color();
     if args.json {
-        if let Some(n) = step {
-            print_step_json(&store, &session, &timeline, n)?;
-        } else {
-            print_session_ndjson(&store, &session, &index)?;
-        }
+        // The no-step `--json` case is streamed by the fast path above;
+        // reaching here means `--step N` or `--failed` set a step.
+        let n = step.ok_or_else(|| {
+            anyhow::anyhow!(
+                "`hh inspect --json` reached the step path with no step (this is a bug)"
+            )
+        })?;
+        print_step_json(&store, &session, &timeline, n)?;
     } else if args.diff {
         if let Some(n) = step {
             let entry = require_step(&timeline, n, &session)?;
@@ -650,36 +666,53 @@ fn render_file_change_diff(fc: &FileChange, store: &Store, color: bool) -> Strin
 // JSON output (`--json`, `--json --step N`)
 // ---------------------------------------------------------------------------
 
-/// Emit the whole session as NDJSON (FR-4): one JSON object per event, in
-/// `(ts_ms, id)` order, on its own line. Every object carries `schema: 1`.
-fn print_session_ndjson(
-    store: &Store,
-    session: &SessionRow,
-    index: &[EventIndexRow],
-) -> anyhow::Result<()> {
-    for obj in session_ndjson_values(store, session, index)? {
-        // One object per line; serde_json emits no embedded newlines.
-        println!("{obj}");
-    }
-    Ok(())
+/// Stream the whole session as NDJSON (FR-4) to stdout: one JSON object per
+/// event, in `(ts_ms, id)` order, on its own line, each carrying `schema: 1`.
+/// Streams straight from the DB cursor via [`Store::for_each_event_detail`] —
+/// peak memory is O(1) regardless of session size (Area 2), unlike the old
+/// index-based path which materialized every event row.
+fn print_session_ndjson_stream(store: &Store, session: &SessionRow) -> anyhow::Result<()> {
+    let stdout = std::io::stdout();
+    let mut out = stdout.lock();
+    write_session_ndjson(store, session, &mut out)
 }
 
-/// Build the per-event JSON objects for the whole session (the NDJSON stream),
-/// in `(ts_ms, id)` order. Factored out so tests can snapshot the shape without
-/// capturing stdout.
-fn session_ndjson_values(
+/// Write the session's NDJSON stream to `out` (FR-4): one JSON object per event
+/// in `(ts_ms, id)` order, one per line. Factored over a generic writer so a
+/// snapshot test can capture the exact bytes the streaming path produces
+/// without touching stdout, and so the stdout path and the test share one
+/// implementation.
+///
+/// The emit closure returns `hh_core::Result`, but a write failure is an
+/// `io::Error`. We stash it and stop iteration with a sentinel (`WriterClosed`
+/// is never surfaced — it is just a way to break out of a callback whose error
+/// type is not `anyhow`), then report the real cause here. A `BrokenPipe` (a
+/// downstream consumer like `hh inspect --json | head` closed the pipe) stops
+/// cleanly like a well-behaved CLI rather than printing a crash.
+fn write_session_ndjson<W: std::io::Write>(
     store: &Store,
     session: &SessionRow,
-    index: &[EventIndexRow],
-) -> anyhow::Result<Vec<serde_json::Value>> {
-    let mut out = Vec::with_capacity(index.len());
-    for e in index {
-        let detail = store
-            .get_event_detail(e.id)
-            .map_err(|err| anyhow::anyhow!("could not load event {id}\n  why: {err}", id = e.id))?;
-        out.push(event_to_json(&detail, session));
+    out: &mut W,
+) -> anyhow::Result<()> {
+    let mut io_err: Option<std::io::Error> = None;
+    let stream_result = store.for_each_event_detail(&session.id, |detail| {
+        let obj = event_to_json(&detail, session);
+        if let Err(e) = writeln!(out, "{obj}") {
+            io_err = Some(e);
+            // Stop iteration; the stashed io error is reported below. The
+            // sentinel is never surfaced to the user.
+            return Err(hh_core::StorageError::WriterClosed.into());
+        }
+        Ok(())
+    });
+    if let Some(e) = io_err {
+        if e.kind() == std::io::ErrorKind::BrokenPipe {
+            return Ok(());
+        }
+        return Err(anyhow::anyhow!("could not write inspect JSON\n  why: {e}"));
     }
-    Ok(out)
+    stream_result.map_err(|e| anyhow::anyhow!("could not stream session events\n  why: {e}"))?;
+    Ok(())
 }
 
 /// Emit a single JSON object for one step (FR-4 `--json --step N`).
@@ -1050,13 +1083,21 @@ mod tests {
     #[test]
     fn snapshot_ndjson_stream() {
         let fx = Fixture::build();
-        let values = session_ndjson_values(&fx.store, &fx.session, &fx.index).unwrap();
-        let ndjson = values
-            .iter()
-            .map(serde_json::Value::to_string)
-            .collect::<Vec<_>>()
-            .join("\n");
+        // Exercise the actual streaming path (`write_session_ndjson`) into a
+        // buffer rather than the removed in-memory collector, so the snapshot
+        // locks exactly what `hh inspect --json` emits — one object per line,
+        // each terminated by a newline, in `(ts_ms, id)` order.
+        let mut buf = Vec::new();
+        write_session_ndjson(&fx.store, &fx.session, &mut buf).unwrap();
+        let ndjson = String::from_utf8(buf).expect("NDJSON is UTF-8");
         insta::assert_snapshot!(ndjson);
+        // Sanity: every line is a JSON object carrying schema:1, in order.
+        for line in ndjson.lines() {
+            let v: serde_json::Value =
+                serde_json::from_str(line).expect("each NDJSON line is valid JSON");
+            assert_eq!(v["schema"], 1, "every event object carries schema:1");
+            assert!(v["kind"].is_string(), "every event object has a kind");
+        }
     }
 
     #[test]

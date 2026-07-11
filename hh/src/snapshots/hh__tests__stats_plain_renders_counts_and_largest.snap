@@ -1,0 +1,14 @@
+---
+source: hh/src/main.rs
+expression: out
+---
+hh stats — /home/me/.local/share/halfhand
+
+sessions  2
+events    5
+blobs     1 (1.5 KiB on disk, 14 B uncompressed)
+disk      hh.db 3.0 MiB · WAL 0 B · blobs 1.5 KiB · total 3.0 MiB
+
+largest sessions
+  a1b2c3  4 events
+  d4e5f6  1 events

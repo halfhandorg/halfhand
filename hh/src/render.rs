@@ -95,6 +95,31 @@ pub(crate) fn humanize_ms(ms: i64) -> String {
     }
 }
 
+/// Humanize a byte count as `1.4 KiB` / `980 B` / `3.2 MiB` using binary
+/// units (1024-based), one decimal place for KiB and above and plain bytes
+/// below. Used by `hh gc` and `hh stats` (NFR-7 / Area 3). Computed with
+/// integer math (no `f64` cast) so it never loses precision and never trips
+/// `clippy::cast_precision_loss`.
+pub(crate) fn humanize_bytes(bytes: u64) -> String {
+    const UNITS: &[(&str, u64)] = &[
+        ("PiB", 1u64 << 50),
+        ("TiB", 1u64 << 40),
+        ("GiB", 1u64 << 30),
+        ("MiB", 1u64 << 20),
+        ("KiB", 1u64 << 10),
+    ];
+    for &(unit, scale) in UNITS {
+        if bytes >= scale {
+            // tenths = floor(bytes / (scale / 10)); integer scale/10 keeps this
+            // overflow-free (no bytes*10). The slight floor rounding is
+            // acceptable for a human display.
+            let tenths = bytes / (scale / 10);
+            return format!("{}.{} {unit}", tenths / 10, tenths % 10);
+        }
+    }
+    format!("{bytes} B")
+}
+
 /// Format a millisecond offset as `HH:MM:SS` (clamped non-negative), used for
 /// per-step timestamps in `hh inspect` and the replay timeline.
 pub(crate) fn format_hms(ms: i64) -> String {

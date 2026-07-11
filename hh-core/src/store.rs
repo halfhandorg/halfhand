@@ -12,9 +12,9 @@ use crate::event::{
     AdapterStatus, AgentKind, ChangeKind, Event, EventDetail, EventIndexRow, EventKind, EventRow,
     FileChange, NewSession, SessionRow, SessionStatus,
 };
-use crate::migrations::LATEST_VERSION;
 use crate::step::assign_steps as assign_steps_pass;
 use rusqlite::{params, Connection, OpenFlags, OptionalExtension};
+use std::fs;
 use std::path::{Path, PathBuf};
 use std::sync::mpsc::{self, Receiver, Sender};
 use std::thread::JoinHandle;
@@ -54,6 +54,65 @@ pub struct CreatedSession {
     pub short_id: String,
 }
 
+/// Reclaim report from [`Store::prune_orphan_blobs`]: how many orphan blob
+/// files and stale `blobs` rows were removed, and how much on-disk space was
+/// freed. Used by `hh gc` (Area 3).
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct PruneStats {
+    /// Number of on-disk blob files removed: files with no `blobs` row, or a
+    /// zero-refcount row, backing them (a crash between [`BlobStore::put`] and
+    /// the referencing event's commit, or a [`Store::delete_session`] that
+    /// decremented the refcount but crashed before removing the file).
+    pub orphan_files_removed: u64,
+    /// Total compressed on-disk bytes reclaimed by removing those files.
+    pub orphan_bytes_reclaimed: u64,
+    /// Number of `blobs` rows removed: zero-refcount rows paired with an orphan
+    /// file, plus refcount-positive rows whose backing file was missing
+    /// (deleted out of band). Removing the row lets a future reference
+    /// re-create the blob instead of pointing at a missing file.
+    pub orphan_rows_removed: u64,
+}
+
+/// Whole-store inventory reported by [`Store::store_stats`]: counts and disk
+/// footprint broken down by the DB file (plus its WAL/SHM sidecars) and the
+/// blob directory, plus the largest sessions by event count. Used by
+/// `hh stats` (Area 3).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct StoreStats {
+    /// Number of recorded sessions.
+    pub sessions: u64,
+    /// Total event rows across all sessions.
+    pub events: u64,
+    /// Number of distinct blobs in the `blobs` table.
+    pub blobs_count: u64,
+    /// Sum of `blobs.size` (uncompressed content size) — "how much did I
+    /// record", distinct from the on-disk footprint in [`Self::blobs_dir_bytes`].
+    pub blobs_uncompressed_bytes: u64,
+    /// Size of the `hh.db` file in bytes.
+    pub db_bytes: u64,
+    /// Size of the `hh.db-wal` write-ahead log in bytes (0 if absent).
+    pub wal_bytes: u64,
+    /// Size of the `hh.db-shm` shared-memory file in bytes (0 if absent).
+    pub shm_bytes: u64,
+    /// Total on-disk size of the compressed blob files (sum of file sizes).
+    pub blobs_dir_bytes: u64,
+    /// The largest sessions by event count, descending (up to the count
+    /// requested from [`Store::store_stats`]).
+    pub largest_sessions: Vec<LargestSession>,
+}
+
+/// One row of [`StoreStats::largest_sessions`]: a session id and its event
+/// count, for the "largest sessions" summary in `hh stats`.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct LargestSession {
+    /// Full session id.
+    pub id: String,
+    /// 6-hex-char short id.
+    pub short_id: String,
+    /// Number of events in this session.
+    pub event_count: u64,
+}
+
 /// The raw column tuple backing [`Store::get_event_detail`], grouped into a
 /// struct rather than a bare tuple (clippy::type_complexity).
 struct EventRawRow {
@@ -85,10 +144,23 @@ impl Store {
             source: std::io::Error::other(e),
         })?;
         conn.busy_timeout(Duration::from_secs(5))?;
-        // foreign_keys is per-connection (the migration sets the persistent
-        // journal_mode=WAL on the DB file; foreign_keys must be set on every
-        // connection that wants enforcement).
+        // foreign_keys + synchronous are per-connection (the migration sets the
+        // persistent journal_mode=WAL on the DB file; these two must be set on
+        // every connection that wants enforcement / the tuned setting).
         conn.execute("PRAGMA foreign_keys = ON", [])?;
+        // NFR-1 / NFR-3: `synchronous = NORMAL` (not the SQLite default FULL).
+        // In WAL mode NORMAL keeps ACID — no corruption on crash — but does not
+        // fsync the WAL on every commit; it fsyncs only at checkpoint. That is
+        // exactly the durability design NFR-3 names ("fsync on session
+        // finalize"): `finalize_session` runs `wal_checkpoint(TRUNCATE)`, which
+        // fsyncs, so a session is durable at finalize. The default FULL fsyncs
+        // per event (~3 ms fsync → ~300 events/s), which meets NFR-3's durability
+        // *and then some* but caps sustained ingest far below NFR-1's ≥5,000/s.
+        // NORMAL removes the per-commit fsync so ingest is not fsync-bound;
+        // SQLite's default `wal_autocheckpoint` (1000 pages ≈ 4 MiB) bounds the
+        // mid-session power-loss window to the last autocheckpoint. Set on the
+        // writer connection too (see `writer_run`).
+        conn.execute("PRAGMA synchronous = NORMAL", [])?;
         run_migrations(&conn)?;
         let store = Self {
             conn,
@@ -118,6 +190,139 @@ impl Store {
             .query_row("PRAGMA integrity_check", [], |r| r.get(0))
             .map_err(StorageError::Sqlite)?;
         Ok(row)
+    }
+
+    /// Reclaim free pages and shrink `hh.db` on disk (Area 3 / `hh gc`).
+    /// `VACUUM` rebuilds the database file, so it must run with no other
+    /// connection open and outside a transaction — `hh gc` is the only caller
+    /// and owns the store's sole connection, with the single-writer task not
+    /// running. A failure here (e.g. another process holds the file) is
+    /// surfaced; it never corrupts the store.
+    pub fn vacuum(&self) -> Result<()> {
+        self.conn.execute_batch("VACUUM")?;
+        Ok(())
+    }
+
+    /// Remove orphaned blob files and stale `blobs` rows (Area 3 / `hh gc`).
+    /// Two passes:
+    /// 1. For every blob file on disk, if no live `blobs` row references it
+    ///    (no row, or refcount ≤ 0), remove the file (and the stale row, if
+    ///    any). These are files leaked by a crash between [`BlobStore::put`]
+    ///    and the referencing event's commit, or a [`Store::delete_session`]
+    ///    that decremented the refcount but crashed before removing the file.
+    /// 2. For every `blobs` row with a positive refcount, if its file is
+    ///    missing on disk (deleted out of band), remove the row so a future
+    ///    reference re-creates the blob instead of pointing at a missing file.
+    ///
+    /// See [`PruneStats`] for what is reported. Never panics on a stray file
+    /// in the blobs directory; unparseable names are skipped.
+    pub fn prune_orphan_blobs(&self) -> Result<PruneStats> {
+        let mut stats = PruneStats::default();
+        // Pass 1: orphan files on disk.
+        for hash in self.blobs.iter_hashes()? {
+            let refcount: Option<i64> = self
+                .conn
+                .query_row(
+                    "SELECT refcount FROM blobs WHERE hash = ?1",
+                    params![&hash],
+                    |r| r.get::<_, i64>(0),
+                )
+                .optional()?;
+            let is_orphan = refcount.map_or(true, |r| r <= 0);
+            if is_orphan {
+                let path = self.blobs.blob_path(&hash);
+                let bytes = fs::metadata(&path).map_or(0, |m| m.len());
+                if self.blobs.remove_if_unreferenced(&hash, 0)? {
+                    stats.orphan_files_removed += 1;
+                    stats.orphan_bytes_reclaimed += bytes;
+                }
+                if refcount.is_some() {
+                    // A (zero-refcount) row backed this orphan file; drop it too.
+                    self.conn
+                        .execute("DELETE FROM blobs WHERE hash = ?1", params![&hash])?;
+                    stats.orphan_rows_removed += 1;
+                }
+            }
+        }
+        // Pass 2: dangling rows (refcount > 0, file missing on disk).
+        let dangling: Vec<String> = {
+            let mut stmt = self
+                .conn
+                .prepare("SELECT hash FROM blobs WHERE refcount > 0")?;
+            let rows = stmt.query_map([], |r| r.get::<_, String>(0))?;
+            let mut v = Vec::new();
+            for r in rows {
+                let hash = r?;
+                if !self.blobs.blob_path(&hash).exists() {
+                    v.push(hash);
+                }
+            }
+            v
+        };
+        for hash in &dangling {
+            self.conn
+                .execute("DELETE FROM blobs WHERE hash = ?1", params![hash])?;
+            stats.orphan_rows_removed += 1;
+        }
+        Ok(stats)
+    }
+
+    /// Whole-store inventory: counts, per-file disk footprint (the `hh.db`
+    /// file plus its `-wal`/`-shm` sidecars and the compressed blob directory),
+    /// and the `largest` sessions by event count (Area 3 / `hh stats`).
+    pub fn store_stats(&self, largest: u32) -> Result<StoreStats> {
+        let sessions: i64 = self
+            .conn
+            .query_row("SELECT COUNT(*) FROM sessions", [], |r| r.get(0))?;
+        let events: i64 = self
+            .conn
+            .query_row("SELECT COUNT(*) FROM events", [], |r| r.get(0))?;
+        let blobs_count: i64 = self
+            .conn
+            .query_row("SELECT COUNT(*) FROM blobs", [], |r| r.get(0))?;
+        let blobs_uncompressed: i64 =
+            self.conn
+                .query_row("SELECT COALESCE(SUM(size), 0) FROM blobs", [], |r| r.get(0))?;
+        let mut largest_sessions = Vec::new();
+        {
+            let mut stmt = self.conn.prepare(
+                "SELECT s.id, s.short_id, COUNT(e.id) AS n
+                 FROM sessions s
+                 LEFT JOIN events e ON e.session_id = s.id
+                 GROUP BY s.id, s.short_id
+                 ORDER BY n DESC, s.started_at DESC
+                 LIMIT ?1",
+            )?;
+            let rows = stmt.query_map(params![i64::from(largest)], |r| {
+                Ok(LargestSession {
+                    id: r.get(0)?,
+                    short_id: r.get(1)?,
+                    event_count: r.get::<_, i64>(2).map(|n| u64::try_from(n).unwrap_or(0))?,
+                })
+            })?;
+            for r in rows {
+                largest_sessions.push(r?);
+            }
+        }
+        // On-disk footprint: the db file + WAL/SHM sidecars + compressed blobs.
+        let db_bytes = file_size(&self.db_path);
+        let wal_bytes = file_size(&sidecar(&self.db_path, "-wal"));
+        let shm_bytes = file_size(&sidecar(&self.db_path, "-shm"));
+        let mut blobs_dir_bytes = 0u64;
+        for hash in self.blobs.iter_hashes()? {
+            blobs_dir_bytes += file_size(&self.blobs.blob_path(&hash));
+        }
+        Ok(StoreStats {
+            sessions: u64::try_from(sessions).unwrap_or(0),
+            events: u64::try_from(events).unwrap_or(0),
+            blobs_count: u64::try_from(blobs_count).unwrap_or(0),
+            blobs_uncompressed_bytes: u64::try_from(blobs_uncompressed).unwrap_or(0),
+            db_bytes,
+            wal_bytes,
+            shm_bytes,
+            blobs_dir_bytes,
+            largest_sessions,
+        })
     }
 
     /// Create a new session row (FR-1.2).
@@ -581,6 +786,85 @@ impl Store {
         }
     }
 
+    /// Stream every event detail of `session_id`, in `(ts_ms, id)` order,
+    /// calling `emit` once per event. This is the constant-memory path for
+    /// `hh inspect --json` (FR-4): a single SQL cursor with a `LEFT JOIN` to
+    /// `file_changes` walks the session row by row, and any blob-overflow
+    /// body is resolved inline (the same overflow-envelope path as
+    /// [`Self::get_event_detail`]), so the whole
+    /// session is never collected into RAM — unlike [`Self::list_event_index`]
+    /// followed by per-row [`Self::get_event_detail`], which is the right path
+    /// for the interactive timeline but not for streaming a 100k-event session
+    /// to NDJSON (Area 2).
+    ///
+    /// Each [`EventDetail`] is built, emitted, and dropped before the next
+    /// row is fetched, so peak memory is O(1) regardless of session size. If
+    /// `emit` returns `Err`, iteration stops immediately and the error
+    /// propagates; a row-decode error likewise short-circuits.
+    pub fn for_each_event_detail(
+        &self,
+        session_id: &str,
+        mut emit: impl FnMut(EventDetail) -> Result<()>,
+    ) -> Result<()> {
+        let mut stmt = self.conn.prepare(
+            "SELECT e.id, e.session_id, e.ts_ms, e.kind, e.step, e.correlates,
+                    e.summary, e.body_json, e.blob_hash,
+                    fc.event_id, fc.path, fc.change_kind, fc.before_hash,
+                    fc.after_hash, fc.is_binary
+             FROM events e
+             LEFT JOIN file_changes fc ON fc.event_id = e.id
+             WHERE e.session_id = ?1
+             ORDER BY e.ts_ms, e.id",
+        )?;
+        let mut rows = stmt.query(params![session_id])?;
+        while let Some(row) = rows.next()? {
+            let id: i64 = row.get(0)?;
+            let session_id_row: String = row.get(1)?;
+            let ts_ms: i64 = row.get(2)?;
+            let kind_str: String = row.get(3)?;
+            let step: Option<i64> = row.get(4)?;
+            let correlates: Option<i64> = row.get(5)?;
+            let summary: String = row.get(6)?;
+            let body_str: Option<String> = row.get(7)?;
+            let blob_hash: Option<String> = row.get(8)?;
+            let kind = kind_str.parse().unwrap_or(EventKind::AgentMessage);
+            let inline_body: Option<serde_json::Value> = body_str
+                .as_deref()
+                .and_then(|s| serde_json::from_str(s).ok());
+            let body_json = self.resolve_body(inline_body, blob_hash.as_deref());
+            // LEFT JOIN: fc.event_id is NULL when the event has no
+            // file_changes row. Use it as the "is there a change?" sentinel.
+            let fc_event_id: Option<i64> = row.get(9)?;
+            let file_change = if fc_event_id.is_some() {
+                let change_kind_str: String = row.get(11)?;
+                let change_kind = change_kind_str.parse().unwrap_or(ChangeKind::Modified);
+                let is_binary: i64 = row.get(14)?;
+                Some(FileChange {
+                    event_id: id,
+                    path: row.get(10)?,
+                    change_kind,
+                    before_hash: row.get(12)?,
+                    after_hash: row.get(13)?,
+                    is_binary: is_binary != 0,
+                })
+            } else {
+                None
+            };
+            emit(EventDetail {
+                id,
+                session_id: session_id_row,
+                ts_ms,
+                kind,
+                step,
+                correlates,
+                summary,
+                body_json,
+                file_change,
+            })?;
+        }
+        Ok(())
+    }
+
     /// Resolve a possibly blob-overflowed body: if `inline` is the
     /// `{"overflow": true, ...}` envelope and `blob_hash` is set, fetch and
     /// decompress the blob and parse it as the real payload. Falls back to
@@ -825,6 +1109,15 @@ fn writer_run(db_path: &Path, rx: Receiver<WriterReq>) {
     if let Err(e) = conn.execute("PRAGMA foreign_keys = ON", []) {
         eprintln!("hh: warning: writer thread could not enable foreign_keys: {e}");
     }
+    // NFR-1 / NFR-3: see `Store::open`. The writer connection owns every commit,
+    // so this is the connection whose `synchronous` setting actually gates
+    // ingest throughput. NORMAL keeps per-event commits off the fsync path
+    // (fsync happens at the finalize checkpoint); FULL here would fsync every
+    // event and cap ingest near ~300/s. A failure to set it is non-fatal but
+    // silently leaves ingest fsync-bound, so surface it like foreign_keys.
+    if let Err(e) = conn.execute("PRAGMA synchronous = NORMAL", []) {
+        eprintln!("hh: warning: writer thread could not set synchronous=NORMAL: {e}");
+    }
     for req in rx {
         match req {
             WriterReq::Append(event, reply) => {
@@ -975,10 +1268,11 @@ fn map_session_row(r: &rusqlite::Row<'_>) -> rusqlite::Result<SessionRow> {
 
 /// Apply embedded migrations idempotently (DR-1).
 ///
-/// The migration DDL itself creates `schema_migrations` (it is part of the
+/// The first migration's DDL creates `schema_migrations` (it is part of the
 /// public schema per DR-2), so we cannot assume the table exists before the
 /// first migration runs. We probe `sqlite_master` instead: if the table is
-/// absent the database is fresh and we run migration 0001 in full.
+/// absent the database is fresh (`applied = 0`) and every migration runs in
+/// order; otherwise we skip up to and including the recorded `MAX(version)`.
 fn run_migrations(conn: &Connection) -> std::result::Result<(), StorageError> {
     let table_exists: i64 = conn.query_row(
         "SELECT EXISTS(SELECT 1 FROM sqlite_master WHERE type='table' AND name='schema_migrations')",
@@ -994,22 +1288,39 @@ fn run_migrations(conn: &Connection) -> std::result::Result<(), StorageError> {
     } else {
         0
     };
-    if applied >= LATEST_VERSION {
-        return Ok(());
-    }
-    // Run migration 0001. The DDL includes PRAGMAs which cannot run inside a
-    // transaction, so execute the batch outside a tx, then record the version.
-    conn.execute_batch(crate::migrations::MIGRATION_0001)
-        .map_err(|e| StorageError::Migration {
-            version: LATEST_VERSION,
-            source: e,
-        })?;
     let now = unix_ms();
-    conn.execute(
-        "INSERT OR IGNORE INTO schema_migrations (version, applied_at) VALUES (?1, ?2)",
-        params![LATEST_VERSION, now],
-    )?;
+    for &(version, sql) in crate::migrations::MIGRATIONS {
+        if version <= applied {
+            continue;
+        }
+        // Each migration's DDL may include PRAGMAs (0001 does) which cannot run
+        // inside a transaction, so execute the batch outside a tx, then record
+        // its version. `0002` is a single additive `CREATE INDEX IF NOT EXISTS`
+        // (see migrations/0002_events_heal_index.sql).
+        conn.execute_batch(sql)
+            .map_err(|e| StorageError::Migration { version, source: e })?;
+        conn.execute(
+            "INSERT OR IGNORE INTO schema_migrations (version, applied_at) VALUES (?1, ?2)",
+            params![version, now],
+        )?;
+    }
     Ok(())
+}
+
+/// The size of `path` in bytes, or `0` if it does not exist or its length is
+/// unreadable (best-effort footprint accounting for `hh stats`).
+fn file_size(path: &Path) -> u64 {
+    fs::metadata(path).map_or(0, |m| m.len())
+}
+
+/// Append `suffix` (e.g. `"-wal"`, `"-shm"`) to `db_path` to name a SQLite
+/// sidecar file. SQLite names the WAL/SHM as `<db>-wal`/`<db>-shm` regardless
+/// of the db's extension, so this appends rather than `with_extension` (which
+/// would mishandle an extension-less db name).
+fn sidecar(db_path: &Path, suffix: &str) -> PathBuf {
+    let mut s = db_path.as_os_str().to_owned();
+    s.push(suffix);
+    PathBuf::from(s)
 }
 
 /// Current unix time in milliseconds. Uses `std::SystemTime` (no `Date::now`,
@@ -1125,7 +1436,7 @@ mod tests {
                     r.get(0)
                 })
                 .unwrap();
-            assert_eq!(v, 1);
+            assert_eq!(v, 2);
             // Tables exist.
             let count: i64 = store
                 .conn
@@ -1142,7 +1453,7 @@ mod tests {
                     r.get(0)
                 })
                 .unwrap();
-            assert_eq!(v, 1);
+            assert_eq!(v, 2);
         }
         // Third open via the same path: still fine.
         {
@@ -1158,6 +1469,41 @@ mod tests {
             .query_row("PRAGMA journal_mode", [], |r| r.get(0))
             .unwrap();
         assert_eq!(mode, "wal");
+    }
+
+    /// Migration 0002 installs the partial index that makes `heal_steps` an
+    /// O(needs-heal) probe rather than an O(all-events) scan (Area 4). A fresh
+    /// store must carry it, and reopening must not duplicate it.
+    #[test]
+    fn heal_partial_index_exists_after_migration_0002() {
+        let tmp = TempDir::new().unwrap();
+        let db = tmp.path().join("hh.db");
+        let blobs = tmp.path().join("blobs");
+        {
+            let store = Store::open(&db, &blobs).unwrap();
+            let count: i64 = store
+                .conn
+                .query_row(
+                    "SELECT COUNT(*) FROM sqlite_master
+                     WHERE type='index' AND name='idx_events_needs_heal'",
+                    [],
+                    |r| r.get(0),
+                )
+                .unwrap();
+            assert_eq!(count, 1, "partial index idx_events_needs_heal must exist");
+        }
+        // Reopen is a no-op migration (applied == LATEST) — index still exactly one.
+        let store = Store::open(&db, &blobs).unwrap();
+        let count: i64 = store
+            .conn
+            .query_row(
+                "SELECT COUNT(*) FROM sqlite_master
+                 WHERE type='index' AND name='idx_events_needs_heal'",
+                [],
+                |r| r.get(0),
+            )
+            .unwrap();
+        assert_eq!(count, 1, "reopening must not duplicate the index");
     }
 
     #[test]
@@ -1353,6 +1699,321 @@ mod tests {
         // Deleting the second drops to 0 — file removed.
         store.delete_session(&b.id).unwrap();
         assert!(!blob_path.exists());
+    }
+
+    /// NFR-3 / Area 3: `finalize_session` runs `PRAGMA wal_checkpoint(TRUNCATE)`,
+    /// so the main `hh.db` file holds every committed page at rest. Copying
+    /// *only* `hh.db` (no `-wal`/`-shm`) into a fresh data dir and reopening
+    /// must yield the finalized session intact — i.e. `hh.db` is copy-safe.
+    #[test]
+    fn finalize_checkpoint_makes_db_copy_safe() {
+        let tmp = TempDir::new().unwrap();
+        let db = tmp.path().join("hh.db");
+        let blobs = tmp.path().join("blobs");
+        let created = {
+            let store = Store::open(&db, &blobs).unwrap();
+            let c = store.create_session(&new_session()).unwrap();
+            store
+                .finalize_session(&c.id, 1_700_000_060_000, Some(0), SessionStatus::Ok)
+                .unwrap();
+            // checkpoint(TRUNCATE) ran in finalize: the WAL is 0 bytes (it is
+            // removed on close, so only assert if still present).
+            let wal = sidecar(&db, "-wal");
+            if wal.exists() {
+                assert_eq!(
+                    fs::metadata(&wal).unwrap().len(),
+                    0,
+                    "WAL must be truncated to 0 bytes after finalize checkpoint"
+                );
+            }
+            c
+        };
+        // Copy only hh.db (no sidecars) into a fresh data dir and reopen.
+        let copy_dir = TempDir::new().unwrap();
+        let copy_db = copy_dir.path().join("hh.db");
+        let copy_blobs = copy_dir.path().join("blobs");
+        fs::create_dir_all(&copy_blobs).unwrap();
+        fs::copy(&db, &copy_db).unwrap();
+        let store = Store::open(&copy_db, &copy_blobs).unwrap();
+        let row = store.get_session(&created.id).unwrap();
+        assert_eq!(row.status, SessionStatus::Ok);
+        assert_eq!(row.ended_at, Some(1_700_000_060_000));
+        assert_eq!(row.exit_code, Some(0));
+    }
+
+    /// `prune_orphan_blobs` (Area 3 / `hh gc`) removes an orphan file (on
+    /// disk, no `blobs` row), removes a dangling row (refcount > 0, file
+    /// missing), and leaves a live referenced blob untouched.
+    #[test]
+    fn prune_removes_orphan_files_and_dangling_rows() {
+        let (_tmp, store) = open_store();
+        let created = store.create_session(&new_session()).unwrap();
+
+        // 1) Orphan file: written to disk, never referenced (no blobs row).
+        let orphan = store.blobs().put(b"orphan file content").unwrap();
+        let orphan_path = store.blobs().blob_path(&orphan.hash);
+        assert!(orphan_path.exists());
+
+        // 2) Live referenced blob: must survive prune.
+        let live = store.blobs().put(b"live referenced content").unwrap();
+        let live_path = store.blobs().blob_path(&live.hash);
+        {
+            let writer = store.event_writer().unwrap();
+            writer
+                .append_event(Event {
+                    kind: EventKind::FileChange,
+                    blob_hash: Some(live.hash.clone()),
+                    blob_size: Some(live.size),
+                    summary: "live".into(),
+                    ..event(&created.id, 1, Some(1))
+                })
+                .unwrap();
+            writer.finish().unwrap();
+        }
+        assert!(live_path.exists());
+
+        // 3) Dangling row: refcount > 0, but the file is deleted out of band.
+        let dangling = store.blobs().put(b"dangling row content").unwrap();
+        let dangling_path = store.blobs().blob_path(&dangling.hash);
+        {
+            let writer = store.event_writer().unwrap();
+            writer
+                .append_event(Event {
+                    kind: EventKind::FileChange,
+                    blob_hash: Some(dangling.hash.clone()),
+                    blob_size: Some(dangling.size),
+                    summary: "dangling".into(),
+                    ..event(&created.id, 2, Some(2))
+                })
+                .unwrap();
+            writer.finish().unwrap();
+        }
+        fs::remove_file(&dangling_path).unwrap();
+
+        let stats = store.prune_orphan_blobs().unwrap();
+        assert_eq!(stats.orphan_files_removed, 1, "the orphan file was removed");
+        assert!(stats.orphan_bytes_reclaimed > 0);
+        assert!(!orphan_path.exists(), "orphan file gone");
+        assert_eq!(
+            stats.orphan_rows_removed, 1,
+            "the dangling (file-missing) row was removed"
+        );
+        assert!(live_path.exists(), "the live referenced blob survives");
+        let live_rc: Option<i64> = store
+            .conn
+            .query_row(
+                "SELECT refcount FROM blobs WHERE hash = ?1",
+                params![live.hash],
+                |r| r.get(0),
+            )
+            .optional()
+            .unwrap();
+        assert_eq!(live_rc, Some(1));
+        let dangling_rc: Option<i64> = store
+            .conn
+            .query_row(
+                "SELECT refcount FROM blobs WHERE hash = ?1",
+                params![dangling.hash],
+                |r| r.get(0),
+            )
+            .optional()
+            .unwrap();
+        assert!(dangling_rc.is_none(), "dangling row removed");
+    }
+
+    /// `store_stats` (Area 3 / `hh stats`) reports session/event/blob counts,
+    /// a non-empty DB footprint, and the largest sessions in descending order.
+    #[test]
+    fn store_stats_reports_counts_and_largest() {
+        let (_tmp, store) = open_store();
+        let a = store.create_session(&new_session()).unwrap();
+        let mut b = new_session();
+        b.started_at += 1000;
+        let b = store.create_session(&b).unwrap();
+        {
+            let writer = store.event_writer().unwrap();
+            for ts in 0..3 {
+                writer.append_event(event(&a.id, ts, Some(ts + 1))).unwrap();
+            }
+            writer.append_event(event(&b.id, 0, Some(1))).unwrap();
+            // A referenced blob on `a` (a 4th event).
+            let live = store.blobs().put(b"stats live blob").unwrap();
+            writer
+                .append_event(Event {
+                    kind: EventKind::FileChange,
+                    blob_hash: Some(live.hash.clone()),
+                    blob_size: Some(live.size),
+                    summary: "blob".into(),
+                    ..event(&a.id, 5, Some(4))
+                })
+                .unwrap();
+            writer.finish().unwrap();
+        }
+        // An orphan blob file on disk (no row) so blobs_dir_bytes > blobs row.
+        let _orphan = store.blobs().put(b"stats orphan blob").unwrap();
+
+        let stats = store.store_stats(5).unwrap();
+        assert_eq!(stats.sessions, 2);
+        assert_eq!(stats.events, 5, "a has 4 (3 + blob event), b has 1");
+        assert_eq!(stats.blobs_count, 1, "only the referenced blob has a row");
+        assert!(stats.blobs_uncompressed_bytes > 0);
+        assert!(stats.db_bytes > 0);
+        assert!(stats.blobs_dir_bytes > 0, "two blob files on disk");
+        assert_eq!(stats.largest_sessions.len(), 2);
+        assert_eq!(stats.largest_sessions[0].id, a.id);
+        assert_eq!(stats.largest_sessions[0].event_count, 4);
+        assert_eq!(stats.largest_sessions[1].event_count, 1);
+    }
+
+    /// `for_each_event_detail` (Area 2) streams a session's events in
+    /// `(ts_ms, id)` order, resolves a blob-overflow body inline, and attaches
+    /// the `file_changes` row — the constant-memory primitive behind
+    /// `hh inspect --json`.
+    #[test]
+    fn for_each_event_detail_streams_in_order_and_resolves_blob() {
+        let (_tmp, store) = open_store();
+        let created = store.create_session(&new_session()).unwrap();
+        let real_body = serde_json::json!({"text": "resolved payload"});
+        let out = store
+            .blobs()
+            .put(serde_json::to_vec(&real_body).unwrap().as_slice())
+            .unwrap();
+        let envelope = serde_json::json!({
+            "overflow": true,
+            "size": out.size,
+            "blob_hash": out.hash,
+            "encoding": "blob",
+        });
+        let writer = store.event_writer().unwrap();
+        let id_plain = writer.append_event(event(&created.id, 0, Some(1))).unwrap();
+        let id_blob = writer
+            .append_event(Event {
+                body_json: Some(envelope),
+                blob_hash: Some(out.hash.clone()),
+                blob_size: Some(out.size),
+                ..event(&created.id, 1, Some(2))
+            })
+            .unwrap();
+        let id_fc = writer
+            .append_file_change(
+                Event {
+                    kind: EventKind::FileChange,
+                    summary: "file changed".into(),
+                    ..event(&created.id, 2, Some(3))
+                },
+                FileChange {
+                    event_id: 0,
+                    path: "src/lib.rs".into(),
+                    change_kind: ChangeKind::Modified,
+                    before_hash: None,
+                    after_hash: None,
+                    is_binary: false,
+                },
+            )
+            .unwrap();
+        writer.finish().unwrap();
+
+        let mut got: Vec<EventDetail> = Vec::new();
+        store
+            .for_each_event_detail(&created.id, |d| {
+                got.push(d);
+                Ok(())
+            })
+            .unwrap();
+        assert_eq!(got.len(), 3);
+        assert_eq!(got[0].id, id_plain);
+        assert_eq!(got[0].body_json.as_ref().unwrap()["text"], "hi");
+        assert!(got[0].file_change.is_none());
+        assert_eq!(got[1].id, id_blob);
+        assert_eq!(
+            got[1].body_json.as_ref().unwrap(),
+            &real_body,
+            "blob overflow resolved inline"
+        );
+        assert_eq!(got[2].id, id_fc);
+        let fc = got[2].file_change.as_ref().expect("file_change attached");
+        assert_eq!(fc.path, "src/lib.rs");
+        assert_eq!(fc.event_id, id_fc);
+    }
+
+    /// Area 2 big-session hardening: a synthetic 100k-event session must
+    /// stream through `for_each_event_detail` (the `hh inspect --json` path)
+    /// and load its event index (the `hh replay` open path) at this scale
+    /// without collecting every row in RAM. `#[ignore]`d because 100k rows are
+    /// too heavy for the default per-PR suite — run with `cargo test -p hh-core
+    /// -- --ignored for_each_event_detail_streams_100k` to re-verify (the
+    /// manual scale check documented in `docs/performance.md`). Events are
+    /// bulk-inserted in one transaction for speed; the system under test is
+    /// the *read* path, which is unaffected by how the rows got there.
+    #[test]
+    #[ignore = "100k-row scale check; run with --ignored (docs/performance.md)"]
+    fn for_each_event_detail_streams_100k_session() {
+        let (tmp, store) = open_store();
+        let created = store.create_session(&new_session()).unwrap();
+        let sid = created.id.clone();
+        let db_path = tmp.path().join("hh.db");
+        let blobs_path = tmp.path().join("blobs");
+        // Release the store's connection before bulk-inserting so a single
+        // connection owns the write transaction.
+        drop(store);
+
+        // Bulk-insert 100k events in one transaction. The writer thread's
+        // per-event channel round-trip would make this test unacceptably slow;
+        // this is fixture setup, not the system under test.
+        {
+            let conn = Connection::open(&db_path).unwrap();
+            conn.execute("BEGIN", []).unwrap();
+            let mut stmt = conn
+                .prepare(
+                    "INSERT INTO events
+                       (session_id, ts_ms, kind, step, summary, body_json,
+                        blob_hash, correlates)
+                     VALUES (?1, ?2, ?3, ?4, ?5, ?6, NULL, NULL)",
+                )
+                .unwrap();
+            for i in 0i64..100_000 {
+                stmt.execute(params![
+                    &sid,
+                    i,
+                    "agent_message",
+                    Some((i / 4) + 1),
+                    format!("event {i}"),
+                    r#"{"text":"x"}"#,
+                ])
+                .unwrap();
+            }
+            drop(stmt);
+            conn.execute("COMMIT", []).unwrap();
+        }
+
+        // Reopen so the read path starts from a clean snapshot of all 100k
+        // committed rows (and so `Store::open` re-runs `heal_steps`, which the
+        // migration 0002 partial index keeps O(rows-needing-heal)=O(0) here:
+        // every event has a non-null step).
+        let store = Store::open(&db_path, &blobs_path).unwrap();
+
+        // The replay-open path: the event index + timeline over 100k rows.
+        let index = store.list_event_index(&sid).unwrap();
+        assert_eq!(index.len(), 100_000, "index loads all 100k rows");
+        let timeline = crate::build_timeline(&index, false);
+        assert!(!timeline.is_empty(), "timeline builds over 100k rows");
+
+        // The `hh inspect --json` path: stream 100k events in constant memory
+        // — the closure touches one EventDetail at a time; nothing accumulates.
+        // A regression that re-introduced a `Vec::with_capacity(index.len())`
+        // would still pass the count but balloon memory; the ordered-stream
+        // assertion plus the closure's O(1) shape is the structural guard.
+        let mut count = 0u64;
+        let mut last_ts = i64::MIN;
+        store
+            .for_each_event_detail(&sid, |d| {
+                count += 1;
+                assert!(d.ts_ms >= last_ts, "stream is ordered by ts_ms, id");
+                last_ts = d.ts_ms;
+                Ok(())
+            })
+            .unwrap();
+        assert_eq!(count, 100_000, "stream emits all 100k events in order");
     }
 
     #[test]
