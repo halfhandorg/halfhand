@@ -465,6 +465,7 @@ mod tests {
             cwd: PathBuf::from("/tmp"),
             step_count: 0,
             files_changed: 0,
+            imported_from: None,
         }
     }
 

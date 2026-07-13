@@ -11,7 +11,7 @@
 //! STABILITY.md's policy instead.
 
 /// The highest migration version applied by a fresh [`crate::store::Store::open`].
-pub const LATEST_VERSION: i64 = 2;
+pub const LATEST_VERSION: i64 = 3;
 
 /// The ordered migration set: `(version, DDL)`. Applied in ascending order;
 /// each is run only when the DB's recorded `schema_migrations.version` is below
@@ -21,6 +21,7 @@ pub const LATEST_VERSION: i64 = 2;
 pub const MIGRATIONS: &[(i64, &str)] = &[
     (1, include_str!("migrations/0001_initial.sql")),
     (2, include_str!("migrations/0002_events_heal_index.sql")),
+    (3, include_str!("migrations/0003_imported_from.sql")),
 ];
 
 /// Migration 0001: the v0.1.0-beta.1 schema, verbatim from SRS §4.1.

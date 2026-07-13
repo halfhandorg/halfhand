@@ -308,6 +308,7 @@ mod tests {
             cwd: PathBuf::from("/tmp/work"),
             step_count: 12,
             files_changed: 2,
+            imported_from: None,
         }
     }
 

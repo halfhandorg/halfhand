@@ -53,6 +53,12 @@ directories = "5"
 # contract) and is the standard, well-maintained choice.
 regex = "1"
 thiserror = "1"
+# Justification (FR export/import, `hh-core::bundle`): the portable session
+# bundle (`hh export --bundle`) packs a manifest, an event log, and referenced
+# blobs into a tar, which is then zstd-compressed as a whole. `tar` is the
+# same crate Cargo itself uses to build package tarballs — pure Rust, no
+# network, no unsafe in the read/write paths this crate uses.
+tar = "0.4"
 
 [dev-dependencies]
 tempfile = "3"

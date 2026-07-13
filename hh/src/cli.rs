@@ -45,7 +45,9 @@ pub enum Command {
     Run(RunArgs),
 
     /// Faithfully play back a recorded session in an interactive TUI (SRS FR-3).
-    #[command(after_help = "Example:\n  hh replay last\n  hh replay a1b2c3")]
+    #[command(
+        after_help = "Example:\n  hh replay last\n  hh replay a1b2c3\n  hh replay last --web"
+    )]
     Replay(ReplayArgs),
 
     /// Print non-interactive detail about a session (SRS FR-4).
@@ -103,15 +105,25 @@ pub enum Command {
     #[command(after_help = "Example:\n  hh redact a1b2c3\n  hh redact last --yes")]
     Redact(RedactArgs),
 
-    /// Export a session as a JSON bundle or a self-contained HTML page.
+    /// Export a session as a JSON bundle, a portable `.hh` archive, or a
+    /// self-contained HTML page.
     ///
     /// Exports are ALWAYS redacted by default — nothing leaves the machine
     /// unredacted by accident. Opting out (--no-redact) requires an
     /// interactive confirmation.
     #[command(
-        after_help = "Example:\n  hh export last --out session.json\n  hh export a1b2c3 --html --out session.html\n  hh export last | jq .session"
+        after_help = "Example:\n  hh export last --out session.json\n  hh export last --bundle -o session.hh\n  hh export a1b2c3 --html --out session.html\n  hh export last | jq .session"
     )]
     Export(ExportArgs),
+
+    /// Import a portable session bundle produced by `hh export --bundle`.
+    ///
+    /// Validates the bundle's manifest and blob hashes, then imports it
+    /// under a brand-new local session id — the original id is preserved in
+    /// the new session's `imported_from` field. Refuses a corrupt or
+    /// tampered bundle with a precise error.
+    #[command(after_help = "Example:\n  hh import session.hh")]
+    Import(ImportArgs),
 }
 
 /// Arguments for `hh scan`.
@@ -147,17 +159,30 @@ pub struct ExportArgs {
     pub session: Option<String>,
 
     /// Write to this file instead of stdout.
-    #[arg(long)]
+    #[arg(long, short = 'o')]
     pub out: Option<std::path::PathBuf>,
 
     /// Export a self-contained HTML page instead of the JSON bundle.
-    #[arg(long)]
+    #[arg(long, conflicts_with = "bundle")]
     pub html: bool,
+
+    /// Export a portable `.hh` archive (manifest + events + referenced
+    /// blobs, zstd-compressed) instead of the plain JSON bundle. Import it
+    /// elsewhere with `hh import`.
+    #[arg(long, conflicts_with = "html")]
+    pub bundle: bool,
 
     /// Skip redaction (requires interactive confirmation; refused when stdin
     /// is not a TTY, so a script can never exfiltrate raw sessions).
     #[arg(long)]
     pub no_redact: bool,
+}
+
+/// Arguments for `hh import`.
+#[derive(Args, Debug)]
+pub struct ImportArgs {
+    /// Path to a bundle produced by `hh export --bundle`.
+    pub file: std::path::PathBuf,
 }
 
 /// Arguments for `hh doctor`.
@@ -190,6 +215,12 @@ pub struct RunArgs {
 pub struct ReplayArgs {
     /// Session short id, full id, or `last` (most recent). Defaults to `last`.
     pub session: Option<String>,
+
+    /// Export a self-contained HTML replay page to a temp file and print its
+    /// path, instead of opening the interactive TUI. Does not need a
+    /// terminal, does not open a browser, and does not start a server.
+    #[arg(long)]
+    pub web: bool,
 }
 
 /// Arguments for `hh inspect`.

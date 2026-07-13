@@ -8,6 +8,7 @@ include!(concat!(env!("OUT_DIR"), "/hh_version.rs"));
 
 mod cli;
 mod export;
+mod import;
 mod inspect;
 mod render;
 mod replay;
@@ -83,6 +84,7 @@ fn run(cli: Cli) -> anyhow::Result<ExitCode> {
         Command::Scan(args) => secrets::scan_command(&args),
         Command::Redact(args) => secrets::redact_command(&args),
         Command::Export(args) => export::export_command(&args),
+        Command::Import(args) => import::import_command(&args),
     }
 }
 
@@ -178,12 +180,19 @@ fn run_command(args: cli::RunArgs) -> anyhow::Result<ExitCode> {
     Ok(child_exit_code(outcome.exit_code))
 }
 
-/// `hh replay` (FR-3): open the interactive TUI on a recorded session.
-/// Requires a real terminal — the TUI needs raw mode, which a pipe/redirect
-/// cannot provide (CLAUDE.md: "Respect NO_COLOR and non-TTY output"; for an
-/// inherently interactive command that means refusing clearly rather than
-/// failing deep inside crossterm).
+/// `hh replay` (FR-3): open the interactive TUI on a recorded session, or
+/// (`--web`) export a self-contained HTML replay page to a temp file and
+/// print its path.
+///
+/// The TUI path requires a real terminal — it needs raw mode, which a
+/// pipe/redirect cannot provide (CLAUDE.md: "Respect NO_COLOR and non-TTY
+/// output"; for an inherently interactive command that means refusing
+/// clearly rather than failing deep inside crossterm). `--web` needs no
+/// terminal at all, so it is handled before that check.
 fn replay_command(args: &cli::ReplayArgs) -> anyhow::Result<ExitCode> {
+    if args.web {
+        return replay_web_command(args);
+    }
     if !std::io::stdout().is_terminal() {
         anyhow::bail!(
             "`hh replay` needs an interactive terminal\n  \
@@ -202,6 +211,41 @@ fn replay_command(args: &cli::ReplayArgs) -> anyhow::Result<ExitCode> {
         .map_err(|e| anyhow::anyhow!("could not load session events\n  why: {e}"))?;
     let no_color = std::env::var_os("NO_COLOR").is_some();
     replay::run(store, session, index, no_color)?;
+    Ok(ExitCode::SUCCESS)
+}
+
+/// `hh replay --web` (sugar): builds the same redacted HTML page `hh export
+/// --html` would, writes it to a temp file, and prints the path — no
+/// terminal, browser auto-open, or server, per v1 scope.
+fn replay_web_command(args: &cli::ReplayArgs) -> anyhow::Result<ExitCode> {
+    let (store, _paths, config) = open_store()?;
+    let hint = args.session.as_deref().unwrap_or("last");
+    let session_id = resolve_session_arg(&store, hint)?;
+    let session = store
+        .get_session(&session_id)
+        .map_err(|e| anyhow::anyhow!("could not load session\n  why: {e}"))?;
+    let detectors = secrets::detectors(&config)?;
+    let html = export::build_redacted_html(&store, &session, Some(&detectors))?;
+
+    let path = std::env::temp_dir().join(format!("hh-replay-{}.html", session.short_id));
+    std::fs::write(&path, &html).map_err(|e| {
+        anyhow::anyhow!(
+            "could not write replay page to {}\n  why: {e}",
+            path.display()
+        )
+    })?;
+
+    let color = render::use_color();
+    let check = if color {
+        "✓".green().to_string()
+    } else {
+        "✓".to_string()
+    };
+    println!(
+        "{check} Exported session {sid} → {path} (html, redacted) — open it in a browser",
+        sid = session.short_id,
+        path = path.display(),
+    );
     Ok(ExitCode::SUCCESS)
 }
 
@@ -1023,6 +1067,7 @@ fn session_to_json(r: &hh_core::SessionRow) -> serde_json::Value {
         "files_changed": r.files_changed,
         "command": r.command,
         "cwd": r.cwd.to_string_lossy(),
+        "imported_from": r.imported_from,
     })
 }
 
@@ -1089,6 +1134,7 @@ mod tests {
             command: vec!["claude".into()],
             cwd: PathBuf::from("/tmp/work"),
             step_count: steps,
+            imported_from: None,
             files_changed: 7,
         }
     }

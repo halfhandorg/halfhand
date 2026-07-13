@@ -294,6 +294,10 @@ pub struct SessionRow {
     pub step_count: i64,
     /// Count of distinct file paths changed.
     pub files_changed: i64,
+    /// The original session id this session was imported from (`hh import`),
+    /// or `None` for a locally-recorded session (SRS v1.0.0 addendum: additive
+    /// column, migration 0003).
+    pub imported_from: Option<String>,
 }
 
 /// An event to append to a session (SRS §4.1 `events`).
@@ -397,6 +401,36 @@ pub struct EventDetail {
     /// Kind-specific structured payload, resolved from the blob store if it
     /// had overflowed inline storage.
     pub body_json: Option<serde_json::Value>,
+    /// The attached `file_changes` row, present only for `kind == FileChange`.
+    pub file_change: Option<FileChange>,
+}
+
+/// One event row exactly as stored — no blob-overflow resolution (unlike
+/// [`EventDetail`]). Used by `hh-core::bundle` (`hh export --bundle`), which
+/// must carry every referenced blob byte-for-byte rather than inlining only
+/// the ones that happen to resolve as JSON (see
+/// [`crate::store::Store::for_each_event_raw`]).
+#[derive(Debug, Clone)]
+pub struct RawEventRow {
+    /// The event row id.
+    pub id: i64,
+    /// Milliseconds since session start.
+    pub ts_ms: i64,
+    /// Event kind.
+    pub kind: EventKind,
+    /// 1-based step ordinal, or `None` for non-step events.
+    pub step: Option<i64>,
+    /// Correlated event id.
+    pub correlates: Option<i64>,
+    /// One-line summary.
+    pub summary: String,
+    /// Kind-specific structured payload, exactly as stored (may be an
+    /// unresolved `{"overflow": true, ...}` envelope).
+    pub body_json: Option<serde_json::Value>,
+    /// Blob hash referenced by this event's `events.blob_hash` column, if any.
+    pub blob_hash: Option<String>,
+    /// Uncompressed size of the referenced blob, if `blob_hash` is set.
+    pub blob_size: Option<u64>,
     /// The attached `file_changes` row, present only for `kind == FileChange`.
     pub file_change: Option<FileChange>,
 }

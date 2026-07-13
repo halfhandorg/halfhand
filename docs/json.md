@@ -48,6 +48,7 @@ One object per recorded session, newest-first.
 | `files_changed` | integer | yes | Count of distinct file paths in the session's `file_changes` rows. |
 | `command` | array of strings | yes | The recorded command line as an argv vector. |
 | `cwd` | string | yes | The session's working directory. |
+| `imported_from` | string \| null | yes | The original session id, if this session was created by `hh import` (see [`docs/export-import.md`](export-import.md)). `null` for a locally-recorded session. Added additively — older clients that don't read it are unaffected. |
 
 ---
 
@@ -143,3 +144,4 @@ They are documented in full on their own pages:
 | `hh stats --json` | `{ schema, sessions, events, blobs: {…}, disk: {…}, largest_sessions: [{ id, short_id, events }] }` | [`docs/stats.md`](stats.md) |
 | `hh scan --json` | `{ schema, total_findings, sessions: [{ id, short_id, findings: [{ type, hash8, count, event_id, step, event_kind, location }] }] }` — findings never contain the secret; `hash8` correlates one secret across rows | [`docs/redaction.md`](redaction.md) |
 | `hh export` | `{ schema, kind: "hh-export", hh_version, session, events }` — `session` is the `hh list --json` session object; `events` are event objects with resolved bodies; redacted by default | [`docs/redaction.md`](redaction.md) |
+| `hh export --bundle` | a zstd-compressed tar (`manifest.json` + `events.ndjson` + `blobs/`), not a single JSON object — see [`docs/export-import.md`](export-import.md) for the bundle's own schema | [`docs/export-import.md`](export-import.md) |

@@ -31,6 +31,11 @@ pub enum Error {
     /// malformed TOML file or a value that cannot be interpreted.
     #[error("config error: {0}")]
     Config(#[from] ConfigError),
+
+    /// Portable session bundle (`hh export --bundle` / `hh import`) build or
+    /// parse failure.
+    #[error("bundle error: {0}")]
+    Bundle(#[from] BundleError),
 }
 
 /// Storage-layer error.
@@ -156,6 +161,62 @@ pub enum ConfigError {
         /// Underlying IO error.
         source: std::io::Error,
     },
+}
+
+/// Portable session bundle (`hh-core::bundle`) build/parse error. Every
+/// variant here is reachable from untrusted input (`hh import file.hh`) and
+/// must carry enough detail to act on — "corrupt bundle" alone is not
+/// actionable (v1.0.0 addendum: parsers over untrusted input must never
+/// panic and must report precisely what failed).
+#[derive(Debug, Error)]
+#[non_exhaustive]
+pub enum BundleError {
+    /// The bundle's zstd stream could not be decompressed.
+    #[error("could not decompress bundle: {0}\n  hint: the file may be truncated or not an `hh` bundle at all")]
+    Zstd(String),
+
+    /// The decompressed bundle is not a valid tar archive, or contains an
+    /// entry outside the allow-list (unexpected path, symlink, hardlink,
+    /// absolute path, or `..` component).
+    #[error("malformed bundle archive: {0}")]
+    Tar(String),
+
+    /// `manifest.json` is missing, unreadable, or not valid JSON.
+    #[error("could not read bundle manifest: {0}")]
+    Manifest(String),
+
+    /// The bundle's `format_version` is newer than this build of `hh`
+    /// understands.
+    #[error("bundle format version {found} is newer than the highest version this build of hh supports ({max})\n  hint: upgrade hh, then retry `hh import`")]
+    UnsupportedVersion {
+        /// The bundle's declared format version.
+        found: u32,
+        /// The highest format version this build supports.
+        max: u32,
+    },
+
+    /// `events.ndjson` is missing or one of its lines is not valid JSON.
+    #[error("could not read bundle events: {0}")]
+    Events(String),
+
+    /// A blob's actual content hash did not match its expected hash (from
+    /// its tar path or from an event/file_change reference).
+    #[error("bundle blob hash mismatch: expected {expected}, got {actual}\n  hint: the bundle is corrupt or was tampered with — re-export it")]
+    HashMismatch {
+        /// Expected BLAKE3 hex.
+        expected: String,
+        /// Actual BLAKE3 hex.
+        actual: String,
+    },
+
+    /// An event or file_change references a blob hash that the bundle does
+    /// not carry.
+    #[error("bundle is missing blob {0}, referenced by an event\n  hint: the bundle is corrupt or incomplete — re-export it")]
+    MissingBlob(String),
+
+    /// The bundle's `events.ndjson` digest did not match `manifest.integrity`.
+    #[error("bundle events.ndjson does not match its recorded integrity hash\n  hint: the bundle is corrupt or was tampered with — re-export it")]
+    IntegrityMismatch,
 }
 
 /// Result alias for hh-core.
