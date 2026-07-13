@@ -62,6 +62,11 @@ pub enum StorageError {
     #[error("blob {0} referenced by event but missing from disk")]
     MissingBlob(String),
 
+    /// `redact_session` was asked to rewrite a session that is still being
+    /// recorded (a live writer could re-insert plaintext mid-rewrite).
+    #[error("session {0} is still recording\n  hint: wait for the recording to finish (`hh list` shows status), then re-run `hh redact`")]
+    StillRecording(String),
+
     /// The single-writer task is no longer reachable (closed or panicked).
     #[error("the writer task is closed (it may have crashed; check stderr for prior errors)")]
     WriterClosed,

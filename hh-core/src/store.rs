@@ -113,6 +113,98 @@ pub struct LargestSession {
     pub event_count: u64,
 }
 
+/// Where a scan finding was located within a session
+/// (docs/redaction-design.md, `hh scan`).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum FindingLocation {
+    /// The session's recorded command line (`sessions.command`).
+    Command,
+    /// An event's one-line summary.
+    Summary,
+    /// An event's inline `body_json` payload.
+    Body,
+    /// A blob referenced by an event (an overflowed payload, a file
+    /// snapshot, or a non-UTF-8 terminal chunk).
+    Blob {
+        /// The blob's BLAKE3 hex hash.
+        hash: String,
+        /// The file path, when the referencing event is a `file_change`.
+        path: Option<String>,
+    },
+}
+
+impl std::fmt::Display for FindingLocation {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::Command => f.write_str("command"),
+            Self::Summary => f.write_str("summary"),
+            Self::Body => f.write_str("body"),
+            Self::Blob { hash, path } => match path {
+                Some(p) => write!(f, "file {p}"),
+                None => write!(f, "blob {}", &hash[..hash.len().min(8)]),
+            },
+        }
+    }
+}
+
+/// One `hh scan` finding: what kind of secret, where, and its correlation
+/// tag — never the secret itself (docs/redaction-design.md).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ScanFinding {
+    /// The containing event's row id; `None` for session-level locations
+    /// (the command line).
+    pub event_id: Option<i64>,
+    /// The containing event's step ordinal, if it has one.
+    pub step: Option<i64>,
+    /// The containing event's kind, if event-scoped.
+    pub event_kind: Option<EventKind>,
+    /// Where within the session the secret sits.
+    pub location: FindingLocation,
+    /// The detected secret kind.
+    pub secret: crate::redact::SecretKind,
+    /// `BLAKE3(secret)[..8]` — correlates the same secret across findings.
+    pub hash8: String,
+    /// Number of occurrences of this `(secret, hash8)` at this location.
+    pub count: u64,
+}
+
+/// Aggregated per-secret tally for a [`RedactOutcome`] and the audit event.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct SecretSummary {
+    /// The detected secret kind.
+    pub secret: crate::redact::SecretKind,
+    /// The secret's correlation tag.
+    pub hash8: String,
+    /// Total occurrences replaced.
+    pub count: u64,
+}
+
+/// The result of [`Store::redact_session`].
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct RedactOutcome {
+    /// Event rows whose summary/body were rewritten.
+    pub events_rewritten: u64,
+    /// Blobs whose content was rewritten (stored under a new hash).
+    pub blobs_rewritten: u64,
+    /// Original blob files securely deleted (refcount reached zero).
+    pub blobs_shredded: u64,
+    /// Per-secret tallies of everything replaced.
+    pub secrets: Vec<SecretSummary>,
+    /// Row id of the appended redaction audit event.
+    pub audit_event_id: i64,
+}
+
+/// One event row as read by [`Store::scan_session`] (summary + inline body +
+/// blob reference; no ts).
+struct ScanEventRow {
+    id: i64,
+    kind: EventKind,
+    step: Option<i64>,
+    summary: String,
+    body: Option<String>,
+    blob_hash: Option<String>,
+}
+
 /// The raw column tuple backing [`Store::get_event_detail`], grouped into a
 /// struct rather than a bare tuple (clippy::type_complexity).
 struct EventRawRow {
@@ -595,6 +687,410 @@ impl Store {
         Ok(removed)
     }
 
+    /// Scan a session for secrets without mutating anything (`hh scan`,
+    /// docs/redaction-design.md). Runs `detectors` over the session's
+    /// recorded command line, every event's summary and inline body, and
+    /// every referenced blob's content (JSON-aware for structured payloads).
+    /// Findings carry the secret kind, location, and hash8 — never the
+    /// secret itself. Each distinct blob is scanned once, attributed to its
+    /// first referencing event (and to the file path when that event is a
+    /// `file_change`).
+    pub fn scan_session(
+        &self,
+        id: &str,
+        detectors: &crate::redact::Detectors,
+    ) -> Result<Vec<ScanFinding>> {
+        let command_text: String = self
+            .conn
+            .query_row(
+                "SELECT command FROM sessions WHERE id = ?1",
+                params![id],
+                |r| r.get(0),
+            )
+            .optional()?
+            .ok_or_else(|| StorageError::NotFound(id.to_string()))?;
+        let mut out = Vec::new();
+        // Session command line.
+        if let Ok(cmd) = serde_json::from_str::<serde_json::Value>(&command_text) {
+            push_grouped(
+                &mut out,
+                detectors.detect_json(&cmd),
+                None,
+                None,
+                None,
+                &FindingLocation::Command,
+            );
+        }
+        // Events: summary + inline body; collect blob references as we go.
+        let rows: Vec<ScanEventRow> = {
+            let mut stmt = self.conn.prepare(
+                "SELECT id, kind, step, summary, body_json, blob_hash FROM events
+                 WHERE session_id = ?1 ORDER BY ts_ms, id",
+            )?;
+            let mapped = stmt.query_map(params![id], |r| {
+                let kind_str: String = r.get(1)?;
+                Ok(ScanEventRow {
+                    id: r.get(0)?,
+                    kind: kind_str.parse().unwrap_or(EventKind::AgentMessage),
+                    step: r.get(2)?,
+                    summary: r.get(3)?,
+                    body: r.get(4)?,
+                    blob_hash: r.get(5)?,
+                })
+            })?;
+            let mut v = Vec::new();
+            for m in mapped {
+                v.push(m?);
+            }
+            v
+        };
+        let mut seen_blobs = std::collections::HashSet::new();
+        for row in &rows {
+            push_grouped(
+                &mut out,
+                detectors.detect(&row.summary),
+                Some(row.id),
+                row.step,
+                Some(row.kind),
+                &FindingLocation::Summary,
+            );
+            if let Some(body) = &row.body {
+                // Structured bodies are scanned as a parsed tree (see
+                // redact::Detectors::detect_json); a (defensively handled)
+                // unparseable body is scanned as text so scan and redact
+                // agree on what they cover.
+                let findings = match serde_json::from_str::<serde_json::Value>(body) {
+                    Ok(v) => detectors.detect_json(&v),
+                    Err(_) => detectors.detect(body),
+                };
+                push_grouped(
+                    &mut out,
+                    findings,
+                    Some(row.id),
+                    row.step,
+                    Some(row.kind),
+                    &FindingLocation::Body,
+                );
+            }
+            if let Some(hash) = &row.blob_hash {
+                if !seen_blobs.insert(hash.clone()) {
+                    continue;
+                }
+                // A missing/corrupt blob is `hh doctor`'s problem, not a scan
+                // failure — skip it rather than aborting the report.
+                let Ok(content) = self.blobs.get(hash) else {
+                    continue;
+                };
+                let path: Option<String> = self
+                    .conn
+                    .query_row(
+                        "SELECT path FROM file_changes WHERE event_id = ?1",
+                        params![row.id],
+                        |r| r.get(0),
+                    )
+                    .optional()?;
+                push_grouped(
+                    &mut out,
+                    detectors.detect_bytes(&content),
+                    Some(row.id),
+                    row.step,
+                    Some(row.kind),
+                    &FindingLocation::Blob {
+                        hash: hash.clone(),
+                        path,
+                    },
+                );
+            }
+        }
+        Ok(out)
+    }
+
+    /// Redact a session in place (`hh redact`, docs/redaction-design.md):
+    /// rewrite every event summary/body, rewrite affected blobs under new
+    /// hashes (repointing this session's references and moving refcounts),
+    /// securely delete originals that reach refcount zero, append a
+    /// redaction audit event, and purge plaintext remnants from the WAL and
+    /// freelist (checkpoint + VACUUM). Irreversible by design.
+    ///
+    /// Refuses a session still in `recording` status — a live writer could
+    /// re-insert plaintext mid-rewrite.
+    #[allow(clippy::too_many_lines)] // one transaction, inherently sequential phases
+    pub fn redact_session(
+        &self,
+        id: &str,
+        detectors: &crate::redact::Detectors,
+    ) -> Result<RedactOutcome> {
+        let (status, started_at): (String, i64) = self
+            .conn
+            .query_row(
+                "SELECT status, started_at FROM sessions WHERE id = ?1",
+                params![id],
+                |r| Ok((r.get(0)?, r.get(1)?)),
+            )
+            .optional()?
+            .ok_or_else(|| StorageError::NotFound(id.to_string()))?;
+        if status == "recording" {
+            return Err(StorageError::StillRecording(id.to_string()).into());
+        }
+
+        let mut tally: std::collections::BTreeMap<(crate::redact::SecretKind, String), u64> =
+            std::collections::BTreeMap::new();
+        let count_findings =
+            |tally: &mut std::collections::BTreeMap<(crate::redact::SecretKind, String), u64>,
+             findings: &[crate::redact::Finding]| {
+                for f in findings {
+                    *tally.entry((f.kind.clone(), f.hash8.clone())).or_insert(0) += 1;
+                }
+            };
+        let mut events_rewritten = 0u64;
+        let mut blobs_rewritten = 0u64;
+        let mut shred_list: Vec<String> = Vec::new();
+
+        let tx = self.conn.unchecked_transaction()?;
+
+        // Phase 1: the session's recorded command line.
+        let command_text: String = tx.query_row(
+            "SELECT command FROM sessions WHERE id = ?1",
+            params![id],
+            |r| r.get(0),
+        )?;
+        if let Ok(mut cmd) = serde_json::from_str::<serde_json::Value>(&command_text) {
+            let findings = detectors.redact_json(&mut cmd);
+            if !findings.is_empty() {
+                count_findings(&mut tally, &findings);
+                tx.execute(
+                    "UPDATE sessions SET command = ?1 WHERE id = ?2",
+                    params![cmd.to_string(), id],
+                )?;
+            }
+        }
+
+        // Phase 2: event summaries and inline bodies.
+        let event_rows: Vec<(i64, String, Option<String>)> = {
+            let mut stmt =
+                tx.prepare("SELECT id, summary, body_json FROM events WHERE session_id = ?1")?;
+            let mapped = stmt.query_map(params![id], |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?)))?;
+            let mut v = Vec::new();
+            for m in mapped {
+                v.push(m?);
+            }
+            v
+        };
+        for (event_id, summary, body) in &event_rows {
+            let mut touched = false;
+            let new_summary = detectors.redact_text(summary).map(|r| {
+                count_findings(&mut tally, &r.findings);
+                crate::event::truncate_summary(&r.text)
+            });
+            let new_body: Option<String> = body.as_ref().and_then(|b| {
+                match serde_json::from_str::<serde_json::Value>(b) {
+                    Ok(mut v) => {
+                        let findings = detectors.redact_json(&mut v);
+                        if findings.is_empty() {
+                            None
+                        } else {
+                            count_findings(&mut tally, &findings);
+                            Some(v.to_string())
+                        }
+                    }
+                    // Defensive: an unparseable body is redacted as text so
+                    // redact covers everything scan reports.
+                    Err(_) => detectors.redact_text(b).map(|r| {
+                        count_findings(&mut tally, &r.findings);
+                        r.text
+                    }),
+                }
+            });
+            if let Some(s) = new_summary {
+                tx.execute(
+                    "UPDATE events SET summary = ?1 WHERE id = ?2",
+                    params![s, event_id],
+                )?;
+                touched = true;
+            }
+            if let Some(b) = new_body {
+                tx.execute(
+                    "UPDATE events SET body_json = ?1 WHERE id = ?2",
+                    params![b, event_id],
+                )?;
+                touched = true;
+            }
+            if touched {
+                events_rewritten += 1;
+            }
+        }
+
+        // Phase 3: referenced blobs. Each affected blob is re-stored redacted
+        // under its new content hash; this session's references (events,
+        // file_changes, overflow envelopes) are repointed and the refcounts
+        // move with them. Originals that reach refcount zero are deleted from
+        // the table now and shredded from disk after commit.
+        let blob_refs: Vec<(String, i64)> = {
+            let mut stmt = tx.prepare(
+                "SELECT blob_hash, COUNT(*) FROM events
+                 WHERE session_id = ?1 AND blob_hash IS NOT NULL GROUP BY blob_hash",
+            )?;
+            let mapped = stmt.query_map(params![id], |r| Ok((r.get(0)?, r.get(1)?)))?;
+            let mut v = Vec::new();
+            for m in mapped {
+                v.push(m?);
+            }
+            v
+        };
+        for (old_hash, refs) in &blob_refs {
+            let Ok(content) = self.blobs.get(old_hash) else {
+                continue; // missing blob: gc/doctor territory, not redact's
+            };
+            let Some(redacted) = detectors.redact_bytes(&content) else {
+                continue; // clean or binary
+            };
+            count_findings(&mut tally, &redacted.findings);
+            let put = self.blobs.put(&redacted.bytes)?;
+            // Repoint this session's event references.
+            tx.execute(
+                "UPDATE events SET blob_hash = ?1 WHERE session_id = ?2 AND blob_hash = ?3",
+                params![put.hash, id, old_hash],
+            )?;
+            // Repoint file-change before/after hashes within this session.
+            for column_update in [
+                "UPDATE file_changes SET before_hash = ?1
+                 WHERE before_hash = ?2
+                   AND event_id IN (SELECT id FROM events WHERE session_id = ?3)",
+                "UPDATE file_changes SET after_hash = ?1
+                 WHERE after_hash = ?2
+                   AND event_id IN (SELECT id FROM events WHERE session_id = ?3)",
+            ] {
+                tx.execute(column_update, params![put.hash, old_hash, id])?;
+            }
+            // Rewrite overflow envelopes that embed the old hash/size.
+            let envelope_rows: Vec<(i64, String)> = {
+                let mut stmt = tx.prepare(
+                    "SELECT id, body_json FROM events
+                     WHERE session_id = ?1 AND blob_hash = ?2 AND body_json IS NOT NULL",
+                )?;
+                let mapped =
+                    stmt.query_map(params![id, put.hash], |r| Ok((r.get(0)?, r.get(1)?)))?;
+                let mut v = Vec::new();
+                for m in mapped {
+                    v.push(m?);
+                }
+                v
+            };
+            for (event_id, body) in envelope_rows {
+                let Ok(mut v) = serde_json::from_str::<serde_json::Value>(&body) else {
+                    continue;
+                };
+                let is_envelope = v
+                    .get("overflow")
+                    .and_then(serde_json::Value::as_bool)
+                    .unwrap_or(false);
+                if !is_envelope {
+                    continue;
+                }
+                if let Some(obj) = v.as_object_mut() {
+                    obj.insert(
+                        "blob_hash".into(),
+                        serde_json::Value::String(put.hash.clone()),
+                    );
+                    obj.insert("size".into(), serde_json::json!(put.size));
+                }
+                tx.execute(
+                    "UPDATE events SET body_json = ?1 WHERE id = ?2",
+                    params![v.to_string(), event_id],
+                )?;
+            }
+            // Move the refcounts: +refs on the new blob, -refs on the old.
+            tx.execute(
+                "INSERT INTO blobs (hash, size, refcount) VALUES (?1, ?2, ?3)
+                 ON CONFLICT(hash) DO UPDATE SET refcount = refcount + ?3",
+                params![put.hash, i64::try_from(put.size).unwrap_or(i64::MAX), refs],
+            )?;
+            let remaining: Option<i64> = tx
+                .query_row(
+                    "UPDATE blobs SET refcount = refcount - ?2
+                     WHERE hash = ?1 RETURNING refcount",
+                    params![old_hash, refs],
+                    |r| r.get(0),
+                )
+                .optional()?;
+            if remaining.is_some_and(|r| r <= 0) {
+                tx.execute("DELETE FROM blobs WHERE hash = ?1", params![old_hash])?;
+                shred_list.push(old_hash.clone());
+            }
+            blobs_rewritten += 1;
+        }
+
+        // Phase 4: the audit event — the session self-documents what was
+        // removed (types + hash8 tallies, never secret material). Reuses
+        // kind = 'lifecycle' so the documented events.kind value set is
+        // unchanged (v1.0.0 addendum: additive only).
+        let secrets: Vec<SecretSummary> = tally
+            .iter()
+            .map(|((secret, hash8), count)| SecretSummary {
+                secret: secret.clone(),
+                hash8: hash8.clone(),
+                count: *count,
+            })
+            .collect();
+        let total: u64 = secrets.iter().map(|s| s.count).sum();
+        let audit_body = serde_json::json!({
+            "redaction_audit": {
+                "secrets": secrets
+                    .iter()
+                    .map(|s| {
+                        serde_json::json!({
+                            "type": s.secret.to_string(),
+                            "hash8": s.hash8,
+                            "count": s.count,
+                        })
+                    })
+                    .collect::<Vec<_>>(),
+                "events_rewritten": events_rewritten,
+                "blobs_rewritten": blobs_rewritten,
+            }
+        });
+        let ts_ms = (unix_ms() - started_at).max(0);
+        tx.execute(
+            "INSERT INTO events (session_id, ts_ms, kind, step, summary, body_json, blob_hash, correlates)
+             VALUES (?1, ?2, 'lifecycle', NULL, ?3, ?4, NULL, NULL)",
+            params![
+                id,
+                ts_ms,
+                crate::event::truncate_summary(&format!(
+                    "redaction: {total} secret occurrence(s) removed"
+                )),
+                audit_body.to_string(),
+            ],
+        )?;
+        let audit_event_id = tx.last_insert_rowid();
+        tx.commit()?;
+
+        // Post-commit: give the audit event its step ordinal, then destroy
+        // the plaintext remnants — shred zero-ref originals on disk, and
+        // checkpoint + VACUUM so no copy survives in the WAL or in freelist
+        // pages of hh.db (invariant I1/I2 in docs/redaction-design.md).
+        self.assign_steps(id)?;
+        let mut blobs_shredded = 0u64;
+        for hash in &shred_list {
+            if self.blobs.shred(hash)? {
+                blobs_shredded += 1;
+            }
+        }
+        self.conn
+            .execute_batch("PRAGMA wal_checkpoint(TRUNCATE);")?;
+        self.vacuum()?;
+        self.conn
+            .execute_batch("PRAGMA wal_checkpoint(TRUNCATE);")?;
+
+        Ok(RedactOutcome {
+            events_rewritten,
+            blobs_rewritten,
+            blobs_shredded,
+            secrets,
+            audit_event_id,
+        })
+    }
+
     /// Return `(event_count, files_changed)` for a session (FR-1.6 epilogue).
     /// `event_count` is the total event rows; `files_changed` is the count of
     /// distinct paths in `file_changes`. Reads from the store's own
@@ -987,11 +1483,24 @@ impl Store {
     /// Spawn the single-writer task and return a handle for appending events.
     /// The writer opens its own [`Connection`] (never shared with the store's).
     pub fn event_writer(&self) -> Result<EventWriter> {
+        self.event_writer_with_redactor(None)
+    }
+
+    /// Like [`Self::event_writer`], but with an optional record-time
+    /// redactor: every event's `summary` and `body_json` are redacted on the
+    /// writer thread *before* the `INSERT` (docs/redaction-design.md
+    /// enforcement point 1 — nothing hits disk unredacted). Blob content is
+    /// covered by the other chokepoint, [`crate::blob::BlobStore::put`] on a
+    /// [`crate::blob::BlobStore::with_redactor`] store.
+    pub fn event_writer_with_redactor(
+        &self,
+        redactor: Option<std::sync::Arc<crate::redact::Detectors>>,
+    ) -> Result<EventWriter> {
         let (tx, rx) = mpsc::channel::<WriterReq>();
         let db_path_for_thread = self.db_path.clone();
         let handle = std::thread::Builder::new()
             .name("hh-writer".into())
-            .spawn(move || writer_run(&db_path_for_thread, rx))
+            .spawn(move || writer_run(&db_path_for_thread, rx, redactor.as_deref()))
             .map_err(|e| StorageError::Open {
                 path: self.db_path.clone(),
                 source: e,
@@ -1087,7 +1596,11 @@ impl Drop for EventWriter {
     }
 }
 
-fn writer_run(db_path: &Path, rx: Receiver<WriterReq>) {
+fn writer_run(
+    db_path: &Path,
+    rx: Receiver<WriterReq>,
+    redactor: Option<&crate::redact::Detectors>,
+) {
     // Opening failed: just return. `rx` drops, which closes the channel; any
     // in-flight caller's `send`/`recv` then fails with [`StorageError::WriterClosed`].
     let Ok(mut conn) = Connection::open_with_flags(
@@ -1120,11 +1633,17 @@ fn writer_run(db_path: &Path, rx: Receiver<WriterReq>) {
     }
     for req in rx {
         match req {
-            WriterReq::Append(event, reply) => {
+            WriterReq::Append(mut event, reply) => {
+                if let Some(d) = redactor {
+                    redact_event_in_place(&mut event, d);
+                }
                 let res = insert_event(&conn, &event);
                 let _ = reply.send(res);
             }
-            WriterReq::AppendFileChange(event, change, reply) => {
+            WriterReq::AppendFileChange(mut event, change, reply) => {
+                if let Some(d) = redactor {
+                    redact_event_in_place(&mut event, d);
+                }
                 let res = insert_event_with_file_change(&mut conn, &event, &change);
                 let _ = reply.send(res);
             }
@@ -1139,6 +1658,21 @@ fn writer_run(db_path: &Path, rx: Receiver<WriterReq>) {
                 break;
             }
         }
+    }
+}
+
+/// Record-time redaction of one event (writer thread, enforcement point 1).
+/// The summary is redacted as text and re-truncated (the replacement token
+/// can lengthen it past the 120-char limit); the body is redacted as a JSON
+/// tree. `blob_hash` is left alone — blob content was already redacted by
+/// [`BlobStore::put`] on the recorder's redacting store before this event
+/// referenced it.
+fn redact_event_in_place(event: &mut Event, d: &crate::redact::Detectors) {
+    if let Some(r) = d.redact_text(&event.summary) {
+        event.summary = crate::event::truncate_summary(&r.text);
+    }
+    if let Some(body) = event.body_json.as_mut() {
+        let _ = d.redact_json(body);
     }
 }
 
@@ -1235,6 +1769,36 @@ fn insert_event_with_file_change(
     )?;
     tx.commit().map_err(StorageError::from)?;
     Ok(event_id)
+}
+
+/// Group raw detector findings by `(secret kind, hash8)` and append one
+/// [`ScanFinding`] per group at the given location (`hh scan` reports
+/// occurrence counts, not per-offset rows — offsets would say nothing useful
+/// without printing the secret's surroundings).
+fn push_grouped(
+    out: &mut Vec<ScanFinding>,
+    findings: Vec<crate::redact::Finding>,
+    event_id: Option<i64>,
+    step: Option<i64>,
+    event_kind: Option<EventKind>,
+    location: &FindingLocation,
+) {
+    let mut grouped: std::collections::BTreeMap<(crate::redact::SecretKind, String), u64> =
+        std::collections::BTreeMap::new();
+    for f in findings {
+        *grouped.entry((f.kind, f.hash8)).or_insert(0) += 1;
+    }
+    for ((secret, hash8), count) in grouped {
+        out.push(ScanFinding {
+            event_id,
+            step,
+            event_kind,
+            location: location.clone(),
+            secret,
+            hash8,
+            count,
+        });
+    }
 }
 
 fn map_session_row(r: &rusqlite::Row<'_>) -> rusqlite::Result<SessionRow> {

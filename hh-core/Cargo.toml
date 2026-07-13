@@ -46,6 +46,12 @@ toml = "0.8"
 # hh in SRS §6, but path resolution is a core concern (Store needs the data dir)
 # so it lives here to keep the bin thin.
 directories = "5"
+# Justification (redaction pipeline, docs/redaction-design.md): the secret
+# detectors are compiled regexes over untrusted recorded text. The `regex`
+# crate guarantees linear-time matching (no catastrophic backtracking on
+# hostile input — required for the "never panic on malformed input" fuzz
+# contract) and is the standard, well-maintained choice.
+regex = "1"
 thiserror = "1"
 
 [dev-dependencies]

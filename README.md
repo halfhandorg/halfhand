@@ -69,6 +69,9 @@ marked `interrupted`.
 | `hh inspect <id\|last>` | Print non-interactive detail: summary, `--step N`, `--json`, `--diff` (FR-4). |
 | `hh list` | List recorded sessions, newest first; `--json`, `--limit` (FR-5). |
 | `hh delete <id\|last> --yes` | Delete a session and garbage-collect its blobs (FR-6.1). |
+| `hh scan <id\|last\|--all>` | Report recorded secrets (type, step, location, hash8 — never the secret); `--json`; exits 4 on findings. |
+| `hh redact <id\|last>` | Irreversibly remove detected secrets from a session in place. |
+| `hh export <id\|last>` | Export a session as a JSON bundle or `--html` page — **redacted by default**. |
 | `hh doctor` | Diagnose the recording stack and print pass/fail per check; `--json`. |
 
 Every subcommand takes `--help` with a usage example. Run `hh --help` for the
@@ -153,7 +156,15 @@ created `0700`; blob files are written `0600`.
   contents (NFR-4). `--record-input` is **off by default** because keystrokes
   may include passwords typed into the agent. Use `hh delete <id> --yes` to
   remove a recording and garbage-collect its blobs.
+- **Redaction is built in**: `hh scan` finds recorded secrets (AWS keys,
+  GitHub/GitLab/Slack tokens, private keys, JWTs, your own patterns),
+  `hh redact` removes them irreversibly, `hh export` output is redacted by
+  default, and `[redaction] at_record = true` scrubs matches before they
+  ever hit disk. See [`docs/redaction.md`](docs/redaction.md) and
+  [`SECURITY.md`](SECURITY.md) for the threat model and disclosure policy.
 - You can keep recordings out of any default location with `HH_DATA_DIR`.
+- Exit codes are a contract: `0` ok · `1` error · `2` usage · `3` session
+  not found · `4` redaction/policy block (`hh scan` with findings).
 
 ## JSON and on-disk schema (pre-1.0)
 

@@ -1,0 +1,42 @@
+---
+source: hh/src/export.rs
+assertion_line: 299
+expression: html
+---
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>hh session a1b2c3</title>
+<style>
+body { font: 15px/1.5 system-ui, sans-serif; max-width: 60rem; margin: 2rem auto; padding: 0 1rem; color: #1a1a1a; background: #fff; }
+h1 { font-size: 1.3rem; }
+h2 { font-size: 0.95rem; font-weight: 600; margin: 0 0 .3rem; }
+.kind { display: inline-block; padding: 0 .4em; border-radius: 3px; background: #0b7285; color: #fff; font-size: .8em; text-transform: uppercase; }
+.meta th { text-align: left; padding-right: 1rem; font-weight: 600; }
+.event { border-top: 1px solid #e0e0e0; padding: .8rem 0; }
+pre { background: #f6f6f6; padding: .6rem; overflow-x: auto; border-radius: 4px; font-size: .85em; }
+code { background: #f6f6f6; padding: 0 .25em; border-radius: 3px; }
+@media (prefers-color-scheme: dark) { body { color: #ddd; background: #111; } pre, code { background: #1c1c1c; } .event { border-color: #333; } }
+</style>
+</head>
+<body>
+<h1>hh session a1b2c3</h1>
+<table class="meta">
+<tr><th>status</th><td>ok</td></tr>
+<tr><th>agent</th><td>generic</td></tr>
+<tr><th>cwd</th><td>/tmp/work</td></tr>
+<tr><th>command</th><td><code>agent --flag</code></td></tr>
+</table>
+<section class="event">
+<h2><span class="kind">user_message</span> step 1 · 12 ms</h2>
+<p>hello &lt;script&gt;alert(1)&lt;/script&gt;</p>
+<pre>{
+  &quot;text&quot;: &quot;prompt with {{REDACTED:jwt:cafebabe}}&quot;
+}</pre>
+</section>
+
+<footer><p>exported by <code>hh export</code> — redaction tokens look like <code>{{REDACTED:&lt;type&gt;:&lt;hash8&gt;}}</code></p></footer>
+</body>
+</html>

@@ -51,3 +51,10 @@ path = "fuzz_targets/blob_decompress.rs"
 test = false
 doc = false
 bench = false
+
+[[bin]]
+name = "redact_detect"
+path = "fuzz_targets/redact_detect.rs"
+test = false
+doc = false
+bench = false

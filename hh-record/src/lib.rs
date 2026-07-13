@@ -34,3 +34,19 @@ pub use mcp_proxy::fuzzing;
 // Re-export the core types the binary needs to construct RunOptions without
 // reaching into hh-core directly (keeps the binary's `use` surface small).
 pub use hh_core::store::Store;
+
+/// Build the recorder's shared blob store handle: redacting when a
+/// record-time redactor is configured (`[redaction] at_record`), plain
+/// otherwise. Centralized so the PTY runner and the MCP proxy cannot drift —
+/// every recorder blob write goes through the same enforcement point
+/// (docs/redaction-design.md).
+pub(crate) fn make_blob_store(
+    store: &Store,
+    redactor: Option<std::sync::Arc<hh_core::redact::Detectors>>,
+) -> hh_core::blob::BlobStore {
+    let root = store.blobs().root().to_path_buf();
+    match redactor {
+        Some(r) => hh_core::blob::BlobStore::with_redactor(root, r),
+        None => hh_core::blob::BlobStore::new(root),
+    }
+}

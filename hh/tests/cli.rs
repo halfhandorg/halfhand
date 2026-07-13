@@ -56,6 +56,9 @@ fn help_lists_every_subcommand_and_examples() {
         "doctor",
         "gc",
         "stats",
+        "scan",
+        "redact",
+        "export",
     ] {
         assert!(stdout.contains(sub), "missing `{sub}` in --help: {stdout}");
     }
@@ -77,6 +80,9 @@ fn every_subcommand_help_has_an_example() {
         "doctor",
         "gc",
         "stats",
+        "scan",
+        "redact",
+        "export",
     ] {
         let out = hh().args([sub, "--help"]).output().unwrap();
         assert!(out.status.success(), "`hh {sub} --help` failed");
@@ -98,9 +104,10 @@ fn inspect_with_no_sessions_gives_an_actionable_error() {
         .env("HH_DATA_DIR", temp.data.path())
         .output()
         .unwrap();
-    assert!(
-        !out.status.success(),
-        "expected nonzero exit when there are no sessions"
+    assert_eq!(
+        out.status.code(),
+        Some(3),
+        "session-not-found must exit 3 (documented exit-code contract)"
     );
     let stderr = String::from_utf8_lossy(&out.stderr);
     assert!(
@@ -2093,4 +2100,337 @@ fn stats_reports_counts_and_largest() {
         "--top 0 suppresses the largest-sessions list"
     );
     assert_eq!(v0["sessions"], 1, "totals are independent of --top");
+}
+
+// ---------------------------------------------------------------------------
+// Redaction pipeline (docs/redaction-design.md): hh scan / hh redact /
+// hh export, plus record-time redaction via `[redaction] at_record`.
+// ---------------------------------------------------------------------------
+
+/// The fake secrets `secret_agent.sh` leaks (shape-real, value-fake).
+const FAKE_AWS_KEY: &str = "AKIAIOSFODNN7EXAMPLE";
+const FAKE_GH_TOKEN: &str = "ghp_FAKEFAKEFAKEFAKEFAKEFAKEFAKEFAKE0001";
+
+/// Record the secret-leaking fixture into `temp`'s data dir.
+fn record_secret_session(temp: &Temp) {
+    let fx = fixture("secret_agent.sh").to_string_lossy().to_string();
+    let out = run_fixture(temp, &["sh", &fx]);
+    assert_eq!(
+        out.status.code(),
+        Some(0),
+        "fixture should exit 0; stderr: {}",
+        String::from_utf8_lossy(&out.stderr)
+    );
+}
+
+/// Assert no file under `dir` contains `needle` as raw bytes (walks the DB,
+/// WAL, and blob files — invariant I1/I2 at the filesystem level).
+fn assert_no_bytes_under(dir: &Path, needle: &[u8], context: &str) {
+    fn walk(dir: &Path, needle: &[u8], context: &str) {
+        for entry in std::fs::read_dir(dir).unwrap() {
+            let path = entry.unwrap().path();
+            if path.is_dir() {
+                walk(&path, needle, context);
+            } else {
+                let bytes = std::fs::read(&path).unwrap_or_default();
+                assert!(
+                    !bytes.windows(needle.len()).any(|w| w == needle),
+                    "{context}: secret bytes found in {}",
+                    path.display()
+                );
+            }
+        }
+    }
+    walk(dir, needle, context);
+}
+
+#[test]
+fn scan_reports_seeded_secrets_and_exits_4() {
+    let temp = Temp::new();
+    record_secret_session(&temp);
+
+    // Human output: exit 4, names the types, never prints the secrets.
+    let out = hh()
+        .args(["scan", "last"])
+        .env("HH_DATA_DIR", temp.data.path())
+        .output()
+        .unwrap();
+    let stdout = String::from_utf8_lossy(&out.stdout);
+    assert_eq!(
+        out.status.code(),
+        Some(4),
+        "scan with findings must exit 4 (CI contract); stdout: {stdout} stderr: {}",
+        String::from_utf8_lossy(&out.stderr)
+    );
+    assert!(stdout.contains("aws-access-key-id"), "aws type: {stdout}");
+    assert!(stdout.contains("github-token"), "github type: {stdout}");
+    assert!(
+        !stdout.contains(FAKE_AWS_KEY) && !stdout.contains(FAKE_GH_TOKEN),
+        "scan must never print the secret itself: {stdout}"
+    );
+    assert!(stdout.contains("hh redact"), "suggests the fix: {stdout}");
+
+    // JSON output: schema-versioned, machine-readable, still secret-free.
+    let j = hh()
+        .args(["scan", "last", "--json"])
+        .env("HH_DATA_DIR", temp.data.path())
+        .output()
+        .unwrap();
+    assert_eq!(j.status.code(), Some(4), "--json keeps the exit contract");
+    let text = String::from_utf8_lossy(&j.stdout);
+    assert!(
+        !text.contains(FAKE_AWS_KEY) && !text.contains(FAKE_GH_TOKEN),
+        "scan --json must not leak secrets: {text}"
+    );
+    let v: serde_json::Value = serde_json::from_slice(&j.stdout).expect("valid JSON");
+    assert_eq!(v["schema"], 1);
+    assert!(v["total_findings"].as_u64().unwrap() >= 2);
+    let findings = v["sessions"][0]["findings"].as_array().unwrap();
+    let types: Vec<&str> = findings
+        .iter()
+        .map(|f| f["type"].as_str().unwrap())
+        .collect();
+    assert!(types.contains(&"aws-access-key-id"), "types: {types:?}");
+    assert!(types.contains(&"github-token"), "types: {types:?}");
+    for f in findings {
+        assert_eq!(f["hash8"].as_str().unwrap().len(), 8, "hash8 is 8 hex");
+    }
+
+    // --all covers the same session.
+    let all = hh()
+        .args(["scan", "--all"])
+        .env("HH_DATA_DIR", temp.data.path())
+        .output()
+        .unwrap();
+    assert_eq!(all.status.code(), Some(4));
+}
+
+#[test]
+fn redact_removes_secrets_irreversibly_and_scan_goes_clean() {
+    let temp = Temp::new();
+    record_secret_session(&temp);
+
+    // Non-TTY without --yes: refused with an actionable pointer (mirrors
+    // `hh delete`), so a script can never redact by accident.
+    let refused = hh()
+        .args(["redact", "last"])
+        .env("HH_DATA_DIR", temp.data.path())
+        .stdin(Stdio::null())
+        .output()
+        .unwrap();
+    assert_eq!(refused.status.code(), Some(1), "non-TTY redact refused");
+    let err = String::from_utf8_lossy(&refused.stderr);
+    assert!(err.contains("--yes"), "must point at --yes: {err}");
+
+    // Redact for real.
+    let out = hh()
+        .args(["redact", "last", "--yes"])
+        .env("HH_DATA_DIR", temp.data.path())
+        .output()
+        .unwrap();
+    let stdout = String::from_utf8_lossy(&out.stdout);
+    assert_eq!(
+        out.status.code(),
+        Some(0),
+        "redact should succeed; stderr: {}",
+        String::from_utf8_lossy(&out.stderr)
+    );
+    assert!(stdout.contains("Redacted session"), "epilogue: {stdout}");
+    assert!(
+        stdout.contains("aws-access-key-id") && stdout.contains("github-token"),
+        "tallies name the types: {stdout}"
+    );
+    assert!(
+        !stdout.contains(FAKE_AWS_KEY) && !stdout.contains(FAKE_GH_TOKEN),
+        "redact output must not print the secrets: {stdout}"
+    );
+
+    // The scan is now clean and exits 0.
+    let scan = hh()
+        .args(["scan", "last"])
+        .env("HH_DATA_DIR", temp.data.path())
+        .output()
+        .unwrap();
+    assert_eq!(
+        scan.status.code(),
+        Some(0),
+        "post-redact scan must be clean: {}",
+        String::from_utf8_lossy(&scan.stdout)
+    );
+
+    // Irreversibility at the filesystem level (invariants I1/I2): no file in
+    // the data dir — hh.db, WAL, or any blob — still carries the raw bytes.
+    assert_no_bytes_under(temp.data.path(), FAKE_AWS_KEY.as_bytes(), "post-redact");
+    assert_no_bytes_under(temp.data.path(), FAKE_GH_TOKEN.as_bytes(), "post-redact");
+
+    // The session self-documents: a lifecycle audit event exists.
+    let conn = open_db(temp.data.path());
+    let audits: i64 = conn
+        .query_row(
+            "SELECT COUNT(*) FROM events WHERE kind = 'lifecycle' AND body_json LIKE '%redaction_audit%'",
+            [],
+            |r| r.get(0),
+        )
+        .unwrap();
+    assert_eq!(audits, 1, "one redaction audit event");
+}
+
+#[test]
+fn export_is_redacted_by_default_and_no_redact_needs_a_tty() {
+    let temp = Temp::new();
+    record_secret_session(&temp);
+
+    // Default JSON export to stdout: a valid bundle, redacted.
+    let out = hh()
+        .args(["export", "last"])
+        .env("HH_DATA_DIR", temp.data.path())
+        .output()
+        .unwrap();
+    assert_eq!(
+        out.status.code(),
+        Some(0),
+        "stderr: {}",
+        String::from_utf8_lossy(&out.stderr)
+    );
+    let text = String::from_utf8_lossy(&out.stdout);
+    assert!(
+        !text.contains(FAKE_AWS_KEY) && !text.contains(FAKE_GH_TOKEN),
+        "export must be redacted by default"
+    );
+    assert!(text.contains("{{REDACTED:"), "tokens present: {text}");
+    let v: serde_json::Value = serde_json::from_slice(&out.stdout).expect("valid JSON bundle");
+    assert_eq!(v["kind"], "hh-export");
+    assert_eq!(v["schema"], 1);
+    assert!(v["events"].as_array().unwrap().len() > 1);
+
+    // HTML export to a file: self-contained, redacted.
+    let html_path = temp.work.path().join("session.html");
+    let html_out = hh()
+        .args(["export", "last", "--html", "--out"])
+        .arg(&html_path)
+        .env("HH_DATA_DIR", temp.data.path())
+        .output()
+        .unwrap();
+    assert_eq!(html_out.status.code(), Some(0));
+    let html = std::fs::read_to_string(&html_path).unwrap();
+    assert!(html.starts_with("<!doctype html>"));
+    assert!(
+        !html.contains(FAKE_AWS_KEY) && !html.contains(FAKE_GH_TOKEN),
+        "html export must be redacted"
+    );
+    assert!(html.contains("REDACTED"));
+    let epilogue = String::from_utf8_lossy(&html_out.stdout);
+    assert!(
+        epilogue.contains("Exported session") && epilogue.contains("redacted"),
+        "file export prints an epilogue: {epilogue}"
+    );
+
+    // --no-redact with a non-TTY stdin is refused — there is no flag to
+    // bypass the interactive confirmation, so a script can never exfiltrate
+    // a raw session by accident.
+    let refused = hh()
+        .args(["export", "last", "--no-redact"])
+        .env("HH_DATA_DIR", temp.data.path())
+        .stdin(Stdio::null())
+        .output()
+        .unwrap();
+    assert_eq!(refused.status.code(), Some(1));
+    let err = String::from_utf8_lossy(&refused.stderr);
+    assert!(
+        err.contains("not a TTY") && err.contains("redacted by default"),
+        "actionable refusal: {err}"
+    );
+}
+
+#[test]
+fn session_not_found_exits_3_across_subcommands() {
+    // Exit-code contract: 3 = session not found — for the new redaction
+    // subcommands and the pre-existing ones alike.
+    let temp = Temp::new();
+    for args in [
+        vec!["scan", "zzzzzz"],
+        vec!["redact", "zzzzzz", "--yes"],
+        vec!["export", "zzzzzz"],
+        vec!["inspect", "zzzzzz"],
+        vec!["delete", "zzzzzz", "--yes"],
+    ] {
+        let out = hh()
+            .args(&args)
+            .env("HH_DATA_DIR", temp.data.path())
+            .stdin(Stdio::null())
+            .output()
+            .unwrap();
+        assert_eq!(
+            out.status.code(),
+            Some(3),
+            "{args:?} on a missing session must exit 3; stderr: {}",
+            String::from_utf8_lossy(&out.stderr)
+        );
+    }
+}
+
+#[test]
+fn at_record_redaction_keeps_secrets_off_disk_entirely() {
+    let temp = Temp::new();
+    // Point config resolution at a temp config carrying `at_record = true`.
+    // The `directories` crate reads XDG_CONFIG_HOME on Linux and
+    // $HOME/Library/Application Support on macOS — write the config to both
+    // locations and override both env vars so the test passes on either.
+    let config_home = tempfile::tempdir().unwrap();
+    let body = "[redaction]\nat_record = true\n";
+    let xdg = config_home.path().join("halfhand");
+    std::fs::create_dir_all(&xdg).unwrap();
+    std::fs::write(xdg.join("config.toml"), body).unwrap();
+    let mac = config_home
+        .path()
+        .join("Library/Application Support/halfhand");
+    std::fs::create_dir_all(&mac).unwrap();
+    std::fs::write(mac.join("config.toml"), body).unwrap();
+
+    let fx = fixture("secret_agent.sh").to_string_lossy().to_string();
+    let out = hh()
+        .args(["run", "--", "sh", &fx])
+        .env("HH_DATA_DIR", temp.data.path())
+        .env("XDG_CONFIG_HOME", config_home.path())
+        .env("HOME", config_home.path())
+        .current_dir(temp.work.path())
+        .stdin(Stdio::null())
+        .output()
+        .unwrap();
+    assert_eq!(
+        out.status.code(),
+        Some(0),
+        "stderr: {}",
+        String::from_utf8_lossy(&out.stderr)
+    );
+
+    // Enforcement point 1: the secrets never hit disk — no redact step ran,
+    // yet no file in the data dir carries the raw bytes and a scan is clean.
+    assert_no_bytes_under(temp.data.path(), FAKE_AWS_KEY.as_bytes(), "at_record");
+    assert_no_bytes_under(temp.data.path(), FAKE_GH_TOKEN.as_bytes(), "at_record");
+    let scan = hh()
+        .args(["scan", "last"])
+        .env("HH_DATA_DIR", temp.data.path())
+        .output()
+        .unwrap();
+    assert_eq!(
+        scan.status.code(),
+        Some(0),
+        "at_record session must scan clean: {}",
+        String::from_utf8_lossy(&scan.stdout)
+    );
+
+    // The replacement tokens are what got recorded (correlatable hash8s).
+    let conn = open_db(temp.data.path());
+    let redacted_events: i64 = conn
+        .query_row(
+            "SELECT COUNT(*) FROM events WHERE body_json LIKE '%{{REDACTED:%'",
+            [],
+            |r| r.get(0),
+        )
+        .unwrap();
+    assert!(
+        redacted_events >= 1,
+        "record-time tokens should be present in recorded events"
+    );
 }

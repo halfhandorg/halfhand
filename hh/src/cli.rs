@@ -85,6 +85,79 @@ pub enum Command {
     /// Summarize the store: sessions, events, disk usage, largest sessions (Area 3).
     #[command(after_help = "Example:\n  hh stats\n  hh stats --json\n  hh stats --top 10")]
     Stats(StatsArgs),
+
+    /// Scan recorded sessions for secrets (docs/redaction.md).
+    ///
+    /// Reports what was detected (type, step, location, correlation tag) —
+    /// never the secret itself. Exits 4 when findings exist, so CI can gate
+    /// on a clean scan; 0 when clean.
+    #[command(after_help = "Example:\n  hh scan last\n  hh scan a1b2c3 --json\n  hh scan --all")]
+    Scan(ScanArgs),
+
+    /// Irreversibly redact secrets from a recorded session in place.
+    ///
+    /// Rewrites events and affected blobs, replacing each secret with
+    /// {{REDACTED:<type>:<hash8>}}; originals are securely deleted and the
+    /// database is compacted so no plaintext copy survives. See
+    /// docs/redaction.md for the guarantees and their limits.
+    #[command(after_help = "Example:\n  hh redact a1b2c3\n  hh redact last --yes")]
+    Redact(RedactArgs),
+
+    /// Export a session as a JSON bundle or a self-contained HTML page.
+    ///
+    /// Exports are ALWAYS redacted by default — nothing leaves the machine
+    /// unredacted by accident. Opting out (--no-redact) requires an
+    /// interactive confirmation.
+    #[command(
+        after_help = "Example:\n  hh export last --out session.json\n  hh export a1b2c3 --html --out session.html\n  hh export last | jq .session"
+    )]
+    Export(ExportArgs),
+}
+
+/// Arguments for `hh scan`.
+#[derive(Args, Debug)]
+pub struct ScanArgs {
+    /// Session short id, full id, or `last`. Defaults to `last` (or use --all).
+    pub session: Option<String>,
+
+    /// Scan every recorded session.
+    #[arg(long, conflicts_with = "session")]
+    pub all: bool,
+
+    /// Emit machine-readable JSON instead of a table.
+    #[arg(long)]
+    pub json: bool,
+}
+
+/// Arguments for `hh redact`.
+#[derive(Args, Debug)]
+pub struct RedactArgs {
+    /// Session short id, full id, or `last`.
+    pub session: String,
+
+    /// Skip the confirmation prompt (redaction is irreversible).
+    #[arg(long)]
+    pub yes: bool,
+}
+
+/// Arguments for `hh export`.
+#[derive(Args, Debug)]
+pub struct ExportArgs {
+    /// Session short id, full id, or `last`. Defaults to `last`.
+    pub session: Option<String>,
+
+    /// Write to this file instead of stdout.
+    #[arg(long)]
+    pub out: Option<std::path::PathBuf>,
+
+    /// Export a self-contained HTML page instead of the JSON bundle.
+    #[arg(long)]
+    pub html: bool,
+
+    /// Skip redaction (requires interactive confirmation; refused when stdin
+    /// is not a TTY, so a script can never exfiltrate raw sessions).
+    #[arg(long)]
+    pub no_redact: bool,
 }
 
 /// Arguments for `hh doctor`.

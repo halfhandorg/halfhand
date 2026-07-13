@@ -49,9 +49,7 @@ pub(crate) fn inspect_command(args: &cli::InspectArgs) -> anyhow::Result<std::pr
     }
     let (store, _paths, _config) = open_store_for_inspect()?;
     let hint = args.session.as_deref().unwrap_or("last");
-    let id = store
-        .resolve_session(hint)
-        .map_err(|e| anyhow::anyhow!("could not resolve session `{hint}`\n  why: {e}"))?;
+    let id = crate::resolve_session_arg(&store, hint)?;
     let session = store
         .get_session(&id)
         .map_err(|e| anyhow::anyhow!("could not load session\n  why: {e}"))?;
@@ -760,7 +758,7 @@ fn step_json_value(
 }
 
 /// The `session` reference embedded in every inspect JSON object.
-fn session_ref(session: &SessionRow) -> serde_json::Value {
+pub(crate) fn session_ref(session: &SessionRow) -> serde_json::Value {
     serde_json::json!({
         "id": session.id,
         "short_id": session.short_id,
@@ -768,8 +766,9 @@ fn session_ref(session: &SessionRow) -> serde_json::Value {
 }
 
 /// Build the stable JSON object for one event (the unit of both the NDJSON
-/// stream and a step object's `events` array). See `docs/json.md`.
-fn event_to_json(d: &EventDetail, session: &SessionRow) -> serde_json::Value {
+/// stream and a step object's `events` array, and the `events` entries of an
+/// `hh export` bundle). See `docs/json.md`.
+pub(crate) fn event_to_json(d: &EventDetail, session: &SessionRow) -> serde_json::Value {
     let body = d.body_json.as_ref().map(strip_hidden_keys);
     let file_change = d.file_change.as_ref().map(file_change_to_json);
     serde_json::json!({
