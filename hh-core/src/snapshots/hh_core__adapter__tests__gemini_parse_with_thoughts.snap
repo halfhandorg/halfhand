@@ -1,0 +1,36 @@
+---
+source: hh-core/src/adapter.rs
+assertion_line: 3222
+expression: snap_gemini(&pr)
+---
+{
+  "events": [
+    {
+      "blob_hash": null,
+      "blob_size": null,
+      "body_json": {
+        "text": "answer"
+      },
+      "correlates": null,
+      "kind": "agent_message",
+      "session_id": "test-session-id",
+      "step": null,
+      "summary": "answer",
+      "ts_ms": 1000
+    },
+    {
+      "blob_hash": null,
+      "blob_size": null,
+      "body_json": {
+        "text": "I need to think about this"
+      },
+      "correlates": null,
+      "kind": "thinking",
+      "session_id": "test-session-id",
+      "step": null,
+      "summary": "I need to think about this",
+      "ts_ms": 1000
+    }
+  ],
+  "is_assistant_message": false
+}

@@ -1,0 +1,23 @@
+---
+source: hh-core/src/adapter.rs
+assertion_line: 3138
+expression: snap_codex(&pr)
+---
+{
+  "events": [
+    {
+      "blob_hash": null,
+      "blob_size": null,
+      "body_json": {
+        "text": "reasoning (encrypted)"
+      },
+      "correlates": null,
+      "kind": "thinking",
+      "session_id": "test-session-id",
+      "step": null,
+      "summary": "reasoning (encrypted)",
+      "ts_ms": 1000
+    }
+  ],
+  "is_assistant_message": false
+}

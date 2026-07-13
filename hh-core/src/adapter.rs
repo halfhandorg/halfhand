@@ -3058,4 +3058,276 @@ mod tests {
         assert!(r.contains("1 rejected for a different cwd"), "{r}");
         assert!(r.contains("1 candidate(s) were directories"), "{r}");
     }
+
+    // -----------------------------------------------------------------------
+    // Codex CLI parser tests
+    // -----------------------------------------------------------------------
+
+    fn parse_codex(value: &Value, ts_ms: i64) -> ParsedRecord {
+        let tmp = tempfile::TempDir::new().unwrap();
+        let blobs = BlobStore::new(tmp.path().join("blobs"));
+        parse_codex_record(value, SID, ts_ms, &blobs)
+    }
+
+    fn snap_codex(pr: &ParsedRecord) -> String {
+        serde_json::to_string_pretty(&serde_json::json!({
+            "events": pr.events,
+            "is_assistant_message": pr.is_assistant_message,
+        }))
+        .unwrap()
+    }
+
+    fn codex_rec(json: &str) -> Value {
+        serde_json::from_str(json).unwrap()
+    }
+
+    #[test]
+    fn codex_parse_user_message() {
+        let v = codex_rec(
+            r#"{"type":"event_msg","timestamp":"2026-07-02T06:14:40.699Z","payload":{"type":"user_message","content":[{"text":"hello"}]}}"#,
+        );
+        let pr = parse_codex(&v, iso("2026-07-02T06:14:40.699Z"));
+        insta::assert_snapshot!(snap_codex(&pr));
+        assert_eq!(pr.events.len(), 1);
+        assert_eq!(pr.events[0].kind, EventKind::UserMessage);
+    }
+
+    #[test]
+    fn codex_parse_agent_message() {
+        let v = codex_rec(
+            r#"{"type":"event_msg","timestamp":"2026-07-02T06:14:41.500Z","payload":{"type":"agent_message","content":[{"text":"I can help with that"}]}}"#,
+        );
+        let pr = parse_codex(&v, iso("2026-07-02T06:14:41.500Z"));
+        insta::assert_snapshot!(snap_codex(&pr));
+        assert_eq!(pr.events.len(), 1);
+        assert_eq!(pr.events[0].kind, EventKind::AgentMessage);
+        assert!(pr.is_assistant_message);
+    }
+
+    #[test]
+    fn codex_parse_response_item_message() {
+        let v = codex_rec(
+            r#"{"type":"response_item","timestamp":"2026-07-02T06:14:41.500Z","payload":{"type":"message","role":"assistant","content":[{"type":"output_text","text":"Here is the solution"}]}}"#,
+        );
+        let pr = parse_codex(&v, iso("2026-07-02T06:14:41.500Z"));
+        insta::assert_snapshot!(snap_codex(&pr));
+        assert_eq!(pr.events.len(), 1);
+        assert_eq!(pr.events[0].kind, EventKind::AgentMessage);
+    }
+
+    #[test]
+    fn codex_parse_function_call_and_output() {
+        let v = codex_rec(
+            r#"{"type":"response_item","timestamp":"2026-07-02T06:14:42.000Z","payload":{"type":"function_call","call_id":"call_1","name":"Bash","arguments":"{\"command\":\"ls\"}"}}"#,
+        );
+        let pr = parse_codex(&v, iso("2026-07-02T06:14:42.000Z"));
+        insta::assert_snapshot!(snap_codex(&pr));
+        assert_eq!(pr.events.len(), 1);
+        assert_eq!(pr.events[0].kind, EventKind::ToolCall);
+        assert_eq!(
+            pr.events[0].body_json.as_ref().unwrap()["correlate_key"],
+            "call_1"
+        );
+
+        let v2 = codex_rec(
+            r#"{"type":"response_item","timestamp":"2026-07-02T06:14:43.000Z","payload":{"type":"function_call_output","call_id":"call_1","output":"total 42"}}"#,
+        );
+        let pr2 = parse_codex(&v2, iso("2026-07-02T06:14:43.000Z"));
+        assert_eq!(pr2.events.len(), 1);
+        assert_eq!(pr2.events[0].kind, EventKind::ToolResult);
+        assert_eq!(
+            pr2.events[0].body_json.as_ref().unwrap()["correlate_key"],
+            "call_1"
+        );
+    }
+
+    #[test]
+    fn codex_parse_reasoning() {
+        let v = codex_rec(
+            r#"{"type":"response_item","timestamp":"2026-07-02T06:14:41.000Z","payload":{"type":"reasoning","summary":[],"content":null,"encrypted_content":"gAAAAABp5lf5..."}}"#,
+        );
+        let pr = parse_codex(&v, iso("2026-07-02T06:14:41.000Z"));
+        insta::assert_snapshot!(snap_codex(&pr));
+        assert_eq!(pr.events.len(), 1);
+        assert_eq!(pr.events[0].kind, EventKind::Thinking);
+    }
+
+    #[test]
+    fn codex_parse_skips_session_meta() {
+        let v = codex_rec(
+            r#"{"type":"session_meta","timestamp":"2026-07-02T06:14:40.000Z","payload":{"id":"abc","cwd":"/tmp","originator":"codex-tui"}}"#,
+        );
+        let pr = parse_codex(&v, 0);
+        assert!(pr.events.is_empty());
+    }
+
+    #[test]
+    fn codex_parse_skips_unknown_type() {
+        let v = codex_rec(
+            r#"{"type":"unknown_type","timestamp":"2026-07-02T06:14:40.000Z","payload":{}}"#,
+        );
+        let pr = parse_codex(&v, 0);
+        assert!(pr.events.is_empty());
+    }
+
+    #[test]
+    fn codex_parse_non_object_value() {
+        for v in [codex_rec("[]"), codex_rec("null"), codex_rec("\"oops\"")] {
+            assert!(parse_codex(&v, 0).events.is_empty());
+        }
+    }
+
+    // -----------------------------------------------------------------------
+    // Gemini CLI parser tests
+    // -----------------------------------------------------------------------
+
+    fn parse_gemini(value: &Value, ts_ms: i64) -> ParsedRecord {
+        let tmp = tempfile::TempDir::new().unwrap();
+        let blobs = BlobStore::new(tmp.path().join("blobs"));
+        parse_gemini_record(value, SID, ts_ms, &blobs)
+    }
+
+    fn snap_gemini(pr: &ParsedRecord) -> String {
+        serde_json::to_string_pretty(&serde_json::json!({
+            "events": pr.events,
+            "is_assistant_message": pr.is_assistant_message,
+        }))
+        .unwrap()
+    }
+
+    fn gemini_rec(json: &str) -> Value {
+        serde_json::from_str(json).unwrap()
+    }
+
+    #[test]
+    fn gemini_parse_user_message() {
+        let v = gemini_rec(
+            r#"{"type":"user","id":"msg1","timestamp":"2026-07-02T06:14:40.699Z","content":[{"text":"hello"}]}"#,
+        );
+        let pr = parse_gemini(&v, iso("2026-07-02T06:14:40.699Z"));
+        insta::assert_snapshot!(snap_gemini(&pr));
+        assert_eq!(pr.events.len(), 1);
+        assert_eq!(pr.events[0].kind, EventKind::UserMessage);
+    }
+
+    #[test]
+    fn gemini_parse_agent_message() {
+        let v = gemini_rec(
+            r#"{"type":"gemini","id":"msg2","timestamp":"2026-07-02T06:14:41.500Z","content":[{"text":"Hi! How can I help?"}],"model":"gemini-2.5-pro"}"#,
+        );
+        let pr = parse_gemini(&v, iso("2026-07-02T06:14:41.500Z"));
+        insta::assert_snapshot!(snap_gemini(&pr));
+        assert_eq!(pr.events.len(), 1);
+        assert_eq!(pr.events[0].kind, EventKind::AgentMessage);
+    }
+
+    #[test]
+    fn gemini_parse_with_tool_calls() {
+        let v = gemini_rec(
+            r#"{"type":"gemini","id":"msg3","timestamp":"2026-07-02T06:14:42.000Z","content":[{"text":"Let me check"}],"toolCalls":[{"id":"tc_1","name":"Bash","input":{"command":"ls"}}]}"#,
+        );
+        let pr = parse_gemini(&v, iso("2026-07-02T06:14:42.000Z"));
+        insta::assert_snapshot!(snap_gemini(&pr));
+        assert_eq!(pr.events.len(), 2); // agent_message + tool_call
+        assert_eq!(pr.events[0].kind, EventKind::AgentMessage);
+        assert_eq!(pr.events[1].kind, EventKind::ToolCall);
+        assert_eq!(
+            pr.events[1].body_json.as_ref().unwrap()["correlate_key"],
+            "tc_1"
+        );
+    }
+
+    #[test]
+    fn gemini_parse_with_thoughts() {
+        let v = gemini_rec(
+            r#"{"type":"gemini","id":"msg4","timestamp":"2026-07-02T06:14:41.000Z","content":[{"text":"answer"}],"thoughts":[{"text":"I need to think about this"}]}"#,
+        );
+        let pr = parse_gemini(&v, iso("2026-07-02T06:14:41.000Z"));
+        insta::assert_snapshot!(snap_gemini(&pr));
+        assert_eq!(pr.events.len(), 2); // agent_message + thinking
+        assert_eq!(pr.events[0].kind, EventKind::AgentMessage);
+        assert_eq!(pr.events[1].kind, EventKind::Thinking);
+    }
+
+    #[test]
+    fn gemini_parse_skips_session_metadata() {
+        let v = gemini_rec(
+            r#"{"type":"session_metadata","sessionId":"abc","projectHash":"xyz","startTime":"2026-07-02T06:14:40.000Z"}"#,
+        );
+        let pr = parse_gemini(&v, 0);
+        assert!(pr.events.is_empty());
+    }
+
+    #[test]
+    fn gemini_parse_skips_message_update() {
+        let v = gemini_rec(
+            r#"{"type":"message_update","id":"msg2","timestamp":"2026-07-02T06:14:41.000Z","tokens":{"input":5,"output":4}}"#,
+        );
+        let pr = parse_gemini(&v, 0);
+        assert!(pr.events.is_empty());
+    }
+
+    #[test]
+    fn gemini_parse_skips_unknown_type() {
+        let v = gemini_rec(r#"{"type":"unknown","id":"x","timestamp":"2026-07-02T06:14:40.000Z"}"#);
+        let pr = parse_gemini(&v, 0);
+        assert!(pr.events.is_empty());
+    }
+
+    #[test]
+    fn gemini_parse_non_object_value() {
+        for v in [gemini_rec("[]"), gemini_rec("null")] {
+            assert!(parse_gemini(&v, 0).events.is_empty());
+        }
+    }
+
+    // -----------------------------------------------------------------------
+    // Detection tests for all adapters
+    // -----------------------------------------------------------------------
+
+    #[test]
+    fn select_detects_all_adapters() {
+        assert!(select(&["claude".into()], Path::new("/tmp")).is_some());
+        assert!(select(&["claude-desktop".into()], Path::new("/tmp")).is_some());
+        assert!(select(&["codex".into()], Path::new("/tmp")).is_some());
+        assert!(select(&["gemini".into()], Path::new("/tmp")).is_some());
+        assert!(select(&["python3".into()], Path::new("/tmp")).is_none());
+    }
+
+    #[test]
+    fn is_claude_desktop_detects_basename() {
+        assert!(is_claude_desktop(&["claude-desktop".into()]));
+        assert!(is_claude_desktop(&["/usr/local/bin/claude-desktop".into()]));
+        assert!(is_claude_desktop(&["claude-desktop.exe".into()]));
+        assert!(!is_claude_desktop(&["claude".into()]));
+        assert!(!is_claude_desktop(&["codex".into()]));
+        assert!(!is_claude_desktop(&[]));
+    }
+
+    #[test]
+    fn is_codex_cli_detects_basename() {
+        assert!(is_codex_cli(&["codex".into()]));
+        assert!(is_codex_cli(&["/usr/local/bin/codex".into()]));
+        assert!(is_codex_cli(&["codex.exe".into()]));
+        assert!(!is_codex_cli(&["claude".into()]));
+        assert!(!is_codex_cli(&[]));
+    }
+
+    #[test]
+    fn is_gemini_cli_detects_basename() {
+        assert!(is_gemini_cli(&["gemini".into()]));
+        assert!(is_gemini_cli(&["/usr/local/bin/gemini".into()]));
+        assert!(is_gemini_cli(&["gemini.exe".into()]));
+        assert!(!is_gemini_cli(&["claude".into()]));
+        assert!(!is_gemini_cli(&[]));
+    }
+
+    #[test]
+    fn resolve_override_accepts_all_adapters() {
+        assert!(resolve_override("claude-code").is_some());
+        assert!(resolve_override("claude-desktop").is_some());
+        assert!(resolve_override("codex-cli").is_some());
+        assert!(resolve_override("gemini-cli").is_some());
+        assert!(resolve_override("unknown").is_none());
+    }
 }
