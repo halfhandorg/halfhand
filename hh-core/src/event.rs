@@ -48,21 +48,30 @@ impl FromStr for SessionStatus {
 }
 
 /// Detected agent kind (SRS §4.1 `sessions.agent_kind`).
+///
+/// `#[non_exhaustive]`: new agent kinds are added over time (this PR added
+/// `ClaudeDesktop`, `CodexCli`, `GeminiCli`). Marking it non-exhaustive keeps
+/// that additive under `cargo-semver-checks --release-type minor` instead of
+/// registering as a break — a downstream `match` must already carry a wildcard
+/// arm, matching CLAUDE.md's v1.0.0 addendum ("additive changes ... not
+/// breaking"). New variants are appended at the end so existing discriminant
+/// values (used by `as isize` casts) do not shift.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "kebab-case")]
+#[non_exhaustive]
 pub enum AgentKind {
     /// Claude Code (structured adapter active).
     ClaudeCode,
+    /// Generic agent, PTY-only capture.
+    Generic,
+    /// Standalone `hh mcp-proxy` session (FR-2.2).
+    McpOnly,
     /// Claude Desktop app (structured adapter active).
     ClaudeDesktop,
     /// OpenAI Codex CLI (structured adapter active).
     CodexCli,
     /// Google Gemini CLI (structured adapter active).
     GeminiCli,
-    /// Generic agent, PTY-only capture.
-    Generic,
-    /// Standalone `hh mcp-proxy` session (FR-2.2).
-    McpOnly,
 }
 
 impl fmt::Display for AgentKind {
