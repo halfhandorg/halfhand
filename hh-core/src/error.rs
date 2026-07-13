@@ -8,7 +8,15 @@ use std::path::PathBuf;
 use thiserror::Error;
 
 /// Top-level hh-core error.
+///
+/// `#[non_exhaustive]`: this and the other error enums below are expected to
+/// gain variants over time (this PR added [`StorageError::StillRecording`]);
+/// non-exhaustive keeps that additive under `cargo-semver-checks
+/// --release-type minor` instead of registering as a break — a downstream
+/// `match` must already carry a wildcard arm, matching CLAUDE.md's v1.0.0
+/// addendum ("additive changes ... not breaking").
 #[derive(Debug, Error)]
+#[non_exhaustive]
 pub enum Error {
     /// SQLite storage failure (IO, constraint, or migration).
     #[error("storage error: {0}\n  hint: check that the data directory is writable and not on a full disk")]
@@ -27,6 +35,7 @@ pub enum Error {
 
 /// Storage-layer error.
 #[derive(Debug, Error)]
+#[non_exhaustive]
 pub enum StorageError {
     /// SQLite returned an error.
     #[error("sqlite: {0}")]
@@ -78,6 +87,7 @@ pub enum StorageError {
 
 /// Failure to resolve a session id to exactly one session (FR-3.1).
 #[derive(Debug, Error)]
+#[non_exhaustive]
 pub enum ResolveError {
     /// The id prefix matched more than one session.
     #[error("ambiguous session id `{prefix}` matches {count} sessions:\n{candidates}\n  hint: use a longer prefix or the full id")]
@@ -96,6 +106,7 @@ pub enum ResolveError {
 
 /// Blob-store error.
 #[derive(Debug, Error)]
+#[non_exhaustive]
 pub enum BlobError {
     /// IO failure reading or writing a blob.
     #[error("blob io error at {path:?}: {source}")]
@@ -122,6 +133,7 @@ pub enum BlobError {
 
 /// Configuration error.
 #[derive(Debug, Error)]
+#[non_exhaustive]
 pub enum ConfigError {
     /// The TOML file could not be parsed.
     #[error("cannot parse config file {path:?}: {source}")]

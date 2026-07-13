@@ -115,7 +115,13 @@ pub struct LargestSession {
 
 /// Where a scan finding was located within a session
 /// (docs/redaction-design.md, `hh scan`).
+///
+/// `#[non_exhaustive]`: new location kinds are plausible as scan coverage
+/// grows; variant construction from other crates is unaffected, only
+/// exhaustive `match` needs a wildcard, which nothing outside this crate
+/// currently does.
 #[derive(Debug, Clone, PartialEq, Eq)]
+#[non_exhaustive]
 pub enum FindingLocation {
     /// The session's recorded command line (`sessions.command`).
     Command,

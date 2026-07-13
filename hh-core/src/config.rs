@@ -70,7 +70,15 @@ pub fn parse_bytes(input: &str) -> std::result::Result<u64, String> {
 }
 
 /// Replay color theme (SRS §4.2 `[replay] theme`).
+///
+/// `#[non_exhaustive]`: this and the other config types below are the crate's
+/// growth-prone public surface — new `[section]` keys/variants are expected
+/// over time (CLAUDE.md v1.0.0 addendum: additive-only). Marking them
+/// non-exhaustive up front means a future added key/variant stays additive
+/// under `cargo-semver-checks --release-type minor` instead of registering as
+/// a break, matching what the check is actually meant to enforce.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize, Default)]
+#[non_exhaustive]
 #[serde(rename_all = "lowercase")]
 pub enum Theme {
     /// Follow the terminal's reported color scheme.
@@ -84,6 +92,7 @@ pub enum Theme {
 
 /// Record-time options (SRS §4.2 `[record]`).
 #[derive(Debug, Clone, PartialEq)]
+#[non_exhaustive]
 pub struct RecordConfig {
     /// Max file size to capture, in bytes (default 4 MiB).
     pub max_file_size: u64,
@@ -108,6 +117,7 @@ impl Default for RecordConfig {
 
 /// Storage options (SRS §4.2 `[storage]`).
 #[derive(Debug, Clone, Default, PartialEq)]
+#[non_exhaustive]
 pub struct StorageConfig {
     /// Data directory override; empty means platform default.
     pub data_dir: PathBuf,
@@ -115,6 +125,7 @@ pub struct StorageConfig {
 
 /// Replay options (SRS §4.2 `[replay]`).
 #[derive(Debug, Clone, PartialEq, Default)]
+#[non_exhaustive]
 pub struct ReplayConfig {
     /// Color theme.
     pub theme: Theme,
@@ -125,6 +136,7 @@ pub struct ReplayConfig {
 /// [`crate::redact::Detectors::new`]; an invalid regex is an actionable error
 /// there, not a silent no-op.
 #[derive(Debug, Clone, PartialEq, Eq)]
+#[non_exhaustive]
 pub struct RedactionRule {
     /// Short rule name; findings report as `custom:<name>`.
     pub name: String,
@@ -134,6 +146,7 @@ pub struct RedactionRule {
 
 /// Redaction options (`[redaction]`, docs/redaction-design.md).
 #[derive(Debug, Clone, PartialEq, Eq)]
+#[non_exhaustive]
 pub struct RedactionConfig {
     /// Redact matches *before they hit disk* during recording (opt-in;
     /// default off — sessions record raw locally, and export-time redaction
@@ -157,6 +170,7 @@ impl Default for RedactionConfig {
 
 /// The full configuration.
 #[derive(Debug, Clone, Default, PartialEq)]
+#[non_exhaustive]
 pub struct Config {
     /// `[record]`
     pub record: RecordConfig,
@@ -433,7 +447,12 @@ fn value_to_bytes(v: &toml::Value) -> Result<u64> {
 }
 
 /// Resolved on-disk locations for the Halfhand data directory.
+///
+/// `#[non_exhaustive]`: already only ever built via [`Paths::resolve`] /
+/// [`Paths::with_data_dir`], never a struct literal; this just makes that the
+/// enforced contract so a future resolved path is additive.
 #[derive(Debug, Clone, PartialEq, Eq)]
+#[non_exhaustive]
 pub struct Paths {
     /// The data directory itself (`$XDG_DATA_HOME/halfhand` by default).
     pub data_dir: PathBuf,

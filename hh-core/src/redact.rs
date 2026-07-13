@@ -30,7 +30,13 @@ const ENTROPY_MIN_BITS: f64 = 4.5;
 
 /// The kind of secret a detector found. `Display` yields the stable slug
 /// used inside the replacement token and in `hh scan` output.
+///
+/// `#[non_exhaustive]`: new named detectors are the roadmap (more token
+/// types over time); this keeps that additive under semver-checks. Variant
+/// construction from other crates is unaffected — only exhaustive `match`
+/// requires a wildcard arm, which nothing outside this crate currently does.
 #[derive(Debug, Clone, PartialEq, Eq, Hash, PartialOrd, Ord)]
+#[non_exhaustive]
 pub enum SecretKind {
     /// AWS access key id (`AKIA…`/`ASIA…` and friends).
     AwsAccessKeyId,
