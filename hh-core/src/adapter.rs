@@ -1079,10 +1079,11 @@ fn snapshot_codex_rollouts(sessions: &Path) -> std::collections::HashSet<PathBuf
                 if let Ok(entries) = std::fs::read_dir(&dp) {
                     for e in entries.flatten() {
                         let p = e.path();
-                        if p.file_name()
-                            .and_then(|n| n.to_str())
-                            .is_some_and(|n| n.starts_with("rollout-") && std::path::Path::new(n).extension() == Some(std::ffi::OsStr::new("jsonl")))
-                        {
+                        if p.file_name().and_then(|n| n.to_str()).is_some_and(|n| {
+                            n.starts_with("rollout-")
+                                && std::path::Path::new(n).extension()
+                                    == Some(std::ffi::OsStr::new("jsonl"))
+                        }) {
                             set.insert(p);
                         }
                     }
@@ -1101,11 +1102,10 @@ fn new_rollout_in(dir: &Path, preexisting: &std::collections::HashSet<PathBuf>) 
     let mut found: Vec<(PathBuf, i64)> = Vec::new();
     for e in entries.flatten() {
         let p = e.path();
-        if !p
-            .file_name()
-            .and_then(|n| n.to_str())
-            .is_some_and(|n| n.starts_with("rollout-") && std::path::Path::new(n).extension() == Some(std::ffi::OsStr::new("jsonl")))
-        {
+        if !p.file_name().and_then(|n| n.to_str()).is_some_and(|n| {
+            n.starts_with("rollout-")
+                && std::path::Path::new(n).extension() == Some(std::ffi::OsStr::new("jsonl"))
+        }) {
             continue;
         }
         if preexisting.contains(&p) {
@@ -1288,7 +1288,8 @@ fn parse_codex_response_item(
                 _ => EventKind::UserMessage,
             };
             if let Some(t) = text {
-                out.events.push(text_event(session_id, ts_ms, kind, &t, blobs));
+                out.events
+                    .push(text_event(session_id, ts_ms, kind, &t, blobs));
             }
             out.is_assistant_message = role == "assistant";
         }
@@ -1309,8 +1310,13 @@ fn parse_codex_response_item(
             } else {
                 summary
             };
-            out.events
-                .push(text_event(session_id, ts_ms, EventKind::Thinking, &text, blobs));
+            out.events.push(text_event(
+                session_id,
+                ts_ms,
+                EventKind::Thinking,
+                &text,
+                blobs,
+            ));
         }
         "function_call" | "custom_tool_call" => {
             let call_id = obj.get("call_id").and_then(|v| v.as_str()).unwrap_or("");
@@ -1323,9 +1329,7 @@ fn parse_codex_response_item(
                     .unwrap_or(serde_json::Value::Null)
             } else {
                 // custom_tool_call.input is free-form text
-                obj.get("input")
-                    .cloned()
-                    .unwrap_or(serde_json::Value::Null)
+                obj.get("input").cloned().unwrap_or(serde_json::Value::Null)
             };
             let body = serde_json::json!({
                 "name": name,
@@ -1347,10 +1351,7 @@ fn parse_codex_response_item(
         }
         "function_call_output" | "custom_tool_call_output" => {
             let call_id = obj.get("call_id").and_then(|v| v.as_str()).unwrap_or("");
-            let output = obj
-                .get("output")
-                .and_then(|v| v.as_str())
-                .unwrap_or("");
+            let output = obj.get("output").and_then(|v| v.as_str()).unwrap_or("");
             let body = serde_json::json!({
                 "tool_use_id": call_id,
                 "is_error": false,
@@ -1656,10 +1657,11 @@ fn snapshot_gemini_sessions(tmp: &Path) -> std::collections::HashSet<PathBuf> {
         if let Ok(entries) = std::fs::read_dir(&chats) {
             for e in entries.flatten() {
                 let p = e.path();
-                if p.file_name()
-                    .and_then(|n| n.to_str())
-                    .is_some_and(|n| n.starts_with("session-") && std::path::Path::new(n).extension() == Some(std::ffi::OsStr::new("jsonl")))
-                {
+                if p.file_name().and_then(|n| n.to_str()).is_some_and(|n| {
+                    n.starts_with("session-")
+                        && std::path::Path::new(n).extension()
+                            == Some(std::ffi::OsStr::new("jsonl"))
+                }) {
                     set.insert(p);
                 }
             }
@@ -1679,11 +1681,10 @@ fn new_gemini_sessions_in(
     let mut found: Vec<(PathBuf, i64)> = Vec::new();
     for e in entries.flatten() {
         let p = e.path();
-        if !p
-            .file_name()
-            .and_then(|n| n.to_str())
-            .is_some_and(|n| n.starts_with("session-") && std::path::Path::new(n).extension() == Some(std::ffi::OsStr::new("jsonl")))
-        {
+        if !p.file_name().and_then(|n| n.to_str()).is_some_and(|n| {
+            n.starts_with("session-")
+                && std::path::Path::new(n).extension() == Some(std::ffi::OsStr::new("jsonl"))
+        }) {
             continue;
         }
         if preexisting.contains(&p) {
@@ -1830,14 +1831,8 @@ pub(crate) fn parse_gemini_record(
             if let Some(tool_calls) = obj.get("toolCalls").and_then(|v| v.as_array()) {
                 for tc in tool_calls {
                     if let Some(tc_obj) = tc.as_object() {
-                        let call_id = tc_obj
-                            .get("id")
-                            .and_then(|v| v.as_str())
-                            .unwrap_or("");
-                        let name = tc_obj
-                            .get("name")
-                            .and_then(|v| v.as_str())
-                            .unwrap_or("");
+                        let call_id = tc_obj.get("id").and_then(|v| v.as_str()).unwrap_or("");
+                        let name = tc_obj.get("name").and_then(|v| v.as_str()).unwrap_or("");
                         let input = tc_obj
                             .get("input")
                             .cloned()

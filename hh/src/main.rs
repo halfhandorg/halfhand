@@ -801,7 +801,10 @@ fn print_epilogue(outcome: &hh_record::RunOutcome) {
     // user plainly.
     let is_adapter_active = matches!(
         outcome.agent_kind,
-        AgentKind::ClaudeCode | AgentKind::ClaudeDesktop | AgentKind::CodexCli | AgentKind::GeminiCli
+        AgentKind::ClaudeCode
+            | AgentKind::ClaudeDesktop
+            | AgentKind::CodexCli
+            | AgentKind::GeminiCli
     );
     if is_adapter_active
         && outcome.adapter_status != AdapterStatus::None

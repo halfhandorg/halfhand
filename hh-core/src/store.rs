@@ -275,7 +275,11 @@ fn extract_fts_text(body_json: Option<&serde_json::Value>) -> String {
                 return reason.to_string();
             }
             // Overflow envelopes: no searchable text
-            if obj.get("overflow").and_then(serde_json::Value::as_bool).unwrap_or(false) {
+            if obj
+                .get("overflow")
+                .and_then(serde_json::Value::as_bool)
+                .unwrap_or(false)
+            {
                 return String::new();
             }
             // Fallback: pretty-print the JSON (capped)
@@ -721,14 +725,8 @@ impl Store {
             return Ok(Vec::new());
         }
         let limit = i64::from(filters.limit.clamp(1, 500));
-        let agent_kind = filters
-            .agent_kind
-            .as_ref()
-            .map(AgentKind::to_string);
-        let event_kind = filters
-            .event_kind
-            .as_ref()
-            .map(EventKind::to_string);
+        let agent_kind = filters.agent_kind.as_ref().map(AgentKind::to_string);
+        let event_kind = filters.event_kind.as_ref().map(EventKind::to_string);
 
         let sql = "SELECT e.id, e.session_id, s.short_id, e.step, e.kind, e.summary,
                    snippet(events_fts, 2, '<b>', '</b>', '...', 32) AS snippet,
@@ -744,35 +742,33 @@ impl Store {
             ORDER BY s.started_at DESC, e.ts_ms ASC
             LIMIT ?6";
 
-        let mut stmt = self
-            .conn
-            .prepare(sql)
+        let mut stmt = self.conn.prepare(sql).map_err(StorageError::Sqlite)?;
+        let rows = stmt
+            .query_map(
+                params![
+                    query,
+                    agent_kind,
+                    event_kind,
+                    filters.since,
+                    filters.path,
+                    limit,
+                ],
+                |r| {
+                    let kind_str: String = r.get(4)?;
+                    let kind = kind_str.parse().unwrap_or(EventKind::AgentMessage);
+                    Ok(SearchResult {
+                        event_id: r.get(0)?,
+                        session_id: r.get(1)?,
+                        session_short_id: r.get(2)?,
+                        step: r.get(3)?,
+                        kind,
+                        summary: r.get(5)?,
+                        snippet: r.get(6)?,
+                        ts_ms: r.get(7)?,
+                    })
+                },
+            )
             .map_err(StorageError::Sqlite)?;
-        let rows = stmt.query_map(
-            params![
-                query,
-                agent_kind,
-                event_kind,
-                filters.since,
-                filters.path,
-                limit,
-            ],
-            |r| {
-                let kind_str: String = r.get(4)?;
-                let kind = kind_str.parse().unwrap_or(EventKind::AgentMessage);
-                Ok(SearchResult {
-                    event_id: r.get(0)?,
-                    session_id: r.get(1)?,
-                    session_short_id: r.get(2)?,
-                    step: r.get(3)?,
-                    kind,
-                    summary: r.get(5)?,
-                    snippet: r.get(6)?,
-                    ts_ms: r.get(7)?,
-                })
-            },
-        )
-        .map_err(StorageError::Sqlite)?;
 
         let mut out = Vec::new();
         for r in rows {
@@ -1095,7 +1091,11 @@ impl Store {
                 let body_text = extract_fts_text(new_body_value.as_ref());
                 let _ = tx.execute(
                     "UPDATE events_fts SET summary = ?1, body_text = ?2 WHERE rowid = ?3",
-                    params![new_summary.as_deref().unwrap_or(summary.as_str()), body_text, event_id],
+                    params![
+                        new_summary.as_deref().unwrap_or(summary.as_str()),
+                        body_text,
+                        event_id
+                    ],
                 );
             }
         }

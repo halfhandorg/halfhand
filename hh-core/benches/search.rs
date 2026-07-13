@@ -7,7 +7,7 @@
 use criterion::{black_box, criterion_group, criterion_main, Criterion, Throughput};
 use hh_core::event::{Event, EventKind, NewSession};
 use hh_core::store::{SearchFilters, Store};
-use hh_core::{AgentKind, AdapterStatus};
+use hh_core::{AdapterStatus, AgentKind};
 use std::path::Path;
 use std::time::Duration;
 use tempfile::TempDir;
@@ -25,11 +25,7 @@ fn bench_config() -> Criterion {
 /// Seed a store with `session_count` sessions, each with `events_per_session`
 /// events containing varied text for FTS5 search.
 #[allow(clippy::explicit_counter_loop)] // s is a loop variable, not a counter
-fn seed_store(
-    dir: &Path,
-    session_count: u32,
-    events_per_session: u32,
-) -> Store {
+fn seed_store(dir: &Path, session_count: u32, events_per_session: u32) -> Store {
     let store = Store::open(&dir.join("hh.db"), &dir.join("blobs")).unwrap();
     let mut started_at = 1_700_000_000_000i64;
 
@@ -59,7 +55,8 @@ fn seed_store(
                 3 => EventKind::ToolResult,
                 _ => EventKind::Thinking,
             };
-            let summary = format!("event {s}/{e}: {}",
+            let summary = format!(
+                "event {s}/{e}: {}",
                 match kind {
                     EventKind::UserMessage => "user asked about file system",
                     EventKind::AgentMessage => "agent responded with solution",
@@ -79,20 +76,29 @@ fn seed_store(
                 }
             );
             let body: serde_json::Value = serde_json::from_str(&body_text).unwrap();
-            writer.append_event(Event {
-                session_id: created.id.clone(),
-                ts_ms: i64::from(e) * 100,
-                kind,
-                step: Some(i64::from(e) + 1),
-                summary,
-                body_json: Some(body),
-                blob_hash: None,
-                blob_size: None,
-                correlates: None,
-            }).unwrap();
+            writer
+                .append_event(Event {
+                    session_id: created.id.clone(),
+                    ts_ms: i64::from(e) * 100,
+                    kind,
+                    step: Some(i64::from(e) + 1),
+                    summary,
+                    body_json: Some(body),
+                    blob_hash: None,
+                    blob_size: None,
+                    correlates: None,
+                })
+                .unwrap();
         }
         writer.finish().unwrap();
-        store.finalize_session(&created.id, started_at + 100_000, Some(0), hh_core::SessionStatus::Ok).unwrap();
+        store
+            .finalize_session(
+                &created.id,
+                started_at + 100_000,
+                Some(0),
+                hh_core::SessionStatus::Ok,
+            )
+            .unwrap();
         started_at += 1;
     }
     store
