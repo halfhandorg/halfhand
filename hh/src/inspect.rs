@@ -707,6 +707,87 @@ fn render_file_change_diff(fc: &FileChange, store: &Store, color: bool) -> Strin
     out
 }
 
+/// The structured twin of [`render_file_change_diff`]: the same hunk-walking
+/// logic, but building JSON hunks/lines instead of a formatted+colored
+/// string. Used by `hh export --html`'s client-side diff viewer, so the
+/// browser never needs to implement a diff algorithm itself — it only ever
+/// renders precomputed `{tag, text}` lines via `textContent`.
+pub(crate) fn file_change_diff_json(fc: &FileChange, store: &Store) -> serde_json::Value {
+    if fc.is_binary {
+        return serde_json::json!({
+            "path": fc.path,
+            "change_kind": fc.change_kind.to_string(),
+            "is_binary": true,
+            "note": "Binary file — diff not shown.",
+            "hunks": [],
+        });
+    }
+
+    let before = fc
+        .before_hash
+        .as_deref()
+        .and_then(|h| store.blobs().get(h).ok())
+        .map(|b| String::from_utf8_lossy(&b).into_owned());
+    let after = fc
+        .after_hash
+        .as_deref()
+        .and_then(|h| store.blobs().get(h).ok())
+        .map(|b| String::from_utf8_lossy(&b).into_owned());
+
+    let mut hunks: Vec<serde_json::Value> = Vec::new();
+    let mut note: Option<&'static str> = None;
+
+    if let (Some(a), Some(b)) = (before.as_deref(), after.as_deref()) {
+        let diff = TextDiff::from_lines(a, b);
+        let unified = diff.unified_diff();
+        for hunk in unified.iter_hunks() {
+            let lines: Vec<serde_json::Value> = hunk
+                .iter_changes()
+                .map(|change| {
+                    let tag = match change.tag() {
+                        ChangeTag::Delete => "delete",
+                        ChangeTag::Insert => "insert",
+                        ChangeTag::Equal => "equal",
+                    };
+                    let line = change.to_string_lossy();
+                    let line = line.strip_suffix('\n').unwrap_or(&line);
+                    serde_json::json!({ "tag": tag, "text": line })
+                })
+                .collect();
+            hunks.push(serde_json::json!({
+                "header": hunk.header().to_string(),
+                "lines": lines,
+            }));
+        }
+        if hunks.is_empty() {
+            note = Some("(no changes)");
+        }
+    } else {
+        // A create/delete has only one side, or the referenced blob was
+        // never captured — show whichever side exists in full, as one
+        // headerless hunk.
+        match before.as_deref().or(after.as_deref()) {
+            Some(text) => {
+                let tag = if after.is_none() { "delete" } else { "insert" };
+                let lines: Vec<serde_json::Value> = text
+                    .lines()
+                    .map(|l| serde_json::json!({ "tag": tag, "text": l }))
+                    .collect();
+                hunks.push(serde_json::json!({ "header": null, "lines": lines }));
+            }
+            None => note = Some("(content not captured)"),
+        }
+    }
+
+    serde_json::json!({
+        "path": fc.path,
+        "change_kind": fc.change_kind.to_string(),
+        "is_binary": false,
+        "note": note,
+        "hunks": hunks,
+    })
+}
+
 // ---------------------------------------------------------------------------
 // JSON output (`--json`, `--json --step N`)
 // ---------------------------------------------------------------------------
@@ -1102,6 +1183,51 @@ mod tests {
         let fc = detail.file_change.as_ref().expect("file_change row");
         let out = render_file_change_diff(fc, &fx.store, false);
         insta::assert_snapshot!(out);
+    }
+
+    /// [`file_change_diff_json`]'s structured hunks carry the same content as
+    /// [`render_file_change_diff`]'s formatted text — same lines, same
+    /// insert/delete tags — just as data instead of a colored string.
+    #[test]
+    fn diff_json_matches_text_diff_content() {
+        let fx = Fixture::build();
+        let detail = fx
+            .index
+            .iter()
+            .find(|e| e.kind == EventKind::FileChange)
+            .and_then(|e| fx.store.get_event_detail(e.id).ok())
+            .expect("file change event");
+        let fc = detail.file_change.as_ref().expect("file_change row");
+        let json = file_change_diff_json(fc, &fx.store);
+        assert_eq!(json["path"], "created.txt");
+        assert_eq!(json["change_kind"], "created");
+        assert_eq!(json["is_binary"], false);
+        // A create has one headerless hunk of pure inserts.
+        let hunks = json["hunks"].as_array().unwrap();
+        assert_eq!(hunks.len(), 1);
+        assert!(hunks[0]["header"].is_null());
+        let lines = hunks[0]["lines"].as_array().unwrap();
+        assert!(!lines.is_empty());
+        assert!(lines.iter().all(|l| l["tag"] == "insert"));
+        assert!(lines.iter().any(|l| l["text"] == "created-content"));
+    }
+
+    #[test]
+    fn diff_json_binary_file_carries_a_note_not_content() {
+        let json = file_change_diff_json(
+            &FileChange {
+                event_id: 0,
+                path: "image.png".into(),
+                change_kind: ChangeKind::Modified,
+                before_hash: None,
+                after_hash: None,
+                is_binary: true,
+            },
+            &Fixture::build().store,
+        );
+        assert_eq!(json["is_binary"], true);
+        assert!(json["note"].as_str().unwrap().contains("Binary"));
+        assert_eq!(json["hunks"].as_array().unwrap().len(), 0);
     }
 
     #[test]

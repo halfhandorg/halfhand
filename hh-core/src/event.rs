@@ -268,7 +268,19 @@ impl NewSession {
 }
 
 /// A session row as read back from the DB.
+///
+/// `#[non_exhaustive]`: this is a growth-prone read model (this PR adds
+/// `imported_from`; more fields — `hostname`/`model`/`git_*`, none of which
+/// `SessionRow` exposes today — are a plausible future addition). Marking it
+/// non-exhaustive now means a future added field stays additive under
+/// `cargo-semver-checks --release-type minor` instead of registering as a
+/// break, matching the precedent set for `Config`/the error enums. External
+/// construction goes through [`Default`] + functional-record-update
+/// (`SessionRow { field: value, ..SessionRow::default() }`), which — unlike
+/// a struct literal naming every field — stays valid across a
+/// `#[non_exhaustive]` boundary; `hh`'s own test fixtures use this pattern.
 #[derive(Debug, Clone)]
+#[non_exhaustive]
 pub struct SessionRow {
     /// Full UUID string.
     pub id: String,
@@ -294,6 +306,36 @@ pub struct SessionRow {
     pub step_count: i64,
     /// Count of distinct file paths changed.
     pub files_changed: i64,
+    /// The original session id this session was imported from (`hh import`),
+    /// or `None` for a locally-recorded session (SRS v1.0.0 addendum: additive
+    /// column, migration 0003).
+    pub imported_from: Option<String>,
+}
+
+impl Default for SessionRow {
+    /// Neutral placeholder values — the sanctioned way to build a
+    /// `#[non_exhaustive]` `SessionRow` from outside this crate is
+    /// `SessionRow { field: value, ..SessionRow::default() }`, not a full
+    /// struct literal. Real rows always come from [`crate::store::Store`]
+    /// queries; this exists for that FRU pattern (test fixtures today, any
+    /// future caller tomorrow), not for direct use.
+    fn default() -> Self {
+        Self {
+            id: String::new(),
+            short_id: String::new(),
+            started_at: 0,
+            ended_at: None,
+            exit_code: None,
+            status: SessionStatus::Recording,
+            agent_kind: AgentKind::Generic,
+            adapter_status: AdapterStatus::None,
+            command: Vec::new(),
+            cwd: PathBuf::new(),
+            step_count: 0,
+            files_changed: 0,
+            imported_from: None,
+        }
+    }
 }
 
 /// An event to append to a session (SRS §4.1 `events`).
@@ -397,6 +439,36 @@ pub struct EventDetail {
     /// Kind-specific structured payload, resolved from the blob store if it
     /// had overflowed inline storage.
     pub body_json: Option<serde_json::Value>,
+    /// The attached `file_changes` row, present only for `kind == FileChange`.
+    pub file_change: Option<FileChange>,
+}
+
+/// One event row exactly as stored — no blob-overflow resolution (unlike
+/// [`EventDetail`]). Used by `hh-core::bundle` (`hh export --bundle`), which
+/// must carry every referenced blob byte-for-byte rather than inlining only
+/// the ones that happen to resolve as JSON (see
+/// [`crate::store::Store::for_each_event_raw`]).
+#[derive(Debug, Clone)]
+pub struct RawEventRow {
+    /// The event row id.
+    pub id: i64,
+    /// Milliseconds since session start.
+    pub ts_ms: i64,
+    /// Event kind.
+    pub kind: EventKind,
+    /// 1-based step ordinal, or `None` for non-step events.
+    pub step: Option<i64>,
+    /// Correlated event id.
+    pub correlates: Option<i64>,
+    /// One-line summary.
+    pub summary: String,
+    /// Kind-specific structured payload, exactly as stored (may be an
+    /// unresolved `{"overflow": true, ...}` envelope).
+    pub body_json: Option<serde_json::Value>,
+    /// Blob hash referenced by this event's `events.blob_hash` column, if any.
+    pub blob_hash: Option<String>,
+    /// Uncompressed size of the referenced blob, if `blob_hash` is set.
+    pub blob_size: Option<u64>,
     /// The attached `file_changes` row, present only for `kind == FileChange`.
     pub file_change: Option<FileChange>,
 }

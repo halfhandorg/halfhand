@@ -452,20 +452,24 @@ mod tests {
     use std::path::PathBuf;
 
     fn session() -> SessionRow {
-        SessionRow {
-            id: "s".into(),
-            short_id: "abcdef".into(),
-            started_at: 0,
-            ended_at: None,
-            exit_code: None,
-            status: SessionStatus::Ok,
-            agent_kind: AgentKind::Generic,
-            adapter_status: AdapterStatus::None,
-            command: vec!["claude".into()],
-            cwd: PathBuf::from("/tmp"),
-            step_count: 0,
-            files_changed: 0,
-        }
+        // `SessionRow` is `#[non_exhaustive]`; see the comment in
+        // `hh/src/main.rs`'s `row()` fixture for why this uses
+        // `SessionRow::default()` + field assignment rather than a struct
+        // literal (even with `..` update syntax).
+        let mut r = SessionRow::default();
+        r.id = "s".into();
+        r.short_id = "abcdef".into();
+        r.started_at = 0;
+        r.ended_at = None;
+        r.exit_code = None;
+        r.status = SessionStatus::Ok;
+        r.agent_kind = AgentKind::Generic;
+        r.adapter_status = AdapterStatus::None;
+        r.command = vec!["claude".into()];
+        r.cwd = PathBuf::from("/tmp");
+        r.step_count = 0;
+        r.files_changed = 0;
+        r
     }
 
     fn idx(

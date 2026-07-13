@@ -1,0 +1,241 @@
+---
+source: hh/src/export.rs
+assertion_line: 717
+expression: html
+---
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>hh session a1b2c3</title>
+<style>
+
+:root {
+  --bg: #0b0d10; --panel: #12151a; --border: #23262b; --fg: #e6e6e6; --dim: #8a8f98;
+  --accent: #22d3c8;
+  --agent: #4fd1e0; --user: #52c41a; --tool: #e0b341; --mcp: #d16fe0; --file: #4f8ef0; --err: #ff6b6b;
+}
+html[data-theme="light"] {
+  --bg: #ffffff; --panel: #f5f6f7; --border: #e2e4e8; --fg: #1a1a1a; --dim: #6b7280;
+  --accent: #0b7285;
+  --agent: #0891b2; --user: #15803d; --tool: #a16207; --mcp: #a21caf; --file: #1d4ed8; --err: #b91c1c;
+}
+* { box-sizing: border-box; }
+html, body { height: 100%; margin: 0; }
+body {
+  font-family: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, "Liberation Mono", monospace;
+  font-size: 14px; line-height: 1.5; background: var(--bg); color: var(--fg);
+}
+#app { display: flex; flex-direction: column; height: 100vh; }
+#hh-header { flex: 0 0 auto; padding: .75rem 1rem; border-bottom: 1px solid var(--border); }
+.hh-title { display: flex; gap: .6rem; align-items: baseline; flex-wrap: wrap; font-size: 1rem; }
+.hh-id { color: var(--accent); font-weight: 600; }
+.hh-status, .hh-agent { color: var(--dim); font-size: .8rem; text-transform: uppercase; }
+.hh-command, .hh-meta { margin-top: .25rem; color: var(--dim); font-size: .8rem; overflow-wrap: anywhere; }
+#hh-theme-toggle {
+  position: fixed; top: .6rem; right: .8rem; z-index: 1;
+  background: var(--panel); color: var(--fg); border: 1px solid var(--border);
+  border-radius: 4px; padding: .3rem .6rem; cursor: pointer; font: inherit;
+}
+#hh-main { flex: 1 1 auto; min-height: 0; display: flex; }
+#hh-timeline { flex: 0 0 auto; width: 26rem; max-width: 42vw; overflow-y: auto; border-right: 1px solid var(--border); }
+.hh-row { display: flex; gap: .5rem; align-items: baseline; padding: .3rem .6rem; border-bottom: 1px solid var(--border); cursor: pointer; }
+.hh-row:hover { background: var(--panel); }
+.hh-row.selected { background: var(--panel); box-shadow: inset 3px 0 0 var(--accent); }
+.hh-step { flex: 0 0 auto; width: 2.4em; text-align: right; color: var(--dim); }
+.hh-badge { flex: 0 0 auto; font-size: .7em; text-transform: uppercase; letter-spacing: .02em; }
+.hh-badge-AGENT { color: var(--agent); } .hh-badge-USER { color: var(--user); }
+.hh-badge-TOOL { color: var(--tool); } .hh-badge-MCP { color: var(--mcp); }
+.hh-badge-FILE { color: var(--file); } .hh-badge-ERR { color: var(--err); }
+.hh-badge-LIFE { color: var(--dim); }
+.hh-summary { flex: 1 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.hh-time { flex: 0 0 auto; color: var(--dim); font-size: .8em; }
+#hh-detail { flex: 1 1 auto; overflow-y: auto; padding: 1rem 1.25rem; }
+.hh-detail-head { display: flex; gap: .6rem; align-items: baseline; margin-bottom: .7rem; }
+.hh-empty { color: var(--dim); }
+.hh-text, .hh-json {
+  margin: 0; padding: .7rem .8rem; background: var(--panel); border: 1px solid var(--border);
+  border-radius: 4px; white-space: pre-wrap; word-break: break-word;
+}
+.hh-diff-path { color: var(--dim); margin-bottom: .4rem; }
+.hh-diff-note { color: var(--dim); font-style: italic; }
+.hh-diff-hunk { color: var(--accent); margin-top: .5rem; }
+.hh-diff-line { white-space: pre-wrap; word-break: break-word; }
+.hh-diff-insert { color: var(--user); } .hh-diff-delete { color: var(--err); }
+footer { flex: 0 0 auto; padding: .5rem 1rem; color: var(--dim); font-size: .75em; border-top: 1px solid var(--border); }
+noscript { display: block; padding: 1rem; color: var(--dim); }
+
+</style>
+</head>
+<body>
+<noscript>This replay page needs JavaScript to render — the session data below is otherwise inert.</noscript>
+<script type="application/json" id="hh-data">{"events":[{"body":{"text":"prompt with \u003c/script\u003e\u003cimg src=x onerror=alert(2)\u003e"},"kind":"user_message","step":1,"summary":"hello \u003cscript\u003ealert(1)\u003c/script\u003e","ts_ms":12},{"body":{"path":"\u003csvg onload=alert(3)\u003e.txt"},"diff":{"change_kind":"created","hunks":[{"header":null,"lines":[{"tag":"insert","text":"\u003c/script\u003e\u003cscript\u003ealert(4)\u003c/script\u003e"}]}],"is_binary":false,"note":null,"path":"\u003csvg onload=alert(3)\u003e.txt"},"kind":"file_change","step":2,"summary":"\u003csvg onload=alert(3)\u003e.txt created","ts_ms":20}],"hh_version":"test","kind":"hh-export-html","schema":1,"session":{"agent_kind":"generic","command":["agent","--flag"],"cwd":"/tmp/work","imported_from":null,"short_id":"a1b2c3","status":"ok"}}</script>
+<button id="hh-theme-toggle" type="button" aria-label="Toggle light/dark theme">◐</button>
+<div id="app">
+  <header id="hh-header"></header>
+  <div id="hh-main">
+    <nav id="hh-timeline" aria-label="Step timeline"></nav>
+    <main id="hh-detail" aria-label="Step detail"></main>
+  </div>
+</div>
+<footer>exported by <code>hh export --html</code> — redaction tokens look like <code>{{REDACTED:&lt;type&gt;:&lt;hash8&gt;}}</code> · j/k to navigate</footer>
+<script>
+
+(function () {
+  'use strict';
+  var raw = document.getElementById('hh-data').textContent;
+  var DATA = JSON.parse(raw);
+  var events = DATA.events || [];
+
+  var KIND_LABEL = {
+    user_message: 'USER', agent_message: 'AGENT', thinking: 'AGENT',
+    tool_call: 'TOOL', tool_result: 'TOOL',
+    mcp_request: 'MCP', mcp_response: 'MCP', mcp_notification: 'MCP',
+    file_change: 'FILE', error: 'ERR', lifecycle: 'LIFE'
+  };
+  var TEXT_KINDS = ['user_message', 'agent_message', 'thinking', 'lifecycle'];
+
+  function el(tag, className, text) {
+    var e = document.createElement(tag);
+    if (className) e.className = className;
+    if (text !== undefined && text !== null) e.textContent = text;
+    return e;
+  }
+
+  function badgeClass(kind) {
+    return 'hh-badge hh-badge-' + (KIND_LABEL[kind] || 'LIFE');
+  }
+
+  function fmtTime(ms) {
+    var total = Math.max(0, Math.floor((ms || 0) / 1000));
+    var h = Math.floor(total / 3600);
+    var m = Math.floor((total % 3600) / 60);
+    var s = total % 60;
+    function pad(n) { return (n < 10 ? '0' : '') + n; }
+    return (h > 0 ? h + ':' : '') + pad(m) + ':' + pad(s);
+  }
+
+  function renderHeader() {
+    var header = document.getElementById('hh-header');
+    header.textContent = '';
+    var sess = DATA.session || {};
+    var title = el('div', 'hh-title');
+    title.appendChild(el('span', 'hh-id', sess.short_id || ''));
+    title.appendChild(el('span', 'hh-status', sess.status || ''));
+    title.appendChild(el('span', 'hh-agent', sess.agent_kind || ''));
+    header.appendChild(title);
+    var cmd = Array.isArray(sess.command) ? sess.command.join(' ') : '';
+    header.appendChild(el('div', 'hh-command', cmd));
+    var metaText = sess.cwd || '';
+    if (sess.imported_from) metaText += '  ·  imported from ' + sess.imported_from;
+    header.appendChild(el('div', 'hh-meta', metaText));
+  }
+
+  var rows = [];
+  var selected = -1;
+
+  function renderTimeline() {
+    var nav = document.getElementById('hh-timeline');
+    nav.textContent = '';
+    rows = [];
+    events.forEach(function (ev, i) {
+      var row = el('div', 'hh-row');
+      if (ev.step !== null && ev.step !== undefined) {
+        row.appendChild(el('span', 'hh-step', String(ev.step)));
+      }
+      row.appendChild(el('span', badgeClass(ev.kind), KIND_LABEL[ev.kind] || ev.kind));
+      row.appendChild(el('span', 'hh-summary', ev.summary || ''));
+      row.appendChild(el('span', 'hh-time', fmtTime(ev.ts_ms)));
+      row.addEventListener('click', function () { select(i); });
+      nav.appendChild(row);
+      rows.push(row);
+    });
+  }
+
+  function select(i) {
+    if (i < 0 || i >= rows.length) return;
+    if (selected >= 0 && rows[selected]) rows[selected].classList.remove('selected');
+    selected = i;
+    rows[selected].classList.add('selected');
+    rows[selected].scrollIntoView({ block: 'nearest' });
+    renderDetail(events[selected]);
+  }
+
+  function jsonBlock(container, value) {
+    var pre = el('pre', 'hh-json');
+    pre.textContent = JSON.stringify(value, null, 2);
+    container.appendChild(pre);
+  }
+
+  function diffBlock(container, diff) {
+    var wrap = el('div', 'hh-diff');
+    wrap.appendChild(el('div', 'hh-diff-path', diff.path + ' (' + diff.change_kind + ')'));
+    if (diff.note) wrap.appendChild(el('div', 'hh-diff-note', diff.note));
+    (diff.hunks || []).forEach(function (hunk) {
+      if (hunk.header) wrap.appendChild(el('div', 'hh-diff-hunk', hunk.header));
+      (hunk.lines || []).forEach(function (line) {
+        var prefix = line.tag === 'insert' ? '+' : (line.tag === 'delete' ? '-' : ' ');
+        wrap.appendChild(el('div', 'hh-diff-line hh-diff-' + line.tag, prefix + line.text));
+      });
+    });
+    container.appendChild(wrap);
+  }
+
+  function renderDetail(ev) {
+    var main = document.getElementById('hh-detail');
+    main.textContent = '';
+    if (!ev) return;
+    var head = el('div', 'hh-detail-head');
+    head.appendChild(el('span', badgeClass(ev.kind), KIND_LABEL[ev.kind] || ev.kind));
+    head.appendChild(el('span', null, ev.summary || ''));
+    main.appendChild(head);
+
+    if (ev.kind === 'file_change' && ev.diff) {
+      diffBlock(main, ev.diff);
+    } else if (ev.body !== null && ev.body !== undefined) {
+      var isText = TEXT_KINDS.indexOf(ev.kind) !== -1 &&
+        typeof ev.body === 'object' && typeof ev.body.text === 'string';
+      if (isText) {
+        main.appendChild(el('pre', 'hh-text', ev.body.text));
+      } else {
+        jsonBlock(main, ev.body);
+      }
+    }
+  }
+
+  document.addEventListener('keydown', function (e) {
+    var t = e.target;
+    if (t && (t.tagName === 'INPUT' || t.tagName === 'TEXTAREA')) return;
+    if (e.key === 'j' || e.key === 'ArrowDown') { e.preventDefault(); select(Math.min(selected + 1, rows.length - 1)); }
+    else if (e.key === 'k' || e.key === 'ArrowUp') { e.preventDefault(); select(Math.max(selected - 1, 0)); }
+  });
+
+  function applyTheme(t) {
+    document.documentElement.setAttribute('data-theme', t);
+  }
+  function initTheme() {
+    var saved = null;
+    try { saved = window.localStorage.getItem('hh-theme'); } catch (err) { saved = null; }
+    applyTheme(saved === 'light' ? 'light' : 'dark');
+  }
+  var toggle = document.getElementById('hh-theme-toggle');
+  toggle.addEventListener('click', function () {
+    var next = document.documentElement.getAttribute('data-theme') === 'light' ? 'dark' : 'light';
+    applyTheme(next);
+    try { window.localStorage.setItem('hh-theme', next); } catch (err) { /* file:// or blocked storage */ }
+  });
+
+  initTheme();
+  renderHeader();
+  renderTimeline();
+  if (rows.length > 0) {
+    select(0);
+  } else {
+    document.getElementById('hh-detail').appendChild(el('div', 'hh-empty', 'no steps in this session'));
+  }
+})();
+
+</script>
+</body>
+</html>

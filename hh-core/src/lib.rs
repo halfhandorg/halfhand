@@ -11,6 +11,7 @@
 
 pub mod adapter;
 pub mod blob;
+pub mod bundle;
 pub mod config;
 pub mod error;
 pub mod event;
@@ -26,14 +27,15 @@ pub use adapter::{
     AdapterContext, AdapterHandle, AdapterOutcome,
 };
 pub use blob::{BlobStore, PutOutcome};
+pub use bundle::{Bundle, FORMAT_VERSION};
 pub use config::{
     parse_bytes, Config, Paths, RecordConfig, RedactionConfig, RedactionRule, ReplayConfig,
     StorageConfig, Theme,
 };
-pub use error::{BlobError, ConfigError, Error, ResolveError, Result, StorageError};
+pub use error::{BlobError, BundleError, ConfigError, Error, ResolveError, Result, StorageError};
 pub use event::{
     truncate_summary, AdapterStatus, AgentKind, ChangeKind, Event, EventDetail, EventIndexRow,
-    EventKind, EventRow, FileChange, NewSession, SessionRow, SessionStatus,
+    EventKind, EventRow, FileChange, NewSession, RawEventRow, SessionRow, SessionStatus,
 };
 pub use redact::{Detectors, Finding, SecretKind};
 // `Uuid` is part of the public surface already (`now_v7` returns it,

@@ -47,6 +47,44 @@ in CI rather than tracking `latest` until 1.0.
 - New dependency: `regex` (linear-time matching — no catastrophic
   backtracking on hostile recorded input).
 
+### Added — portable session bundles, `hh import`, interactive HTML replay (docs/export-import.md)
+- **`hh export --bundle [-o FILE]`**: a portable, deterministic session
+  archive — a zstd-compressed tar of `manifest.json` (format version, `hh`
+  version, session metadata, integrity hashes) + `events.ndjson` (one
+  compact JSON object per event, position-indexed since DB row ids don't
+  survive import) + every referenced blob, content-addressed. Byte-identical
+  on repeat export of an unchanged session (fixed entry order, fixed
+  tar-header metadata, no wall-clock fields). Redacted by default through
+  the same chokepoint as plain `hh export`/`--html`; if redaction changes a
+  blob's hash, every reference to it in the bundle is rewritten to match.
+  `hh export <session>` with no flags is unchanged (still plain JSON to
+  stdout) — `--bundle` is additive, opt-in, and refuses to write its binary
+  output to an interactive terminal without `-o`.
+- **`hh import FILE`**: validates a bundle end to end (bounded zstd
+  decompression, a tar-entry allow-list, per-blob BLAKE3 verification, an
+  `events.ndjson` integrity digest, and full referenced-blob-exists checks)
+  before importing it under a brand-new local session id — the original id
+  is preserved in the new `sessions.imported_from` column/JSON field
+  (additive migration 0003). Property-tested: export → import → export
+  round-trips every event's content and blob bytes exactly. Fuzzed (new
+  `import_bundle` target): never panics on malformed/corrupt/hostile input.
+- **`hh export --html` redesign**: from a static "step report" into a real
+  self-contained interactive replay page — a clickable step timeline, a
+  detail pane (pretty JSON / a real diff viewer with precomputed hunks /
+  plain text depending on event kind), `j`/`k` keyboard navigation mirroring
+  the replay TUI, and a dark-by-default theme with a light toggle. Zero
+  network requests, no CDN, no build step (hand-written vanilla JS). Session
+  data — untrusted input, since it's whatever the recorded agent/tool output
+  contained — is embedded once as escaped JSON inside a
+  `<script type="application/json">` tag and only ever reaches the DOM via
+  `createElement`/`textContent`, never `innerHTML`, so a `<script>` tag or
+  event-handler attribute anywhere in recorded content renders inert.
+- **`hh replay --web`**: sugar for `hh export --html`, writes the page to a
+  temp file and prints the path. Needs no terminal (unlike the TUI); does
+  not auto-open a browser or start a server.
+- New dependency: `tar` (the same crate Cargo itself uses for package
+  tarballs — pure Rust, no network, no unsafe in the paths used here).
+
 ### Diagnostics
 - A degraded Claude Code adapter session now self-documents in the database,
   not just on stderr: the specific degrade reason is persisted as an `error`

@@ -10,7 +10,7 @@ use crate::blob::BlobStore;
 use crate::error::{Error, ResolveError, Result, StorageError};
 use crate::event::{
     AdapterStatus, AgentKind, ChangeKind, Event, EventDetail, EventIndexRow, EventKind, EventRow,
-    FileChange, NewSession, SessionRow, SessionStatus,
+    FileChange, NewSession, RawEventRow, SessionRow, SessionStatus,
 };
 use crate::step::assign_steps as assign_steps_pass;
 use rusqlite::{params, Connection, OpenFlags, OptionalExtension};
@@ -514,7 +514,8 @@ impl Store {
                        WHERE e.session_id = s.id AND e.step IS NOT NULL) AS step_count,
                     (SELECT COUNT(DISTINCT fc.path) FROM file_changes fc
                        JOIN events e ON e.id = fc.event_id
-                       WHERE e.session_id = s.id) AS files_changed
+                       WHERE e.session_id = s.id) AS files_changed,
+                    s.imported_from
              FROM sessions s
              ORDER BY s.started_at DESC
              LIMIT ?1",
@@ -1097,6 +1098,97 @@ impl Store {
         })
     }
 
+    /// Import a validated [`crate::bundle::Bundle`] (`hh import file.hh`) as
+    /// a brand-new local session: a fresh UUIDv7 id, `imported_from` set to
+    /// the bundle's original session id, every referenced blob written
+    /// content-addressed into this store, and every event/file_change
+    /// re-inserted with fresh row ids.
+    ///
+    /// `correlates` is resolved from the bundle's `seq`-based scheme in a
+    /// second pass after every event has a new id — a single forward pass
+    /// cannot always resolve it inline, since a `tool_result` can
+    /// legitimately correlate to a `tool_call` that sorts *after* it by
+    /// `ts_ms` (a concurrent source; see `timeline.rs`'s "out of order
+    /// result" test). `step`/`ts_ms` are reused verbatim from the bundle —
+    /// they were already valid ordinals for this exact event sequence, so
+    /// there is no need to re-run [`Self::assign_steps`].
+    ///
+    /// Blob writes happen before the transaction (content-addressed and
+    /// idempotent — safe even if the import is retried), then every event
+    /// insert runs in one transaction on the store's own connection, the
+    /// same pattern [`Self::redact_session`]/[`Self::delete_session`] use:
+    /// this is a one-shot batch operation, not concurrent live recording, so
+    /// the writer-thread/mpsc machinery ([`Self::event_writer`]) is
+    /// unnecessary.
+    pub fn import(&self, bundle: &crate::bundle::Bundle) -> Result<CreatedSession> {
+        let new = bundle_new_session(bundle);
+        let created = self.create_session(&new)?;
+
+        for content in bundle.blobs.values() {
+            self.blobs.put(content)?;
+        }
+
+        let tx = self.conn.unchecked_transaction()?;
+        let mut seq_to_id: std::collections::HashMap<u64, i64> = std::collections::HashMap::new();
+        let mut pending_correlates: Vec<(i64, u64)> = Vec::new();
+        for ev in &bundle.events {
+            let seq = ev
+                .get("seq")
+                .and_then(serde_json::Value::as_u64)
+                .unwrap_or(0);
+            let event = bundle_event_to_event(&created.id, ev);
+            let new_id = insert_event(&tx, &event)?;
+            seq_to_id.insert(seq, new_id);
+            if let Some(correlates_seq) =
+                ev.get("correlates_seq").and_then(serde_json::Value::as_u64)
+            {
+                pending_correlates.push((new_id, correlates_seq));
+            }
+            if let Some(fc) = bundle_event_file_change(ev) {
+                insert_file_change_row(&tx, new_id, &fc)?;
+            }
+        }
+        for (new_id, correlates_seq) in pending_correlates {
+            if let Some(&target_id) = seq_to_id.get(&correlates_seq) {
+                tx.execute(
+                    "UPDATE events SET correlates = ?1 WHERE id = ?2",
+                    params![target_id, new_id],
+                )?;
+            }
+        }
+        tx.commit()?;
+
+        let status: SessionStatus = bundle
+            .session
+            .get("status")
+            .and_then(serde_json::Value::as_str)
+            .and_then(|s| s.parse().ok())
+            .unwrap_or(SessionStatus::Ok);
+        let exit_code = bundle
+            .session
+            .get("exit_code")
+            .and_then(serde_json::Value::as_i64)
+            .and_then(|n| i32::try_from(n).ok());
+        if let Some(ended_at) = bundle
+            .session
+            .get("ended_at")
+            .and_then(serde_json::Value::as_i64)
+        {
+            self.finalize_session(&created.id, ended_at, exit_code, status)?;
+        }
+        let original_id = bundle
+            .session
+            .get("id")
+            .and_then(serde_json::Value::as_str)
+            .unwrap_or_default();
+        self.conn.execute(
+            "UPDATE sessions SET imported_from = ?1 WHERE id = ?2",
+            params![original_id, created.id],
+        )?;
+
+        Ok(created)
+    }
+
     /// Return `(event_count, files_changed)` for a session (FR-1.6 epilogue).
     /// `event_count` is the total event rows; `files_changed` is the count of
     /// distinct paths in `file_changes`. Reads from the store's own
@@ -1172,7 +1264,8 @@ impl Store {
                            WHERE e.session_id = s.id AND e.step IS NOT NULL) AS step_count,
                         (SELECT COUNT(DISTINCT fc.path) FROM file_changes fc
                            JOIN events e ON e.id = fc.event_id
-                           WHERE e.session_id = s.id) AS files_changed
+                           WHERE e.session_id = s.id) AS files_changed,
+                        s.imported_from
                  FROM sessions s WHERE s.id = ?1",
                 params![id],
                 map_session_row,
@@ -1361,6 +1454,76 @@ impl Store {
                 correlates,
                 summary,
                 body_json,
+                file_change,
+            })?;
+        }
+        Ok(())
+    }
+
+    /// Stream every event of `session_id` exactly as stored — no blob-
+    /// overflow resolution, plus the referenced blob's size (`for_each_event_detail`'s
+    /// resolution silently loses the association between an event and a
+    /// binary/non-JSON blob it references — see
+    /// [`crate::event::RawEventRow`]). Used by `hh-core::bundle` (`hh export
+    /// --bundle`), which must carry every referenced blob byte-for-byte, not
+    /// just the ones that happen to resolve as JSON.
+    pub fn for_each_event_raw(
+        &self,
+        session_id: &str,
+        mut emit: impl FnMut(RawEventRow) -> Result<()>,
+    ) -> Result<()> {
+        let mut stmt = self.conn.prepare(
+            "SELECT e.id, e.ts_ms, e.kind, e.step, e.correlates,
+                    e.summary, e.body_json, e.blob_hash, b.size,
+                    fc.event_id, fc.path, fc.change_kind, fc.before_hash,
+                    fc.after_hash, fc.is_binary
+             FROM events e
+             LEFT JOIN file_changes fc ON fc.event_id = e.id
+             LEFT JOIN blobs b ON b.hash = e.blob_hash
+             WHERE e.session_id = ?1
+             ORDER BY e.ts_ms, e.id",
+        )?;
+        let mut rows = stmt.query(params![session_id])?;
+        while let Some(row) = rows.next()? {
+            let id: i64 = row.get(0)?;
+            let ts_ms: i64 = row.get(1)?;
+            let kind_str: String = row.get(2)?;
+            let step: Option<i64> = row.get(3)?;
+            let correlates: Option<i64> = row.get(4)?;
+            let summary: String = row.get(5)?;
+            let body_str: Option<String> = row.get(6)?;
+            let blob_hash: Option<String> = row.get(7)?;
+            let blob_size: Option<i64> = row.get(8)?;
+            let kind = kind_str.parse().unwrap_or(EventKind::AgentMessage);
+            let body_json: Option<serde_json::Value> = body_str
+                .as_deref()
+                .and_then(|s| serde_json::from_str(s).ok());
+            let fc_event_id: Option<i64> = row.get(9)?;
+            let file_change = if fc_event_id.is_some() {
+                let change_kind_str: String = row.get(11)?;
+                let change_kind = change_kind_str.parse().unwrap_or(ChangeKind::Modified);
+                let is_binary: i64 = row.get(14)?;
+                Some(FileChange {
+                    event_id: id,
+                    path: row.get(10)?,
+                    change_kind,
+                    before_hash: row.get(12)?,
+                    after_hash: row.get(13)?,
+                    is_binary: is_binary != 0,
+                })
+            } else {
+                None
+            };
+            emit(RawEventRow {
+                id,
+                ts_ms,
+                kind,
+                step,
+                correlates,
+                summary,
+                body_json,
+                blob_hash,
+                blob_size: blob_size.map(|n| u64::try_from(n).unwrap_or(0)),
                 file_change,
             })?;
         }
@@ -1777,6 +1940,149 @@ fn insert_event_with_file_change(
     Ok(event_id)
 }
 
+/// Insert one `file_changes` row for an already-inserted event (used by
+/// [`Store::import`], which — unlike [`insert_event_with_file_change`] —
+/// runs every event of a session through one outer transaction rather than
+/// one nested transaction per event, so it needs the plain-INSERT half of
+/// that function without the transaction-starting half).
+fn insert_file_change_row(
+    conn: &Connection,
+    event_id: i64,
+    change: &FileChange,
+) -> std::result::Result<(), StorageError> {
+    conn.execute(
+        "INSERT INTO file_changes (event_id, path, change_kind, before_hash, after_hash, is_binary)
+         VALUES (?1, ?2, ?3, ?4, ?5, ?6)",
+        params![
+            event_id,
+            change.path,
+            change.change_kind.to_string(),
+            change.before_hash,
+            change.after_hash,
+            i64::from(change.is_binary),
+        ],
+    )?;
+    Ok(())
+}
+
+/// Build the [`NewSession`] for [`Store::import`] from a bundle's `session`
+/// block. Fields the bundle format does not carry (`hostname`/`model`/
+/// `git_*`) are `None` — [`SessionRow`], which `bundle::export` reads from,
+/// does not expose them either (a pre-existing gap in the read model, not
+/// something this feature narrows further).
+fn bundle_new_session(bundle: &crate::bundle::Bundle) -> NewSession {
+    let s = &bundle.session;
+    let agent_kind = s
+        .get("agent_kind")
+        .and_then(serde_json::Value::as_str)
+        .and_then(|x| x.parse().ok())
+        .unwrap_or(AgentKind::Generic);
+    let adapter_status = match s.get("adapter_status").and_then(serde_json::Value::as_str) {
+        Some("active") => AdapterStatus::Active,
+        Some("degraded") => AdapterStatus::Degraded,
+        _ => AdapterStatus::None,
+    };
+    let started_at = s
+        .get("started_at")
+        .and_then(serde_json::Value::as_i64)
+        .unwrap_or(0);
+    let command = s
+        .get("command")
+        .and_then(serde_json::Value::as_array)
+        .map(|arr| {
+            arr.iter()
+                .filter_map(|x| x.as_str().map(str::to_string))
+                .collect()
+        })
+        .unwrap_or_default();
+    let cwd = s
+        .get("cwd")
+        .and_then(serde_json::Value::as_str)
+        .map(PathBuf::from)
+        .unwrap_or_default();
+    NewSession {
+        id: crate::event::now_v7(),
+        started_at,
+        agent_kind,
+        adapter_status,
+        command,
+        cwd,
+        hostname: None,
+        hh_version: bundle.hh_version.clone(),
+        model: None,
+        git_branch: None,
+        git_sha: None,
+        git_dirty: None,
+    }
+}
+
+/// Build the [`Event`] to insert for one bundle event (`correlates` is left
+/// `None` — [`Store::import`] resolves it in a second pass once every event
+/// has a new row id).
+fn bundle_event_to_event(session_id: &str, ev: &serde_json::Value) -> Event {
+    let kind = ev
+        .get("kind")
+        .and_then(serde_json::Value::as_str)
+        .unwrap_or_default()
+        .parse()
+        .unwrap_or(EventKind::AgentMessage);
+    Event {
+        session_id: session_id.to_string(),
+        ts_ms: ev
+            .get("ts_ms")
+            .and_then(serde_json::Value::as_i64)
+            .unwrap_or(0),
+        kind,
+        step: ev.get("step").and_then(serde_json::Value::as_i64),
+        summary: ev
+            .get("summary")
+            .and_then(serde_json::Value::as_str)
+            .unwrap_or_default()
+            .to_string(),
+        body_json: ev.get("body").filter(|v| !v.is_null()).cloned(),
+        blob_hash: ev
+            .get("blob_hash")
+            .and_then(serde_json::Value::as_str)
+            .map(str::to_string),
+        blob_size: ev.get("blob_size").and_then(serde_json::Value::as_u64),
+        correlates: None,
+    }
+}
+
+/// Extract the `file_change` sub-object of a bundle event, if present.
+fn bundle_event_file_change(ev: &serde_json::Value) -> Option<FileChange> {
+    let fc = ev.get("file_change")?;
+    if fc.is_null() {
+        return None;
+    }
+    let change_kind = fc
+        .get("change_kind")
+        .and_then(serde_json::Value::as_str)?
+        .parse()
+        .ok()?;
+    Some(FileChange {
+        event_id: 0, // overwritten by the caller once the owning event's id is known.
+        path: fc
+            .get("path")
+            .and_then(serde_json::Value::as_str)
+            .unwrap_or_default()
+            .to_string(),
+        change_kind,
+        before_hash: fc
+            .get("before_hash")
+            .and_then(serde_json::Value::as_str)
+            .map(str::to_string),
+        after_hash: fc
+            .get("after_hash")
+            .and_then(serde_json::Value::as_str)
+            .map(str::to_string),
+        is_binary: fc
+            .get("is_binary")
+            .and_then(serde_json::Value::as_bool)
+            .unwrap_or(false),
+    })
+}
+
 /// Group raw detector findings by `(secret kind, hash8)` and append one
 /// [`ScanFinding`] per group at the given location (`hh scan` reports
 /// occurrence counts, not per-offset rows — offsets would say nothing useful
@@ -1833,6 +2139,7 @@ fn map_session_row(r: &rusqlite::Row<'_>) -> rusqlite::Result<SessionRow> {
         cwd: PathBuf::from(r.get::<_, String>(9)?),
         step_count: r.get(10)?,
         files_changed: r.get(11)?,
+        imported_from: r.get(12)?,
     })
 }
 
@@ -1999,14 +2306,14 @@ mod tests {
         // First open creates + migrates.
         {
             let store = Store::open(&db, &blobs).unwrap();
-            // Sanity: schema_migrations recorded version 1.
+            // Sanity: schema_migrations recorded the latest migration version.
             let v: i64 = store
                 .conn
                 .query_row("SELECT MAX(version) FROM schema_migrations", [], |r| {
                     r.get(0)
                 })
                 .unwrap();
-            assert_eq!(v, 2);
+            assert_eq!(v, crate::migrations::LATEST_VERSION);
             // Tables exist.
             let count: i64 = store
                 .conn
@@ -2023,7 +2330,7 @@ mod tests {
                     r.get(0)
                 })
                 .unwrap();
-            assert_eq!(v, 2);
+            assert_eq!(v, crate::migrations::LATEST_VERSION);
         }
         // Third open via the same path: still fine.
         {

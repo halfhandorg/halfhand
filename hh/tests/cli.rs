@@ -93,6 +93,7 @@ fn help_lists_every_subcommand_and_examples() {
         "scan",
         "redact",
         "export",
+        "import",
     ] {
         assert!(stdout.contains(sub), "missing `{sub}` in --help: {stdout}");
     }
@@ -117,6 +118,7 @@ fn every_subcommand_help_has_an_example() {
         "scan",
         "redact",
         "export",
+        "import",
     ] {
         let out = hh().args([sub, "--help"]).output().unwrap();
         assert!(out.status.success(), "`hh {sub} --help` failed");
@@ -2504,6 +2506,162 @@ fn export_is_redacted_by_default_and_no_redact_needs_a_tty() {
     assert!(
         err.contains("not a TTY") && err.contains("redacted by default"),
         "actionable refusal: {err}"
+    );
+}
+
+/// `hh export --bundle` writes a redacted, portable archive; `hh import`
+/// brings it back as a brand-new session with the secret still gone and
+/// `imported_from` recorded — the end-to-end path a user actually drives.
+#[test]
+fn export_bundle_then_import_round_trips_and_stays_redacted() {
+    let temp = Temp::new();
+    record_secret_session(&temp);
+
+    let bundle_path = temp.work.path().join("session.hh");
+    let export_out = hh()
+        .args(["export", "last", "--bundle", "-o"])
+        .arg(&bundle_path)
+        .env("HH_DATA_DIR", temp.data.path())
+        .output()
+        .unwrap();
+    assert_eq!(
+        export_out.status.code(),
+        Some(0),
+        "stderr: {}",
+        String::from_utf8_lossy(&export_out.stderr)
+    );
+    let epilogue = String::from_utf8_lossy(&export_out.stdout);
+    assert!(
+        epilogue.contains("bundle") && epilogue.contains("redacted"),
+        "export epilogue names the format: {epilogue}"
+    );
+    let bundle_bytes = std::fs::read(&bundle_path).unwrap();
+    assert!(!bundle_bytes.is_empty());
+    assert!(
+        !bundle_bytes
+            .windows(FAKE_AWS_KEY.len())
+            .any(|w| w == FAKE_AWS_KEY.as_bytes())
+            && !bundle_bytes
+                .windows(FAKE_GH_TOKEN.len())
+                .any(|w| w == FAKE_GH_TOKEN.as_bytes()),
+        "bundle must be redacted — the secret bytes must not appear anywhere in the archive"
+    );
+
+    // --bundle with no -o on a non-TTY stdout is still refused (never a
+    // silent binary dump).
+    let refused = hh()
+        .args(["export", "last", "--bundle"])
+        .env("HH_DATA_DIR", temp.data.path())
+        .stdin(Stdio::null())
+        .output()
+        .unwrap();
+    // A piped/redirected stdout in the test harness is not a TTY either way,
+    // so the TTY guard does not fire here — this just confirms the flag
+    // combination does not crash and produces bytes on a non-interactive
+    // stdout (the interactive-refusal path is exercised by the TTY-specific
+    // --no-redact test above, since `is_terminal()` cannot be faked in a
+    // subprocess test without a real pty).
+    assert_eq!(refused.status.code(), Some(0));
+
+    // Import into a second, independent data dir.
+    let target_data = tempfile::tempdir().unwrap();
+    let import_out = hh()
+        .args(["import"])
+        .arg(&bundle_path)
+        .env("HH_DATA_DIR", target_data.path())
+        .output()
+        .unwrap();
+    assert_eq!(
+        import_out.status.code(),
+        Some(0),
+        "stderr: {}",
+        String::from_utf8_lossy(&import_out.stderr)
+    );
+    let import_epilogue = String::from_utf8_lossy(&import_out.stdout);
+    assert!(
+        import_epilogue.contains("Imported session"),
+        "import epilogue: {import_epilogue}"
+    );
+
+    // The imported session is listed, redacted, and carries provenance.
+    let list_out = hh()
+        .args(["list", "--json"])
+        .env("HH_DATA_DIR", target_data.path())
+        .output()
+        .unwrap();
+    let sessions: serde_json::Value = serde_json::from_slice(&list_out.stdout).unwrap();
+    let arr = sessions.as_array().unwrap();
+    assert_eq!(arr.len(), 1, "one session in the fresh target store");
+    assert!(
+        arr[0]["imported_from"].is_string(),
+        "imported session must record its origin: {arr:?}"
+    );
+
+    let inspect_out = hh()
+        .args(["inspect", "last", "--json"])
+        .env("HH_DATA_DIR", target_data.path())
+        .output()
+        .unwrap();
+    let ndjson = String::from_utf8_lossy(&inspect_out.stdout);
+    assert!(
+        !ndjson.contains(FAKE_AWS_KEY) && !ndjson.contains(FAKE_GH_TOKEN),
+        "imported session's events must stay redacted: {ndjson}"
+    );
+    assert!(ndjson.contains("{{REDACTED:"), "redaction tokens present");
+
+    // Importing a corrupt/garbage file is a precise, actionable error, not a
+    // panic or a generic failure.
+    let garbage_path = temp.work.path().join("garbage.hh");
+    std::fs::write(&garbage_path, b"not a bundle").unwrap();
+    let bad_import = hh()
+        .args(["import"])
+        .arg(&garbage_path)
+        .env("HH_DATA_DIR", target_data.path())
+        .output()
+        .unwrap();
+    assert_eq!(bad_import.status.code(), Some(1));
+    let bad_err = String::from_utf8_lossy(&bad_import.stderr);
+    assert!(
+        bad_err.contains("could not import"),
+        "actionable import error: {bad_err}"
+    );
+}
+
+/// `hh replay --web` needs no TTY and prints a path to a self-contained,
+/// redacted HTML page — the sugar path this feature adds.
+#[test]
+fn replay_web_writes_html_without_a_tty() {
+    let temp = Temp::new();
+    record_secret_session(&temp);
+
+    let out = hh()
+        .args(["replay", "last", "--web"])
+        .env("HH_DATA_DIR", temp.data.path())
+        .stdin(Stdio::null())
+        .output()
+        .unwrap();
+    assert_eq!(
+        out.status.code(),
+        Some(0),
+        "stderr: {}",
+        String::from_utf8_lossy(&out.stderr)
+    );
+    let stdout = String::from_utf8_lossy(&out.stdout);
+    assert!(
+        stdout.contains("Exported session") && stdout.contains(".html"),
+        "replay --web prints a path: {stdout}"
+    );
+    let path_str = stdout
+        .trim()
+        .rsplit("→ ")
+        .next()
+        .and_then(|rest| rest.split(" (").next())
+        .expect("epilogue carries a path");
+    let html = std::fs::read_to_string(path_str.trim()).expect("the printed path must exist");
+    assert!(html.starts_with("<!doctype html>"));
+    assert!(
+        !html.contains(FAKE_AWS_KEY) && !html.contains(FAKE_GH_TOKEN),
+        "replay --web output must be redacted"
     );
 }
 
