@@ -1,0 +1,40 @@
+---
+source: hh-core/src/adapter.rs
+assertion_line: 3208
+expression: snap_gemini(&pr)
+---
+{
+  "events": [
+    {
+      "blob_hash": null,
+      "blob_size": null,
+      "body_json": {
+        "text": "Let me check"
+      },
+      "correlates": null,
+      "kind": "agent_message",
+      "session_id": "test-session-id",
+      "step": null,
+      "summary": "Let me check",
+      "ts_ms": 2000
+    },
+    {
+      "blob_hash": null,
+      "blob_size": null,
+      "body_json": {
+        "correlate_key": "tc_1",
+        "input": {
+          "command": "ls"
+        },
+        "name": "Bash"
+      },
+      "correlates": null,
+      "kind": "tool_call",
+      "session_id": "test-session-id",
+      "step": null,
+      "summary": "tool_call: Bash",
+      "ts_ms": 2000
+    }
+  ],
+  "is_assistant_message": false
+}

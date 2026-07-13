@@ -48,8 +48,17 @@ impl FromStr for SessionStatus {
 }
 
 /// Detected agent kind (SRS §4.1 `sessions.agent_kind`).
+///
+/// `#[non_exhaustive]`: new agent kinds are added over time (this PR added
+/// `ClaudeDesktop`, `CodexCli`, `GeminiCli`). Marking it non-exhaustive keeps
+/// that additive under `cargo-semver-checks --release-type minor` instead of
+/// registering as a break — a downstream `match` must already carry a wildcard
+/// arm, matching CLAUDE.md's v1.0.0 addendum ("additive changes ... not
+/// breaking"). New variants are appended at the end so existing discriminant
+/// values (used by `as isize` casts) do not shift.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "kebab-case")]
+#[non_exhaustive]
 pub enum AgentKind {
     /// Claude Code (structured adapter active).
     ClaudeCode,
@@ -57,12 +66,21 @@ pub enum AgentKind {
     Generic,
     /// Standalone `hh mcp-proxy` session (FR-2.2).
     McpOnly,
+    /// Claude Desktop app (structured adapter active).
+    ClaudeDesktop,
+    /// OpenAI Codex CLI (structured adapter active).
+    CodexCli,
+    /// Google Gemini CLI (structured adapter active).
+    GeminiCli,
 }
 
 impl fmt::Display for AgentKind {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.write_str(match self {
             Self::ClaudeCode => "claude-code",
+            Self::ClaudeDesktop => "claude-desktop",
+            Self::CodexCli => "codex-cli",
+            Self::GeminiCli => "gemini-cli",
             Self::Generic => "generic",
             Self::McpOnly => "mcp-only",
         })
@@ -74,6 +92,9 @@ impl FromStr for AgentKind {
     fn from_str(s: &str) -> std::result::Result<Self, Self::Err> {
         match s {
             "claude-code" => Ok(Self::ClaudeCode),
+            "claude-desktop" => Ok(Self::ClaudeDesktop),
+            "codex-cli" => Ok(Self::CodexCli),
+            "gemini-cli" => Ok(Self::GeminiCli),
             "generic" => Ok(Self::Generic),
             "mcp-only" => Ok(Self::McpOnly),
             other => Err(format!("unknown agent kind `{other}`")),

@@ -44,7 +44,7 @@ pub use redact::{Detectors, Finding, SecretKind};
 pub use step::assign_steps;
 pub use store::{
     CreatedSession, EventWriter, FindingLocation, LargestSession, PruneStats, RedactOutcome,
-    ScanFinding, SecretSummary, Store, StoreStats,
+    ScanFinding, SearchFilters, SearchResult, SecretSummary, Store, StoreStats,
 };
 pub use timeline::{build_timeline, StepEntry, TerminalSegment, TimelineRow};
 pub use uuid::Uuid;

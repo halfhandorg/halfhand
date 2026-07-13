@@ -151,7 +151,7 @@ pub fn run(store: &Store, opts: &RunOptions) -> crate::Result<RunOutcome> {
             Some(a) => Some(a),
             None => {
                 return Err(crate::RecordError::Adapter(format!(
-                    "unknown adapter `{name}` (available: claude-code)"
+                    "unknown adapter `{name}` (available: claude-code, claude-desktop, codex-cli, gemini-cli)"
                 )));
             }
         },

@@ -1,0 +1,23 @@
+---
+source: hh-core/src/adapter.rs
+assertion_line: 3190
+expression: snap_gemini(&pr)
+---
+{
+  "events": [
+    {
+      "blob_hash": null,
+      "blob_size": null,
+      "body_json": {
+        "text": "hello"
+      },
+      "correlates": null,
+      "kind": "user_message",
+      "session_id": "test-session-id",
+      "step": null,
+      "summary": "hello",
+      "ts_ms": 699
+    }
+  ],
+  "is_assistant_message": false
+}

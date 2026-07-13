@@ -65,3 +65,17 @@ path = "fuzz_targets/import_bundle.rs"
 test = false
 doc = false
 bench = false
+
+[[bin]]
+name = "codex_jsonl"
+path = "fuzz_targets/codex_jsonl.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "gemini_jsonl"
+path = "fuzz_targets/gemini_jsonl.rs"
+test = false
+doc = false
+bench = false

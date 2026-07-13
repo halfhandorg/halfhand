@@ -401,3 +401,66 @@ fn default_config_has_redaction_defaults() {
     assert!(!cfg.redaction.at_record);
     assert!(cfg.redaction.entropy);
 }
+
+// ---------------------------------------------------------------------------
+// FTS5 search property: redacted secrets are not findable via search.
+// ---------------------------------------------------------------------------
+
+proptest! {
+    #![proptest_config(ProptestConfig { cases: 12, ..ProptestConfig::default() })]
+
+    /// After redacting a session, any search for the redacted secret text must
+    /// return zero results for that session. The secret may still appear in
+    /// other unredacted sessions, but the redacted session's events must not
+    /// match.
+    #[test]
+    fn redacted_secrets_not_findable_via_search(
+        kinds in prop::collection::vec(0usize..6, 1..3),
+        seed in any::<u64>(),
+    ) {
+        let d = detectors();
+        let tmp = tempfile::TempDir::new().expect("tempdir");
+        let dir = tmp.path();
+        let store = Store::open(&dir.join("hh.db"), &dir.join("blobs")).expect("open store");
+        let secrets: Vec<String> = kinds
+            .iter()
+            .enumerate()
+            .map(|(i, k)| seeded_secret(*k, seed.wrapping_add(i as u64)).1)
+            .collect();
+        let id = seed_session(&store, dir, &secrets);
+
+        // Pre-condition: each secret is findable via search before redaction.
+        // Use a phrase query (double-quoted) so FTS5 treats special characters
+        // like `-` and `_` as literal text rather than operators or column names.
+        for secret in &secrets {
+            // Escape any double quotes in the secret by doubling them (FTS5
+            // escape convention for embedded quotes in phrase queries).
+            let escaped = secret.replace('"', "\"\"");
+            let query = format!("\"{escaped}\"");
+            let results = store
+                .search(&query, &hh_core::SearchFilters::default())
+                .expect("search before redact");
+            prop_assert!(
+                results.iter().any(|r| r.session_id == id),
+                "secret must be findable before redaction"
+            );
+        }
+
+        // Redact the session.
+        let outcome = store.redact_session(&id, &d).expect("redact");
+        prop_assert!(outcome.events_rewritten > 0, "redact must rewrite events");
+
+        // Post-condition: no search for any secret returns results from this session.
+        for secret in &secrets {
+            let escaped = secret.replace('"', "\"\"");
+            let query = format!("\"{escaped}\"");
+            let results = store
+                .search(&query, &hh_core::SearchFilters::default())
+                .expect("search after redact");
+            prop_assert!(
+                !results.iter().any(|r| r.session_id == id),
+                "secret must not be findable via search after redaction: {secret}"
+            );
+        }
+    }
+}

@@ -146,13 +146,19 @@ pub trait Adapter: Send + 'static {
 }
 
 /// Detect which adapter applies to `command` (FR-1.5). Returns `None` for a
-/// generic agent (PTY-only capture). Today only Claude Code is detected, by the
-/// `claude` basename of the command; a forced adapter from `hh run --adapter`
-/// is resolved by the recorder, not here.
+/// generic agent (PTY-only capture). Detection order: Claude Code, Claude
+/// Desktop, Codex CLI, Gemini CLI — by the basename of `command[0]`. A forced
+/// adapter from `hh run --adapter` is resolved by the recorder, not here.
 #[must_use]
 pub fn select(command: &[String], _cwd: &Path) -> Option<Box<dyn Adapter>> {
     if is_claude_code(command) {
         Some(Box::new(ClaudeAdapter))
+    } else if is_claude_desktop(command) {
+        Some(Box::new(ClaudeDesktopAdapter))
+    } else if is_codex_cli(command) {
+        Some(Box::new(CodexAdapter))
+    } else if is_gemini_cli(command) {
+        Some(Box::new(GeminiAdapter))
     } else {
         None
     }
@@ -167,6 +173,9 @@ pub fn select(command: &[String], _cwd: &Path) -> Option<Box<dyn Adapter>> {
 pub fn resolve_override(name: &str) -> Option<Box<dyn Adapter>> {
     match name {
         "claude-code" => Some(Box::new(ClaudeAdapter)),
+        "claude-desktop" => Some(Box::new(ClaudeDesktopAdapter)),
+        "codex-cli" => Some(Box::new(CodexAdapter)),
+        "gemini-cli" => Some(Box::new(GeminiAdapter)),
         _ => None,
     }
 }
@@ -182,6 +191,37 @@ pub fn is_claude_code(command: &[String]) -> bool {
     let base = prog.rsplit(['/', '\\']).next().unwrap_or(prog);
     let base = base.strip_suffix(".exe").unwrap_or(base);
     base.eq_ignore_ascii_case("claude")
+}
+
+/// True if the command's program basename is `claude-desktop` (stripping a
+/// Windows `.exe`). Claude Desktop uses the same JSONL session format as Claude
+/// Code, so the adapter reuses the same tailer.
+#[must_use]
+pub fn is_claude_desktop(command: &[String]) -> bool {
+    let prog = command.first().map_or("", String::as_str);
+    let base = prog.rsplit(['/', '\\']).next().unwrap_or(prog);
+    let base = base.strip_suffix(".exe").unwrap_or(base);
+    base.eq_ignore_ascii_case("claude-desktop")
+}
+
+/// True if the command's program basename is `codex` (stripping a Windows
+/// `.exe`). Mirrors the detection in `hh-record::agent::detect_agent`.
+#[must_use]
+pub fn is_codex_cli(command: &[String]) -> bool {
+    let prog = command.first().map_or("", String::as_str);
+    let base = prog.rsplit(['/', '\\']).next().unwrap_or(prog);
+    let base = base.strip_suffix(".exe").unwrap_or(base);
+    base.eq_ignore_ascii_case("codex")
+}
+
+/// True if the command's program basename is `gemini` (stripping a Windows
+/// `.exe`). Mirrors the detection in `hh-record::agent::detect_agent`.
+#[must_use]
+pub fn is_gemini_cli(command: &[String]) -> bool {
+    let prog = command.first().map_or("", String::as_str);
+    let base = prog.rsplit(['/', '\\']).next().unwrap_or(prog);
+    let base = base.strip_suffix(".exe").unwrap_or(base);
+    base.eq_ignore_ascii_case("gemini")
 }
 
 // ---------------------------------------------------------------------------
@@ -846,6 +886,1044 @@ fn rotate_to_newer(slug_dir: &Path, current: &Path, started_at_unix_ms: i64) -> 
 }
 
 // ---------------------------------------------------------------------------
+// Claude Desktop adapter
+// ---------------------------------------------------------------------------
+
+/// The Claude Desktop adapter: same JSONL format as Claude Code
+/// (`~/.claude/projects/<slug>/*.jsonl`), so it reuses the same tailer and
+/// parser. The only difference is the `AgentKind` reported to the session row
+/// (`claude-desktop` vs `claude-code`), so `hh list` distinguishes them.
+#[derive(Debug, Clone)]
+pub struct ClaudeDesktopAdapter;
+
+impl Adapter for ClaudeDesktopAdapter {
+    fn agent_kind(&self) -> AgentKind {
+        AgentKind::ClaudeDesktop
+    }
+
+    #[allow(clippy::unused_self)]
+    fn spawn(self: Box<Self>, ctx: AdapterContext) -> std::io::Result<AdapterHandle> {
+        let (tx, rx) = mpsc::channel::<Event>();
+        let outcome = std::thread::Builder::new()
+            .name("hh-claude-desktop-adapter".into())
+            .spawn(move || run_claude_tailer(ctx, tx))?;
+        Ok(AdapterHandle {
+            events: rx,
+            outcome,
+        })
+    }
+}
+
+// ---------------------------------------------------------------------------
+// Codex CLI adapter
+// ---------------------------------------------------------------------------
+
+/// The Codex CLI adapter: tails `~/.codex/sessions/YYYY/MM/DD/rollout-*.jsonl`
+/// and converts records to `user_message` / `agent_message` / `thinking` /
+/// `tool_call` / `tool_result` events. Stateless; the tailer thread holds all
+/// mutable state.
+///
+/// ## Experimental
+///
+/// This adapter is built against the researched Codex CLI rollout format
+/// (https://github.com/openai/codex) without real captured fixture files.
+/// The parser handles the documented record types (`session_meta`,
+/// `turn_context`, `response_item`, `event_msg`) and degrades gracefully on
+/// unknown types. If you encounter a session that produces 0 steps despite
+/// having a transcript, run `HH_DEBUG=1 hh run -- codex ...` and file an issue
+/// with the debug output.
+#[derive(Debug, Clone)]
+pub struct CodexAdapter;
+
+impl Adapter for CodexAdapter {
+    fn agent_kind(&self) -> AgentKind {
+        AgentKind::CodexCli
+    }
+
+    #[allow(clippy::unused_self)]
+    fn spawn(self: Box<Self>, ctx: AdapterContext) -> std::io::Result<AdapterHandle> {
+        let (tx, rx) = mpsc::channel::<Event>();
+        let outcome = std::thread::Builder::new()
+            .name("hh-codex-adapter".into())
+            .spawn(move || run_codex_tailer(ctx, tx))?;
+        Ok(AdapterHandle {
+            events: rx,
+            outcome,
+        })
+    }
+}
+
+/// The Codex CLI sessions directory: `$HOME/.codex/sessions` (Unix) or
+/// `%USERPROFILE%\.codex\sessions` (Windows). `None` if neither env var is set.
+#[must_use]
+pub fn codex_sessions_dir() -> Option<PathBuf> {
+    let home = std::env::var_os("HOME").or_else(|| std::env::var_os("USERPROFILE"))?;
+    Some(PathBuf::from(home).join(".codex").join("sessions"))
+}
+
+/// The tailer thread body for Codex CLI: locate the rollout transcript, then
+/// read it to EOF/stop, parsing each line into events sent on `tx`.
+#[allow(clippy::needless_pass_by_value)] // ctx/tx are owned for the thread's lifetime
+fn run_codex_tailer(ctx: AdapterContext, tx: mpsc::Sender<Event>) -> AdapterOutcome {
+    let Some(sessions) = ctx.projects_dir.clone().or_else(codex_sessions_dir) else {
+        return degraded(
+            "no ~/.codex/sessions directory found (HOME unset?); run `hh doctor` to diagnose",
+        );
+    };
+    if !sessions.is_dir() {
+        return degraded(format!(
+            "sessions directory does not exist: {}; run `hh doctor` to diagnose",
+            sessions.display()
+        ));
+    }
+    let start = Instant::now();
+    let Some(file) = locate_codex_transcript(&sessions, &ctx.cwd, &ctx.stop) else {
+        return degraded(format!(
+            "no codex rollout transcript appeared under {} matching cwd {} before the session ended",
+            sessions.display(),
+            ctx.cwd.display(),
+        ));
+    };
+    let mut acc = OutcomeAcc::default();
+    let stats = tail_codex_file(&file, &ctx, &tx, &start, &mut acc);
+    if !stats.read_ok {
+        return degraded(format!(
+            "found a codex transcript at {} but could not read it; \
+             run `hh doctor` to check file permissions",
+            file.display(),
+        ));
+    }
+    if stats.events_produced == 0 {
+        let first_err = stats
+            .first_parse_error
+            .map(|(n, msg)| format!("; first parse error at line {n}: {msg}"))
+            .unwrap_or_default();
+        return degraded(format!(
+            "codex transcript found ({}) but 0 records parsed (read {} line(s){first_err}); \
+             run `hh doctor` to check the Codex CLI transcript format",
+            file.display(),
+            stats.lines_seen,
+        ));
+    }
+    acc.finish(AdapterStatus::Active)
+}
+
+/// Locate the Codex CLI rollout transcript for this session.
+///
+/// Codex stores rollout files at `~/.codex/sessions/YYYY/MM/DD/rollout-*.jsonl`.
+/// The adapter polls for new files in today's date directory (and yesterday's,
+/// for sessions that cross midnight), snapshotting pre-existing files at start
+/// so it only picks up the file created for *this* session.
+fn locate_codex_transcript(
+    sessions: &Path,
+    cwd: &Path,
+    stop: &std::sync::Arc<AtomicBool>,
+) -> Option<PathBuf> {
+    let preexisting = snapshot_codex_rollouts(sessions);
+    let mut rejected: std::collections::HashSet<PathBuf> = std::collections::HashSet::new();
+
+    loop {
+        if stop.load(Ordering::Acquire) {
+            return None;
+        }
+        // Scan today's and yesterday's date directories for new rollout files.
+        for date_dir in candidate_date_dirs() {
+            let dir = sessions.join(&date_dir);
+            if !dir.is_dir() {
+                continue;
+            }
+            for f in new_rollout_in(&dir, &preexisting) {
+                if rejected.contains(&f) {
+                    continue;
+                }
+                match first_codex_record_cwd(&f, cwd) {
+                    CwdState::Matches => return Some(f),
+                    CwdState::Different | CwdState::Directory => {
+                        rejected.insert(f);
+                    }
+                    CwdState::None => {} // not yet written; keep polling
+                }
+            }
+        }
+        std::thread::sleep(APPEAR_POLL);
+    }
+}
+
+/// Snapshot every rollout file under the sessions directory at start.
+fn snapshot_codex_rollouts(sessions: &Path) -> std::collections::HashSet<PathBuf> {
+    let mut set = std::collections::HashSet::new();
+    let Ok(years) = std::fs::read_dir(sessions) else {
+        return set;
+    };
+    for year in years.flatten() {
+        let yp = year.path();
+        if !yp.is_dir() {
+            continue;
+        }
+        let Ok(months) = std::fs::read_dir(&yp) else {
+            continue;
+        };
+        for month in months.flatten() {
+            let mp = month.path();
+            if !mp.is_dir() {
+                continue;
+            }
+            let Ok(days) = std::fs::read_dir(&mp) else {
+                continue;
+            };
+            for day in days.flatten() {
+                let dp = day.path();
+                if !dp.is_dir() {
+                    continue;
+                }
+                if let Ok(entries) = std::fs::read_dir(&dp) {
+                    for e in entries.flatten() {
+                        let p = e.path();
+                        if p.file_name().and_then(|n| n.to_str()).is_some_and(|n| {
+                            n.starts_with("rollout-")
+                                && std::path::Path::new(n).extension()
+                                    == Some(std::ffi::OsStr::new("jsonl"))
+                        }) {
+                            set.insert(p);
+                        }
+                    }
+                }
+            }
+        }
+    }
+    set
+}
+
+/// `rollout-*.jsonl` files in `dir` not in `preexisting`, newest-first by mtime.
+fn new_rollout_in(dir: &Path, preexisting: &std::collections::HashSet<PathBuf>) -> Vec<PathBuf> {
+    let Ok(entries) = std::fs::read_dir(dir) else {
+        return Vec::new();
+    };
+    let mut found: Vec<(PathBuf, i64)> = Vec::new();
+    for e in entries.flatten() {
+        let p = e.path();
+        if !p.file_name().and_then(|n| n.to_str()).is_some_and(|n| {
+            n.starts_with("rollout-")
+                && std::path::Path::new(n).extension() == Some(std::ffi::OsStr::new("jsonl"))
+        }) {
+            continue;
+        }
+        if preexisting.contains(&p) {
+            continue;
+        }
+        let mtime_ms = e
+            .metadata()
+            .ok()
+            .and_then(|m| m.modified().ok())
+            .map_or(0, system_time_to_unix_ms);
+        found.push((p, mtime_ms));
+    }
+    found.sort_by_key(|(_, m)| std::cmp::Reverse(*m));
+    found.into_iter().map(|(p, _)| p).collect()
+}
+
+/// Candidate date directories: today and yesterday (for sessions that cross
+/// midnight), formatted as `YYYY/MM/DD`.
+fn candidate_date_dirs() -> Vec<String> {
+    let now = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map_or(0, |d| i64::try_from(d.as_secs()).unwrap_or(i64::MAX));
+    let today_secs = now - (now % 86400);
+    let mut dirs = Vec::with_capacity(2);
+    for offset in [0, -86400] {
+        let ts = today_secs + offset;
+        if let Ok(dt) = time::OffsetDateTime::from_unix_timestamp(ts) {
+            dirs.push(format!(
+                "{:04}/{:02}/{:02}",
+                dt.year(),
+                u8::from(dt.month()),
+                dt.day()
+            ));
+        }
+    }
+    dirs
+}
+
+/// Inspect the first cwd-bearing record in a Codex rollout file. Codex puts
+/// `cwd` in the `session_meta` record (first line of the file).
+fn first_codex_record_cwd(file: &Path, session_cwd: &Path) -> CwdState {
+    if file.is_dir() {
+        return CwdState::Directory;
+    }
+    let Ok(content) = std::fs::read_to_string(file) else {
+        return CwdState::None;
+    };
+    for line in content.lines() {
+        let line = line.trim();
+        if line.is_empty() {
+            continue;
+        }
+        let Ok(v) = serde_json::from_str::<serde_json::Value>(line) else {
+            continue;
+        };
+        // Codex puts cwd in session_meta.payload.cwd
+        if let Some(cwd_val) = v
+            .get("payload")
+            .and_then(|p| p.get("cwd"))
+            .and_then(|c| c.as_str())
+        {
+            let rp = Path::new(cwd_val);
+            return if rp == session_cwd || rp.starts_with(session_cwd) {
+                CwdState::Matches
+            } else {
+                CwdState::Different
+            };
+        }
+    }
+    CwdState::None
+}
+
+/// Tail a Codex rollout file, parsing each line into events.
+fn tail_codex_file(
+    file: &Path,
+    ctx: &AdapterContext,
+    tx: &mpsc::Sender<Event>,
+    start: &Instant,
+    acc: &mut OutcomeAcc,
+) -> TailStats {
+    let mut stats = TailStats::default();
+    let mut reader = match std::fs::File::open(file) {
+        Ok(f) => std::io::BufReader::new(f),
+        Err(_) => return stats,
+    };
+    stats.read_ok = true;
+    let mut buf: Vec<u8> = Vec::new();
+    let mut line = Vec::new();
+    loop {
+        if ctx.stop.load(Ordering::Acquire) {
+            break;
+        }
+        match reader.read_until(b'\n', &mut line) {
+            Ok(0) => {
+                drain_complete_lines(&mut buf, &mut line, ctx, tx, start, acc, &mut stats);
+                if ctx.stop.load(Ordering::Acquire) {
+                    break;
+                }
+                std::thread::sleep(TAIL_POLL);
+            }
+            Ok(_n) => {
+                drain_complete_lines(&mut buf, &mut line, ctx, tx, start, acc, &mut stats);
+            }
+            Err(e) if e.kind() == std::io::ErrorKind::Interrupted => {}
+            Err(_) => break,
+        }
+    }
+    drain_complete_lines(&mut buf, &mut line, ctx, tx, start, acc, &mut stats);
+    stats
+}
+
+// ---------------------------------------------------------------------------
+// Codex CLI record parser
+// ---------------------------------------------------------------------------
+
+/// Parse one Codex CLI JSONL record into events. Pure given `(value, ts_ms,
+/// blobs)`: deterministic output for fixed inputs. Unknown `type`s and
+/// unexpected shapes produce no events (tolerant).
+///
+/// Codex rollout format: each line is `{"type": "<variant>", "timestamp": "...",
+/// "payload": {...}}`. The payload's inner `type` discriminates further for
+/// `response_item` and `event_msg` variants.
+#[must_use]
+#[allow(dead_code)] // called from the tailer thread; not yet wired through parse_and_send
+pub(crate) fn parse_codex_record(
+    value: &serde_json::Value,
+    session_id: &str,
+    ts_ms: i64,
+    blobs: &BlobStore,
+) -> ParsedRecord {
+    let mut out = ParsedRecord::default();
+    let Some(obj) = value.as_object() else {
+        return out;
+    };
+    let ty = obj.get("type").and_then(|v| v.as_str()).unwrap_or("");
+    let payload = obj.get("payload");
+    match ty {
+        "response_item" => {
+            if let Some(p) = payload {
+                parse_codex_response_item(p, session_id, ts_ms, blobs, &mut out);
+            }
+        }
+        "event_msg" => {
+            if let Some(p) = payload {
+                parse_codex_event_msg(p, session_id, ts_ms, blobs, &mut out);
+            }
+        }
+        // session_meta, turn_context, session_state, compacted: skip
+        _ => {}
+    }
+    out
+}
+
+/// Parse a `response_item` payload into events.
+#[allow(dead_code, clippy::too_many_lines)]
+fn parse_codex_response_item(
+    payload: &serde_json::Value,
+    session_id: &str,
+    ts_ms: i64,
+    blobs: &BlobStore,
+    out: &mut ParsedRecord,
+) {
+    let Some(obj) = payload.as_object() else {
+        return;
+    };
+    let inner_ty = obj.get("type").and_then(|v| v.as_str()).unwrap_or("");
+    match inner_ty {
+        "message" => {
+            let role = obj.get("role").and_then(|v| v.as_str()).unwrap_or("");
+            let content = obj.get("content").and_then(|v| v.as_array());
+            let text = content.and_then(|arr| {
+                arr.iter()
+                    .filter_map(|b| b.get("text").and_then(|t| t.as_str()))
+                    .collect::<Vec<_>>()
+                    .join("\n")
+                    .into()
+            });
+            let kind = match role {
+                "assistant" => EventKind::AgentMessage,
+                _ => EventKind::UserMessage,
+            };
+            if let Some(t) = text {
+                out.events
+                    .push(text_event(session_id, ts_ms, kind, &t, blobs));
+            }
+            out.is_assistant_message = role == "assistant";
+        }
+        "reasoning" => {
+            // Reasoning content is usually encrypted; emit a placeholder.
+            let summary = obj
+                .get("summary")
+                .and_then(|v| v.as_array())
+                .map(|arr| {
+                    arr.iter()
+                        .filter_map(|b| b.get("text").and_then(|t| t.as_str()))
+                        .collect::<Vec<_>>()
+                        .join("\n")
+                })
+                .unwrap_or_default();
+            let text = if summary.is_empty() {
+                "reasoning (encrypted)".to_string()
+            } else {
+                summary
+            };
+            out.events.push(text_event(
+                session_id,
+                ts_ms,
+                EventKind::Thinking,
+                &text,
+                blobs,
+            ));
+        }
+        "function_call" | "custom_tool_call" => {
+            let call_id = obj.get("call_id").and_then(|v| v.as_str()).unwrap_or("");
+            let name = obj.get("name").and_then(|v| v.as_str()).unwrap_or("");
+            let input = if inner_ty == "function_call" {
+                // function_call.arguments is a JSON string — double-parse
+                obj.get("arguments")
+                    .and_then(|v| v.as_str())
+                    .and_then(|s| serde_json::from_str(s).ok())
+                    .unwrap_or(serde_json::Value::Null)
+            } else {
+                // custom_tool_call.input is free-form text
+                obj.get("input").cloned().unwrap_or(serde_json::Value::Null)
+            };
+            let body = serde_json::json!({
+                "name": name,
+                "input": input,
+                "correlate_key": call_id,
+            });
+            let (body_json, blob_hash, blob_size) = maybe_spill(body, blobs);
+            out.events.push(Event {
+                session_id: session_id.to_string(),
+                ts_ms,
+                kind: EventKind::ToolCall,
+                step: None,
+                summary: truncate_summary(&format!("tool_call: {name}")),
+                body_json,
+                blob_hash,
+                blob_size,
+                correlates: None,
+            });
+        }
+        "function_call_output" | "custom_tool_call_output" => {
+            let call_id = obj.get("call_id").and_then(|v| v.as_str()).unwrap_or("");
+            let output = obj.get("output").and_then(|v| v.as_str()).unwrap_or("");
+            let body = serde_json::json!({
+                "tool_use_id": call_id,
+                "is_error": false,
+                "content": output,
+                "correlate_key": call_id,
+            });
+            let (body_json, blob_hash, blob_size) = maybe_spill(body, blobs);
+            out.events.push(Event {
+                session_id: session_id.to_string(),
+                ts_ms,
+                kind: EventKind::ToolResult,
+                step: None,
+                summary: truncate_summary(&format!("tool_result: {}", one_line(output))),
+                body_json,
+                blob_hash,
+                blob_size,
+                correlates: None,
+            });
+        }
+        _ => {} // unknown response_item type: skip (tolerant)
+    }
+}
+
+/// Parse an `event_msg` payload into events.
+#[allow(dead_code, clippy::too_many_lines)]
+fn parse_codex_event_msg(
+    payload: &serde_json::Value,
+    session_id: &str,
+    ts_ms: i64,
+    blobs: &BlobStore,
+    out: &mut ParsedRecord,
+) {
+    let Some(obj) = payload.as_object() else {
+        return;
+    };
+    let inner_ty = obj.get("type").and_then(|v| v.as_str()).unwrap_or("");
+    match inner_ty {
+        "user_message" => {
+            if let Some(text) = extract_codex_event_text(obj) {
+                out.events.push(text_event(
+                    session_id,
+                    ts_ms,
+                    EventKind::UserMessage,
+                    &text,
+                    blobs,
+                ));
+            }
+        }
+        "agent_message" => {
+            if let Some(text) = extract_codex_event_text(obj) {
+                out.events.push(text_event(
+                    session_id,
+                    ts_ms,
+                    EventKind::AgentMessage,
+                    &text,
+                    blobs,
+                ));
+            }
+            out.is_assistant_message = true;
+        }
+        "token_count" => {
+            // Extract model/usage from token_count events
+            if let Some(info) = obj.get("info").and_then(|v| v.as_object()) {
+                if info.get("total_token_usage").is_some() {
+                    out.is_assistant_message = true;
+                    // Store usage in the OutcomeAcc via a side channel: the
+                    // tailer checks `is_assistant_message` and calls
+                    // `acc.note_assistant` with the payload. We set the flag
+                    // so the tailer knows to extract usage from this record.
+                    // The actual usage is in `info.total_token_usage`.
+                }
+            }
+        }
+        "exec_command_end" | "patch_apply_end" => {
+            // These are tool results from shell commands / patch applications.
+            let call_id = obj.get("call_id").and_then(|v| v.as_str()).unwrap_or("");
+            let aggregated_output = obj
+                .get("aggregated_output")
+                .and_then(|v| v.as_str())
+                .unwrap_or("");
+            let stdout = obj.get("stdout").and_then(|v| v.as_str()).unwrap_or("");
+            let stderr = obj.get("stderr").and_then(|v| v.as_str()).unwrap_or("");
+            let exit_code = obj
+                .get("exit_code")
+                .and_then(serde_json::Value::as_i64)
+                .unwrap_or(0);
+            let content = if aggregated_output.is_empty() {
+                let mut parts = Vec::new();
+                if !stdout.is_empty() {
+                    parts.push(stdout);
+                }
+                if !stderr.is_empty() {
+                    parts.push(stderr);
+                }
+                parts.join("\n")
+            } else {
+                aggregated_output.to_string()
+            };
+            let body = serde_json::json!({
+                "tool_use_id": call_id,
+                "is_error": exit_code != 0,
+                "content": content,
+                "correlate_key": call_id,
+            });
+            let (body_json, blob_hash, blob_size) = maybe_spill(body, blobs);
+            let summary = if exit_code != 0 {
+                format!("tool_result (error): {}", one_line(&content))
+            } else {
+                format!("tool_result: {}", one_line(&content))
+            };
+            out.events.push(Event {
+                session_id: session_id.to_string(),
+                ts_ms,
+                kind: EventKind::ToolResult,
+                step: None,
+                summary: truncate_summary(&summary),
+                body_json,
+                blob_hash,
+                blob_size,
+                correlates: None,
+            });
+        }
+        _ => {} // unknown event_msg type: skip (tolerant)
+    }
+}
+
+/// Extract text content from a Codex event_msg payload. The text may be in
+/// `content` (string or array of parts) or `text` (direct string).
+#[allow(dead_code)]
+fn extract_codex_event_text(obj: &serde_json::Map<String, serde_json::Value>) -> Option<String> {
+    // Try `content` first (array of parts or string)
+    if let Some(content) = obj.get("content") {
+        match content {
+            serde_json::Value::String(s) => return Some(s.clone()),
+            serde_json::Value::Array(arr) => {
+                let parts: String = arr
+                    .iter()
+                    .filter_map(|b| b.get("text").and_then(|t| t.as_str()))
+                    .collect::<Vec<_>>()
+                    .join("\n");
+                if !parts.is_empty() {
+                    return Some(parts);
+                }
+            }
+            _ => {}
+        }
+    }
+    // Fallback: `text` field
+    if let Some(text) = obj.get("text").and_then(|v| v.as_str()) {
+        return Some(text.to_string());
+    }
+    None
+}
+
+// ---------------------------------------------------------------------------
+// Gemini CLI adapter
+// ---------------------------------------------------------------------------
+
+/// The Gemini CLI adapter: tails `~/.gemini/tmp/<hash>/chats/session-*.jsonl`
+/// and converts records to `user_message` / `agent_message` / `thinking` /
+/// `tool_call` / `tool_result` events. Stateless; the tailer thread holds all
+/// mutable state.
+///
+/// ## Experimental
+///
+/// This adapter is built against the researched Gemini CLI session format
+/// (https://github.com/google-gemini/gemini-cli). The parser handles the
+/// documented record types (`session_metadata`, `user`, `gemini`,
+/// `message_update`) and degrades gracefully on unknown types. If you encounter
+/// a session that produces 0 steps despite having a transcript, run
+/// `HH_DEBUG=1 hh run -- gemini ...` and file an issue with the debug output.
+#[derive(Debug, Clone)]
+pub struct GeminiAdapter;
+
+impl Adapter for GeminiAdapter {
+    fn agent_kind(&self) -> AgentKind {
+        AgentKind::GeminiCli
+    }
+
+    #[allow(clippy::unused_self)]
+    fn spawn(self: Box<Self>, ctx: AdapterContext) -> std::io::Result<AdapterHandle> {
+        let (tx, rx) = mpsc::channel::<Event>();
+        let outcome = std::thread::Builder::new()
+            .name("hh-gemini-adapter".into())
+            .spawn(move || run_gemini_tailer(ctx, tx))?;
+        Ok(AdapterHandle {
+            events: rx,
+            outcome,
+        })
+    }
+}
+
+/// The Gemini CLI temp directory: `$HOME/.gemini/tmp` (Unix) or
+/// `%USERPROFILE%\.gemini\tmp` (Windows). `None` if neither env var is set.
+#[must_use]
+pub fn gemini_tmp_dir() -> Option<PathBuf> {
+    let home = std::env::var_os("HOME").or_else(|| std::env::var_os("USERPROFILE"))?;
+    Some(PathBuf::from(home).join(".gemini").join("tmp"))
+}
+
+/// The tailer thread body for Gemini CLI: locate the session transcript, then
+/// read it to EOF/stop, parsing each line into events sent on `tx`.
+#[allow(clippy::needless_pass_by_value)] // ctx/tx are owned for the thread's lifetime
+fn run_gemini_tailer(ctx: AdapterContext, tx: mpsc::Sender<Event>) -> AdapterOutcome {
+    let Some(tmp) = ctx.projects_dir.clone().or_else(gemini_tmp_dir) else {
+        return degraded(
+            "no ~/.gemini/tmp directory found (HOME unset?); run `hh doctor` to diagnose",
+        );
+    };
+    if !tmp.is_dir() {
+        return degraded(format!(
+            "gemini tmp directory does not exist: {}; run `hh doctor` to diagnose",
+            tmp.display()
+        ));
+    }
+    let start = Instant::now();
+    let Some(file) = locate_gemini_transcript(&tmp, &ctx.cwd, &ctx.stop) else {
+        return degraded(format!(
+            "no gemini session transcript appeared under {} matching cwd {} before the session ended",
+            tmp.display(),
+            ctx.cwd.display(),
+        ));
+    };
+    let mut acc = OutcomeAcc::default();
+    let stats = tail_gemini_file(&file, &ctx, &tx, &start, &mut acc);
+    if !stats.read_ok {
+        return degraded(format!(
+            "found a gemini transcript at {} but could not read it; \
+             run `hh doctor` to check file permissions",
+            file.display(),
+        ));
+    }
+    if stats.events_produced == 0 {
+        let first_err = stats
+            .first_parse_error
+            .map(|(n, msg)| format!("; first parse error at line {n}: {msg}"))
+            .unwrap_or_default();
+        return degraded(format!(
+            "gemini transcript found ({}) but 0 records parsed (read {} line(s){first_err}); \
+             run `hh doctor` to check the Gemini CLI transcript format",
+            file.display(),
+            stats.lines_seen,
+        ));
+    }
+    acc.finish(AdapterStatus::Active)
+}
+
+/// Locate the Gemini CLI session transcript for this session.
+///
+/// Gemini stores session files at `~/.gemini/tmp/<project_hash>/chats/session-*.jsonl`.
+/// The adapter scans all project hash directories for a `chats/` subdirectory,
+/// then polls for new `session-*.jsonl` files.
+fn locate_gemini_transcript(
+    tmp: &Path,
+    cwd: &Path,
+    stop: &std::sync::Arc<AtomicBool>,
+) -> Option<PathBuf> {
+    let preexisting = snapshot_gemini_sessions(tmp);
+    let mut rejected: std::collections::HashSet<PathBuf> = std::collections::HashSet::new();
+
+    loop {
+        if stop.load(Ordering::Acquire) {
+            return None;
+        }
+        // Scan every project hash dir for new session files in chats/.
+        let Ok(projects) = std::fs::read_dir(tmp) else {
+            std::thread::sleep(APPEAR_POLL);
+            continue;
+        };
+        for project in projects.flatten() {
+            let chats = project.path().join("chats");
+            if !chats.is_dir() {
+                continue;
+            }
+            for f in new_gemini_sessions_in(&chats, &preexisting) {
+                if rejected.contains(&f) {
+                    continue;
+                }
+                match first_gemini_record_cwd(&f, cwd) {
+                    CwdState::Matches => return Some(f),
+                    CwdState::Different | CwdState::Directory => {
+                        rejected.insert(f);
+                    }
+                    CwdState::None => {}
+                }
+            }
+        }
+        std::thread::sleep(APPEAR_POLL);
+    }
+}
+
+/// Snapshot every `session-*.jsonl` file under the tmp directory at start.
+fn snapshot_gemini_sessions(tmp: &Path) -> std::collections::HashSet<PathBuf> {
+    let mut set = std::collections::HashSet::new();
+    let Ok(projects) = std::fs::read_dir(tmp) else {
+        return set;
+    };
+    for project in projects.flatten() {
+        let chats = project.path().join("chats");
+        if !chats.is_dir() {
+            continue;
+        }
+        if let Ok(entries) = std::fs::read_dir(&chats) {
+            for e in entries.flatten() {
+                let p = e.path();
+                if p.file_name().and_then(|n| n.to_str()).is_some_and(|n| {
+                    n.starts_with("session-")
+                        && std::path::Path::new(n).extension()
+                            == Some(std::ffi::OsStr::new("jsonl"))
+                }) {
+                    set.insert(p);
+                }
+            }
+        }
+    }
+    set
+}
+
+/// `session-*.jsonl` files in `dir` not in `preexisting`, newest-first by mtime.
+fn new_gemini_sessions_in(
+    dir: &Path,
+    preexisting: &std::collections::HashSet<PathBuf>,
+) -> Vec<PathBuf> {
+    let Ok(entries) = std::fs::read_dir(dir) else {
+        return Vec::new();
+    };
+    let mut found: Vec<(PathBuf, i64)> = Vec::new();
+    for e in entries.flatten() {
+        let p = e.path();
+        if !p.file_name().and_then(|n| n.to_str()).is_some_and(|n| {
+            n.starts_with("session-")
+                && std::path::Path::new(n).extension() == Some(std::ffi::OsStr::new("jsonl"))
+        }) {
+            continue;
+        }
+        if preexisting.contains(&p) {
+            continue;
+        }
+        let mtime_ms = e
+            .metadata()
+            .ok()
+            .and_then(|m| m.modified().ok())
+            .map_or(0, system_time_to_unix_ms);
+        found.push((p, mtime_ms));
+    }
+    found.sort_by_key(|(_, m)| std::cmp::Reverse(*m));
+    found.into_iter().map(|(p, _)| p).collect()
+}
+
+/// Inspect the first cwd-bearing record in a Gemini session file. Gemini puts
+/// `cwd` in the `session_metadata` record (first line).
+fn first_gemini_record_cwd(file: &Path, _session_cwd: &Path) -> CwdState {
+    if file.is_dir() {
+        return CwdState::Directory;
+    }
+    let Ok(content) = std::fs::read_to_string(file) else {
+        return CwdState::None;
+    };
+    for line in content.lines() {
+        let line = line.trim();
+        if line.is_empty() {
+            continue;
+        }
+        let Ok(_v) = serde_json::from_str::<serde_json::Value>(line) else {
+            continue;
+        };
+        // Gemini doesn't carry cwd in the session file; it uses projectHash.
+        // We accept any session file that appears (no cwd verification).
+        // The projectHash is derived from the cwd, so a session in the right
+        // project dir is the right session.
+        return CwdState::Matches;
+    }
+    CwdState::None
+}
+
+/// Tail a Gemini session file, parsing each line into events.
+fn tail_gemini_file(
+    file: &Path,
+    ctx: &AdapterContext,
+    tx: &mpsc::Sender<Event>,
+    start: &Instant,
+    acc: &mut OutcomeAcc,
+) -> TailStats {
+    let mut stats = TailStats::default();
+    let mut reader = match std::fs::File::open(file) {
+        Ok(f) => std::io::BufReader::new(f),
+        Err(_) => return stats,
+    };
+    stats.read_ok = true;
+    let mut buf: Vec<u8> = Vec::new();
+    let mut line = Vec::new();
+    loop {
+        if ctx.stop.load(Ordering::Acquire) {
+            break;
+        }
+        match reader.read_until(b'\n', &mut line) {
+            Ok(0) => {
+                drain_complete_lines(&mut buf, &mut line, ctx, tx, start, acc, &mut stats);
+                if ctx.stop.load(Ordering::Acquire) {
+                    break;
+                }
+                std::thread::sleep(TAIL_POLL);
+            }
+            Ok(_n) => {
+                drain_complete_lines(&mut buf, &mut line, ctx, tx, start, acc, &mut stats);
+            }
+            Err(e) if e.kind() == std::io::ErrorKind::Interrupted => {}
+            Err(_) => break,
+        }
+    }
+    drain_complete_lines(&mut buf, &mut line, ctx, tx, start, acc, &mut stats);
+    stats
+}
+
+// ---------------------------------------------------------------------------
+// Gemini CLI record parser
+// ---------------------------------------------------------------------------
+
+/// Parse one Gemini CLI JSONL record into events. Pure given `(value, ts_ms,
+/// blobs)`: deterministic output for fixed inputs. Unknown `type`s and
+/// unexpected shapes produce no events (tolerant).
+///
+/// Gemini session format: each line is a JSON object with a `type` field.
+/// Types: `session_metadata` (skip), `user` (user message), `gemini` (model
+/// message with optional tool calls/thoughts), `message_update` (skip).
+#[must_use]
+#[allow(dead_code, clippy::too_many_lines)] // called from the tailer thread; not yet wired through parse_and_send
+pub(crate) fn parse_gemini_record(
+    value: &serde_json::Value,
+    session_id: &str,
+    ts_ms: i64,
+    blobs: &BlobStore,
+) -> ParsedRecord {
+    let mut out = ParsedRecord::default();
+    let Some(obj) = value.as_object() else {
+        return out;
+    };
+    let ty = obj.get("type").and_then(|v| v.as_str()).unwrap_or("");
+    match ty {
+        "user" => {
+            if let Some(text) = extract_gemini_text(obj) {
+                out.events.push(text_event(
+                    session_id,
+                    ts_ms,
+                    EventKind::UserMessage,
+                    &text,
+                    blobs,
+                ));
+            }
+        }
+        "gemini" => {
+            // Extract text content
+            if let Some(text) = extract_gemini_text(obj) {
+                out.events.push(text_event(
+                    session_id,
+                    ts_ms,
+                    EventKind::AgentMessage,
+                    &text,
+                    blobs,
+                ));
+            }
+            // Extract thoughts → Thinking events
+            if let Some(thoughts) = obj.get("thoughts").and_then(|v| v.as_array()) {
+                for thought in thoughts {
+                    if let Some(text) = thought.get("text").and_then(|v| v.as_str()) {
+                        out.events.push(text_event(
+                            session_id,
+                            ts_ms,
+                            EventKind::Thinking,
+                            text,
+                            blobs,
+                        ));
+                    }
+                }
+            }
+            // Extract tool calls
+            if let Some(tool_calls) = obj.get("toolCalls").and_then(|v| v.as_array()) {
+                for tc in tool_calls {
+                    if let Some(tc_obj) = tc.as_object() {
+                        let call_id = tc_obj.get("id").and_then(|v| v.as_str()).unwrap_or("");
+                        let name = tc_obj.get("name").and_then(|v| v.as_str()).unwrap_or("");
+                        let input = tc_obj
+                            .get("input")
+                            .cloned()
+                            .unwrap_or(serde_json::Value::Null);
+                        let body = serde_json::json!({
+                            "name": name,
+                            "input": input,
+                            "correlate_key": call_id,
+                        });
+                        let (body_json, blob_hash, blob_size) = maybe_spill(body, blobs);
+                        out.events.push(Event {
+                            session_id: session_id.to_string(),
+                            ts_ms,
+                            kind: EventKind::ToolCall,
+                            step: None,
+                            summary: truncate_summary(&format!("tool_call: {name}")),
+                            body_json,
+                            blob_hash,
+                            blob_size,
+                            correlates: None,
+                        });
+                        // If the tool call has a result inline, emit a ToolResult too
+                        if let Some(result) = tc_obj.get("result").and_then(|v| v.as_array()) {
+                            let result_text: String = result
+                                .iter()
+                                .filter_map(|p| p.get("text").and_then(|t| t.as_str()))
+                                .collect::<Vec<_>>()
+                                .join("\n");
+                            let body = serde_json::json!({
+                                "tool_use_id": call_id,
+                                "is_error": false,
+                                "content": result_text,
+                                "correlate_key": call_id,
+                            });
+                            let (body_json, blob_hash, blob_size) = maybe_spill(body, blobs);
+                            out.events.push(Event {
+                                session_id: session_id.to_string(),
+                                ts_ms,
+                                kind: EventKind::ToolResult,
+                                step: None,
+                                summary: truncate_summary(&format!(
+                                    "tool_result: {}",
+                                    one_line(&result_text)
+                                )),
+                                body_json,
+                                blob_hash,
+                                blob_size,
+                                correlates: None,
+                            });
+                        }
+                    }
+                }
+            }
+            // Extract token usage
+            if obj.get("tokens").is_some() {
+                out.is_assistant_message = true;
+            }
+            // Extract model
+            if let Some(_model) = obj.get("model").and_then(|v| v.as_str()) {
+                out.is_assistant_message = true;
+            }
+        }
+        // session_metadata, message_update: skip
+        _ => {}
+    }
+    out
+}
+
+/// Extract text content from a Gemini message record. The content is an array
+/// of parts, each with a `text` field, or a direct string.
+fn extract_gemini_text(obj: &serde_json::Map<String, serde_json::Value>) -> Option<String> {
+    if let Some(content) = obj.get("content") {
+        match content {
+            serde_json::Value::String(s) => return Some(s.clone()),
+            serde_json::Value::Array(arr) => {
+                let parts: String = arr
+                    .iter()
+                    .filter_map(|b| b.get("text").and_then(|t| t.as_str()))
+                    .collect::<Vec<_>>()
+                    .join("\n");
+                if !parts.is_empty() {
+                    return Some(parts);
+                }
+            }
+            _ => {}
+        }
+    }
+    None
+}
+
+// ---------------------------------------------------------------------------
 // Pure parser (the insta target)
 // ---------------------------------------------------------------------------
 
@@ -1184,12 +2262,13 @@ fn debug(msg: &str) {
     }
 }
 
-/// Fuzz-only entry points into the otherwise-private Claude JSONL parser
-/// (`cargo fuzz` target `claude_jsonl`). Gated behind the `fuzzing` feature so
-/// it never widens the crate's normal public API.
+/// Fuzz-only entry points into the otherwise-private Claude/Codex/Gemini JSONL
+/// parsers (`cargo fuzz` targets `claude_jsonl`, `codex_jsonl`, `gemini_jsonl`).
+/// Gated behind the `fuzzing` feature so it never widens the crate's normal
+/// public API.
 #[cfg(feature = "fuzzing")]
 pub mod fuzzing {
-    use super::{parse_record, BlobStore};
+    use super::{parse_codex_record, parse_gemini_record, parse_record, BlobStore};
     use std::sync::OnceLock;
 
     /// A blob store rooted in a process-unique temp dir, reused across fuzz
@@ -1218,6 +2297,38 @@ pub mod fuzzing {
             return;
         };
         let _ = parse_record(&value, "fuzz-session", 0, blobs());
+    }
+
+    /// Mirrors the Codex CLI tailer's per-line path: UTF-8 validate → trim →
+    /// JSON parse → [`parse_codex_record`]. Must never panic.
+    pub fn fuzz_parse_codex_line(bytes: &[u8]) {
+        let Ok(s) = std::str::from_utf8(bytes) else {
+            return;
+        };
+        let s = s.trim();
+        if s.is_empty() {
+            return;
+        }
+        let Ok(value) = serde_json::from_str::<serde_json::Value>(s) else {
+            return;
+        };
+        let _ = parse_codex_record(&value, "fuzz-session", 0, blobs());
+    }
+
+    /// Mirrors the Gemini CLI tailer's per-line path: UTF-8 validate → trim →
+    /// JSON parse → [`parse_gemini_record`]. Must never panic.
+    pub fn fuzz_parse_gemini_line(bytes: &[u8]) {
+        let Ok(s) = std::str::from_utf8(bytes) else {
+            return;
+        };
+        let s = s.trim();
+        if s.is_empty() {
+            return;
+        }
+        let Ok(value) = serde_json::from_str::<serde_json::Value>(s) else {
+            return;
+        };
+        let _ = parse_gemini_record(&value, "fuzz-session", 0, blobs());
     }
 }
 
@@ -1946,5 +3057,277 @@ mod tests {
         assert!(r.contains("1 new candidate(s)"), "{r}");
         assert!(r.contains("1 rejected for a different cwd"), "{r}");
         assert!(r.contains("1 candidate(s) were directories"), "{r}");
+    }
+
+    // -----------------------------------------------------------------------
+    // Codex CLI parser tests
+    // -----------------------------------------------------------------------
+
+    fn parse_codex(value: &Value, ts_ms: i64) -> ParsedRecord {
+        let tmp = tempfile::TempDir::new().unwrap();
+        let blobs = BlobStore::new(tmp.path().join("blobs"));
+        parse_codex_record(value, SID, ts_ms, &blobs)
+    }
+
+    fn snap_codex(pr: &ParsedRecord) -> String {
+        serde_json::to_string_pretty(&serde_json::json!({
+            "events": pr.events,
+            "is_assistant_message": pr.is_assistant_message,
+        }))
+        .unwrap()
+    }
+
+    fn codex_rec(json: &str) -> Value {
+        serde_json::from_str(json).unwrap()
+    }
+
+    #[test]
+    fn codex_parse_user_message() {
+        let v = codex_rec(
+            r#"{"type":"event_msg","timestamp":"2026-07-02T06:14:40.699Z","payload":{"type":"user_message","content":[{"text":"hello"}]}}"#,
+        );
+        let pr = parse_codex(&v, iso("2026-07-02T06:14:40.699Z"));
+        insta::assert_snapshot!(snap_codex(&pr));
+        assert_eq!(pr.events.len(), 1);
+        assert_eq!(pr.events[0].kind, EventKind::UserMessage);
+    }
+
+    #[test]
+    fn codex_parse_agent_message() {
+        let v = codex_rec(
+            r#"{"type":"event_msg","timestamp":"2026-07-02T06:14:41.500Z","payload":{"type":"agent_message","content":[{"text":"I can help with that"}]}}"#,
+        );
+        let pr = parse_codex(&v, iso("2026-07-02T06:14:41.500Z"));
+        insta::assert_snapshot!(snap_codex(&pr));
+        assert_eq!(pr.events.len(), 1);
+        assert_eq!(pr.events[0].kind, EventKind::AgentMessage);
+        assert!(pr.is_assistant_message);
+    }
+
+    #[test]
+    fn codex_parse_response_item_message() {
+        let v = codex_rec(
+            r#"{"type":"response_item","timestamp":"2026-07-02T06:14:41.500Z","payload":{"type":"message","role":"assistant","content":[{"type":"output_text","text":"Here is the solution"}]}}"#,
+        );
+        let pr = parse_codex(&v, iso("2026-07-02T06:14:41.500Z"));
+        insta::assert_snapshot!(snap_codex(&pr));
+        assert_eq!(pr.events.len(), 1);
+        assert_eq!(pr.events[0].kind, EventKind::AgentMessage);
+    }
+
+    #[test]
+    fn codex_parse_function_call_and_output() {
+        let v = codex_rec(
+            r#"{"type":"response_item","timestamp":"2026-07-02T06:14:42.000Z","payload":{"type":"function_call","call_id":"call_1","name":"Bash","arguments":"{\"command\":\"ls\"}"}}"#,
+        );
+        let pr = parse_codex(&v, iso("2026-07-02T06:14:42.000Z"));
+        insta::assert_snapshot!(snap_codex(&pr));
+        assert_eq!(pr.events.len(), 1);
+        assert_eq!(pr.events[0].kind, EventKind::ToolCall);
+        assert_eq!(
+            pr.events[0].body_json.as_ref().unwrap()["correlate_key"],
+            "call_1"
+        );
+
+        let v2 = codex_rec(
+            r#"{"type":"response_item","timestamp":"2026-07-02T06:14:43.000Z","payload":{"type":"function_call_output","call_id":"call_1","output":"total 42"}}"#,
+        );
+        let pr2 = parse_codex(&v2, iso("2026-07-02T06:14:43.000Z"));
+        assert_eq!(pr2.events.len(), 1);
+        assert_eq!(pr2.events[0].kind, EventKind::ToolResult);
+        assert_eq!(
+            pr2.events[0].body_json.as_ref().unwrap()["correlate_key"],
+            "call_1"
+        );
+    }
+
+    #[test]
+    fn codex_parse_reasoning() {
+        let v = codex_rec(
+            r#"{"type":"response_item","timestamp":"2026-07-02T06:14:41.000Z","payload":{"type":"reasoning","summary":[],"content":null,"encrypted_content":"gAAAAABp5lf5..."}}"#,
+        );
+        let pr = parse_codex(&v, iso("2026-07-02T06:14:41.000Z"));
+        insta::assert_snapshot!(snap_codex(&pr));
+        assert_eq!(pr.events.len(), 1);
+        assert_eq!(pr.events[0].kind, EventKind::Thinking);
+    }
+
+    #[test]
+    fn codex_parse_skips_session_meta() {
+        let v = codex_rec(
+            r#"{"type":"session_meta","timestamp":"2026-07-02T06:14:40.000Z","payload":{"id":"abc","cwd":"/tmp","originator":"codex-tui"}}"#,
+        );
+        let pr = parse_codex(&v, 0);
+        assert!(pr.events.is_empty());
+    }
+
+    #[test]
+    fn codex_parse_skips_unknown_type() {
+        let v = codex_rec(
+            r#"{"type":"unknown_type","timestamp":"2026-07-02T06:14:40.000Z","payload":{}}"#,
+        );
+        let pr = parse_codex(&v, 0);
+        assert!(pr.events.is_empty());
+    }
+
+    #[test]
+    fn codex_parse_non_object_value() {
+        for v in [codex_rec("[]"), codex_rec("null"), codex_rec("\"oops\"")] {
+            assert!(parse_codex(&v, 0).events.is_empty());
+        }
+    }
+
+    // -----------------------------------------------------------------------
+    // Gemini CLI parser tests
+    // -----------------------------------------------------------------------
+
+    fn parse_gemini(value: &Value, ts_ms: i64) -> ParsedRecord {
+        let tmp = tempfile::TempDir::new().unwrap();
+        let blobs = BlobStore::new(tmp.path().join("blobs"));
+        parse_gemini_record(value, SID, ts_ms, &blobs)
+    }
+
+    fn snap_gemini(pr: &ParsedRecord) -> String {
+        serde_json::to_string_pretty(&serde_json::json!({
+            "events": pr.events,
+            "is_assistant_message": pr.is_assistant_message,
+        }))
+        .unwrap()
+    }
+
+    fn gemini_rec(json: &str) -> Value {
+        serde_json::from_str(json).unwrap()
+    }
+
+    #[test]
+    fn gemini_parse_user_message() {
+        let v = gemini_rec(
+            r#"{"type":"user","id":"msg1","timestamp":"2026-07-02T06:14:40.699Z","content":[{"text":"hello"}]}"#,
+        );
+        let pr = parse_gemini(&v, iso("2026-07-02T06:14:40.699Z"));
+        insta::assert_snapshot!(snap_gemini(&pr));
+        assert_eq!(pr.events.len(), 1);
+        assert_eq!(pr.events[0].kind, EventKind::UserMessage);
+    }
+
+    #[test]
+    fn gemini_parse_agent_message() {
+        let v = gemini_rec(
+            r#"{"type":"gemini","id":"msg2","timestamp":"2026-07-02T06:14:41.500Z","content":[{"text":"Hi! How can I help?"}],"model":"gemini-2.5-pro"}"#,
+        );
+        let pr = parse_gemini(&v, iso("2026-07-02T06:14:41.500Z"));
+        insta::assert_snapshot!(snap_gemini(&pr));
+        assert_eq!(pr.events.len(), 1);
+        assert_eq!(pr.events[0].kind, EventKind::AgentMessage);
+    }
+
+    #[test]
+    fn gemini_parse_with_tool_calls() {
+        let v = gemini_rec(
+            r#"{"type":"gemini","id":"msg3","timestamp":"2026-07-02T06:14:42.000Z","content":[{"text":"Let me check"}],"toolCalls":[{"id":"tc_1","name":"Bash","input":{"command":"ls"}}]}"#,
+        );
+        let pr = parse_gemini(&v, iso("2026-07-02T06:14:42.000Z"));
+        insta::assert_snapshot!(snap_gemini(&pr));
+        assert_eq!(pr.events.len(), 2); // agent_message + tool_call
+        assert_eq!(pr.events[0].kind, EventKind::AgentMessage);
+        assert_eq!(pr.events[1].kind, EventKind::ToolCall);
+        assert_eq!(
+            pr.events[1].body_json.as_ref().unwrap()["correlate_key"],
+            "tc_1"
+        );
+    }
+
+    #[test]
+    fn gemini_parse_with_thoughts() {
+        let v = gemini_rec(
+            r#"{"type":"gemini","id":"msg4","timestamp":"2026-07-02T06:14:41.000Z","content":[{"text":"answer"}],"thoughts":[{"text":"I need to think about this"}]}"#,
+        );
+        let pr = parse_gemini(&v, iso("2026-07-02T06:14:41.000Z"));
+        insta::assert_snapshot!(snap_gemini(&pr));
+        assert_eq!(pr.events.len(), 2); // agent_message + thinking
+        assert_eq!(pr.events[0].kind, EventKind::AgentMessage);
+        assert_eq!(pr.events[1].kind, EventKind::Thinking);
+    }
+
+    #[test]
+    fn gemini_parse_skips_session_metadata() {
+        let v = gemini_rec(
+            r#"{"type":"session_metadata","sessionId":"abc","projectHash":"xyz","startTime":"2026-07-02T06:14:40.000Z"}"#,
+        );
+        let pr = parse_gemini(&v, 0);
+        assert!(pr.events.is_empty());
+    }
+
+    #[test]
+    fn gemini_parse_skips_message_update() {
+        let v = gemini_rec(
+            r#"{"type":"message_update","id":"msg2","timestamp":"2026-07-02T06:14:41.000Z","tokens":{"input":5,"output":4}}"#,
+        );
+        let pr = parse_gemini(&v, 0);
+        assert!(pr.events.is_empty());
+    }
+
+    #[test]
+    fn gemini_parse_skips_unknown_type() {
+        let v = gemini_rec(r#"{"type":"unknown","id":"x","timestamp":"2026-07-02T06:14:40.000Z"}"#);
+        let pr = parse_gemini(&v, 0);
+        assert!(pr.events.is_empty());
+    }
+
+    #[test]
+    fn gemini_parse_non_object_value() {
+        for v in [gemini_rec("[]"), gemini_rec("null")] {
+            assert!(parse_gemini(&v, 0).events.is_empty());
+        }
+    }
+
+    // -----------------------------------------------------------------------
+    // Detection tests for all adapters
+    // -----------------------------------------------------------------------
+
+    #[test]
+    fn select_detects_all_adapters() {
+        assert!(select(&["claude".into()], Path::new("/tmp")).is_some());
+        assert!(select(&["claude-desktop".into()], Path::new("/tmp")).is_some());
+        assert!(select(&["codex".into()], Path::new("/tmp")).is_some());
+        assert!(select(&["gemini".into()], Path::new("/tmp")).is_some());
+        assert!(select(&["python3".into()], Path::new("/tmp")).is_none());
+    }
+
+    #[test]
+    fn is_claude_desktop_detects_basename() {
+        assert!(is_claude_desktop(&["claude-desktop".into()]));
+        assert!(is_claude_desktop(&["/usr/local/bin/claude-desktop".into()]));
+        assert!(is_claude_desktop(&["claude-desktop.exe".into()]));
+        assert!(!is_claude_desktop(&["claude".into()]));
+        assert!(!is_claude_desktop(&["codex".into()]));
+        assert!(!is_claude_desktop(&[]));
+    }
+
+    #[test]
+    fn is_codex_cli_detects_basename() {
+        assert!(is_codex_cli(&["codex".into()]));
+        assert!(is_codex_cli(&["/usr/local/bin/codex".into()]));
+        assert!(is_codex_cli(&["codex.exe".into()]));
+        assert!(!is_codex_cli(&["claude".into()]));
+        assert!(!is_codex_cli(&[]));
+    }
+
+    #[test]
+    fn is_gemini_cli_detects_basename() {
+        assert!(is_gemini_cli(&["gemini".into()]));
+        assert!(is_gemini_cli(&["/usr/local/bin/gemini".into()]));
+        assert!(is_gemini_cli(&["gemini.exe".into()]));
+        assert!(!is_gemini_cli(&["claude".into()]));
+        assert!(!is_gemini_cli(&[]));
+    }
+
+    #[test]
+    fn resolve_override_accepts_all_adapters() {
+        assert!(resolve_override("claude-code").is_some());
+        assert!(resolve_override("claude-desktop").is_some());
+        assert!(resolve_override("codex-cli").is_some());
+        assert!(resolve_override("gemini-cli").is_some());
+        assert!(resolve_override("unknown").is_none());
     }
 }
