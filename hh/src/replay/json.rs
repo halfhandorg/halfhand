@@ -5,6 +5,7 @@
 //! JSON lexer, which would be excess machinery for a read-only viewer.
 
 use super::theme::Theme;
+use ratatui::style::Style;
 use ratatui::text::{Line, Span};
 
 /// A handful of internal bookkeeping fields that are meaningful to the
@@ -74,7 +75,7 @@ fn tokenize(text: &str, theme: Theme) -> Vec<Line<'static>> {
                     }
                     i += 1;
                 }
-                let s: String = chars[start..i.min(chars.len())].iter().collect();
+                let raw: String = chars[start..i.min(chars.len())].iter().collect();
                 let mut j = i;
                 while j < chars.len() && chars[j] == ' ' {
                     j += 1;
@@ -85,7 +86,7 @@ fn tokenize(text: &str, theme: Theme) -> Vec<Line<'static>> {
                 } else {
                     theme.json_string_style()
                 };
-                current.push(Span::styled(s, style));
+                push_string_literal(&mut lines, &mut current, &raw, style);
             }
             '{' | '}' | '[' | ']' | ':' | ',' => {
                 flush(&mut buf, &mut current);
@@ -108,6 +109,42 @@ fn tokenize(text: &str, theme: Theme) -> Vec<Line<'static>> {
 fn flush(buf: &mut String, current: &mut Vec<Span<'static>>) {
     if !buf.is_empty() {
         current.push(Span::raw(std::mem::take(buf)));
+    }
+}
+
+/// Decode `raw` (a JSON string literal, quotes included, as produced by
+/// `serde_json::to_string_pretty`) into display text with escapes like `\n`
+/// and `\t` turned back into real control characters, re-wrapped in display
+/// quotes. A tool result's `content` field is human-readable text, not JSON
+/// syntax to be read verbatim — showing `\n` as two glyphs instead of a line
+/// break is the bug this exists to avoid. Falls back to the untouched raw
+/// text (still escaped) if `raw` isn't a well-formed JSON string, since this
+/// runs over the pretty-printer's own output and must never panic.
+fn decode_string_literal(raw: &str) -> String {
+    match serde_json::from_str::<String>(raw) {
+        Ok(decoded) => format!("\"{decoded}\""),
+        Err(_) => raw.to_string(),
+    }
+}
+
+/// Push a (possibly multi-line, once decoded) string literal into the
+/// in-progress line buffer, starting a new [`Line`] at each real newline so
+/// decoded content renders across multiple terminal rows instead of being
+/// squashed into one.
+fn push_string_literal(
+    lines: &mut Vec<Line<'static>>,
+    current: &mut Vec<Span<'static>>,
+    raw: &str,
+    style: Style,
+) {
+    let decoded = decode_string_literal(raw);
+    let mut parts = decoded.split('\n');
+    if let Some(first) = parts.next() {
+        current.push(Span::styled(first.to_string(), style));
+    }
+    for part in parts {
+        lines.push(Line::from(std::mem::take(current)));
+        current.push(Span::styled(part.to_string(), style));
     }
 }
 
@@ -161,9 +198,30 @@ mod tests {
     fn multiline_string_values_do_not_break_tokenizer() {
         let v = serde_json::json!({"text": "line one\nline two"});
         let theme = Theme::resolve(true);
-        // Must not panic; the escaped \n inside the JSON string stays inside
-        // the quoted span (serde_json escapes it as literal `\n`, two chars).
+        // Must not panic, and the escaped `\n` serde_json writes into the
+        // pretty-printed JSON must come back as a real line break, not the
+        // literal two-character sequence `\` `n`.
         let lines = pretty_lines(&v, theme);
         assert!(!lines.is_empty());
+        let text = plain(&lines);
+        assert!(!text.contains("\\n"), "escape sequence leaked: {text:?}");
+        assert!(text.contains("line one"));
+        assert!(text.contains("line two"));
+    }
+
+    #[test]
+    fn decodes_newline_and_tab_escapes_in_string_values() {
+        let v = serde_json::json!({"content": "col1\tcol2\nrow2col1\trow2col2"});
+        let theme = Theme::resolve(true);
+        let lines = pretty_lines(&v, theme);
+        let text = plain(&lines);
+        assert!(!text.contains("\\n"), "escaped newline leaked: {text:?}");
+        assert!(!text.contains("\\t"), "escaped tab leaked: {text:?}");
+        assert!(text.contains("col1\tcol2"));
+        assert!(text.contains("row2col1\trow2col2"));
+        assert!(
+            text.contains("col1\tcol2\nrow2col1"),
+            "expected an actual line break splitting the two rows: {text:?}"
+        );
     }
 }

@@ -1392,6 +1392,137 @@ fn inspect_and_list_on_claude_code_session() {
     );
 }
 
+/// Write (and chmod +x) a `claude` shim whose `tool_result` content contains
+/// real `\n`/`\t` characters. Python's `json.dumps` escapes these into the
+/// literal two-character sequences `\n`/`\t` in the JSONL file — exactly what
+/// a genuine Claude Code transcript looks like on disk — so this reproduces
+/// the on-disk shape needed to catch the detail-pane bug where those escape
+/// sequences leaked into `hh inspect --step` output instead of being decoded
+/// back into a real newline/tab (`hh/src/inspect.rs`'s `decode_pretty_json`,
+/// mirroring `hh/src/replay/json.rs`'s `pretty_lines`).
+#[cfg(unix)]
+fn write_claude_shim_multiline_tool_result(path: &Path) {
+    let shim_src = "\
+#!/usr/bin/env python3
+import json, os, sys, pathlib, time
+cwd = os.getcwd()
+slug = ''.join('-' if c in '/\\\\.' else c for c in cwd)
+home = os.environ['HOME']
+proj = pathlib.Path(home) / '.claude' / 'projects' / slug
+proj.mkdir(parents=True, exist_ok=True)
+out = proj / 'session.jsonl'
+records = [
+  {\"type\":\"user\",\"isSidechain\":False,\"isMeta\":False,\
+\"message\":{\"role\":\"user\",\"content\":\"list two files\"},\
+\"timestamp\":\"2026-07-02T06:14:40.699Z\",\"cwd\":cwd,\"sessionId\":\"s\"},
+  {\"type\":\"assistant\",\"isSidechain\":False,\"isMeta\":False,\
+\"message\":{\"role\":\"assistant\",\"model\":\"glm-5.2\",\"content\":[\
+{\"type\":\"tool_use\",\"id\":\"call_1\",\"name\":\"Bash\",\"input\":{\"command\":\"ls\"}}],\
+\"usage\":{\"input_tokens\":100,\"output_tokens\":20}},\
+\"timestamp\":\"2026-07-02T06:14:41.500Z\",\"cwd\":cwd,\"sessionId\":\"s\"},
+  {\"type\":\"user\",\"isSidechain\":False,\"isMeta\":False,\
+\"message\":{\"role\":\"user\",\"content\":[\
+{\"type\":\"tool_result\",\"tool_use_id\":\"call_1\",\
+\"content\":\"col1\\tcol2\\nfile.txt\\t42\",\"is_error\":False}]},\
+\"timestamp\":\"2026-07-02T06:14:42.800Z\",\"cwd\":cwd,\"sessionId\":\"s\"},
+]
+with open(out, 'w') as f:
+    for r in records:
+        f.write(json.dumps(r) + '\\n')
+sys.stdout.write('claude-shim-done\\n')
+sys.stdout.flush()
+time.sleep(1.0)
+sys.exit(0)
+";
+    std::fs::write(path, shim_src).expect("write claude shim");
+    make_executable(path);
+}
+
+/// Regression test for the detail-pane escape-sequence bug: a `tool_result`
+/// whose `content` field contains `\n`/`\t` in the JSONL transcript must
+/// render as an actual line break and tab in `hh inspect --step`'s
+/// human-readable output, not as the literal two-character escape sequences.
+#[cfg(unix)]
+#[test]
+fn claude_adapter_tool_result_escapes_decode_in_inspect_step() {
+    if !python3_available() {
+        eprintln!("skipping tool_result escape-decode test: python3 not on PATH");
+        return;
+    }
+    let temp = Temp::new();
+    let home = tempfile::tempdir().expect("temp HOME");
+    let bin = tempfile::tempdir().expect("temp PATH bin");
+    let work = temp.work.path().to_path_buf();
+
+    let canonical_work = work.canonicalize().unwrap_or_else(|_| work.clone());
+    let slug: String = canonical_work
+        .to_string_lossy()
+        .chars()
+        .map(|c| match c {
+            '/' | '\\' | '.' => '-',
+            other => other,
+        })
+        .collect();
+    std::fs::create_dir_all(home.path().join(".claude").join("projects").join(&slug))
+        .expect("pre-create projects slug dir");
+
+    write_claude_shim_multiline_tool_result(&bin.path().join("claude"));
+
+    let path = {
+        let mut p = std::ffi::OsString::from(bin.path());
+        p.push(":");
+        if let Some(existing) = std::env::var_os("PATH") {
+            p.push(existing);
+        }
+        p
+    };
+
+    let run_out = hh()
+        .args(["run", "--", "claude"])
+        .env("HH_DATA_DIR", temp.data.path())
+        .env("HOME", home.path())
+        .env("PATH", &path)
+        .current_dir(&work)
+        .stdin(Stdio::null())
+        .output()
+        .expect("hh run should execute");
+    assert!(
+        run_out.status.success(),
+        "claude shim should exit 0; stderr: {}",
+        String::from_utf8_lossy(&run_out.stderr)
+    );
+
+    // The tool_call + correlated tool_result share step 2 (step 1 is the user
+    // prompt), matching the adapter's step-numbering for a correlated pair.
+    let insp = hh()
+        .args(["inspect", "last", "--step", "2"])
+        .env("HH_DATA_DIR", temp.data.path())
+        .output()
+        .expect("hh inspect should run");
+    assert!(
+        insp.status.success(),
+        "hh inspect --step 2 failed: {}",
+        String::from_utf8_lossy(&insp.stderr)
+    );
+    let stdout = String::from_utf8_lossy(&insp.stdout);
+    assert!(
+        !stdout.contains("\\n") && !stdout.contains("\\t"),
+        "escape sequences leaked into the detail output instead of being decoded: {stdout}"
+    );
+    // The continuation line is indented like every other detail line (a
+    // cosmetic `indent()` side effect, not part of the decoded content), so
+    // check the tab-separated pairs and the real line break independently
+    // rather than requiring one contiguous substring.
+    assert!(
+        stdout.contains("col1\tcol2\n"),
+        "expected a real newline after the first tab-separated pair: {stdout}"
+    );
+    assert!(
+        stdout.contains("file.txt\t42"),
+        "expected the second tab-separated pair decoded: {stdout}"
+    );
+}
+
 /// FR-1.5 failure mode: with no `~/.claude/projects` directory, the adapter
 /// degrades (`adapter_status=degraded`) but the PTY session is still recorded
 /// (`status=ok`). Uses `--adapter claude-code` to force the adapter on a

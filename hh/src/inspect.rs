@@ -440,9 +440,55 @@ fn pretty_json(value: &serde_json::Value, color: bool) -> String {
     let cleaned = strip_hidden_keys(value);
     let text = serde_json::to_string_pretty(&cleaned).unwrap_or_else(|_| cleaned.to_string());
     if !color {
-        return indent(&text);
+        return indent(&decode_pretty_json(&text));
     }
     tint_json(&text)
+}
+
+/// Decode every JSON string literal in already-pretty-printed `text`, turning
+/// `\n`/`\t`/etc. back into real control characters (mirrors the replay
+/// detail pane's [`super::replay::json`] decoding — see FR-4.2). String
+/// boundaries are found with an escape-aware scan over the still-escaped
+/// source before decoding, so a literal `"` or `\` inside decoded content
+/// can't be mistaken for a delimiter. Falls back to the untouched literal on
+/// decode failure; never panics.
+fn decode_pretty_json(text: &str) -> String {
+    let chars: Vec<char> = text.chars().collect();
+    let mut out = String::new();
+    let mut i = 0;
+    while i < chars.len() {
+        if chars[i] == '"' {
+            let start = i;
+            i += 1;
+            while i < chars.len() {
+                if chars[i] == '\\' && i + 1 < chars.len() {
+                    i += 2;
+                    continue;
+                }
+                if chars[i] == '"' {
+                    i += 1;
+                    break;
+                }
+                i += 1;
+            }
+            let raw: String = chars[start..i.min(chars.len())].iter().collect();
+            out.push_str(&decode_string_literal(&raw));
+        } else {
+            out.push(chars[i]);
+            i += 1;
+        }
+    }
+    out
+}
+
+/// Decode `raw` (a JSON string literal, quotes included) into display text,
+/// re-wrapped in display quotes. Falls back to the untouched literal if it
+/// isn't well-formed JSON.
+fn decode_string_literal(raw: &str) -> String {
+    match serde_json::from_str::<String>(raw) {
+        Ok(decoded) => format!("\"{decoded}\""),
+        Err(_) => raw.to_string(),
+    }
 }
 
 /// Apply a simple ANSI tint to pretty-printed JSON text.
@@ -480,10 +526,11 @@ fn tint_json_line(line: &str) -> String {
                     }
                 }
                 let is_key = matches!(chars.peek(), Some(':'));
+                let decoded = decode_string_literal(&s);
                 if is_key {
-                    out.push_str(&s.cyan().to_string());
+                    out.push_str(&decoded.cyan().to_string());
                 } else {
-                    out.push_str(&s.green().to_string());
+                    out.push_str(&decoded.green().to_string());
                 }
             }
             ':' | '{' | '}' | '[' | ']' | ',' => {
