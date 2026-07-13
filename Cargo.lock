@@ -711,6 +711,7 @@ dependencies = [
  "directories",
  "insta",
  "proptest",
+ "regex",
  "rusqlite",
  "serde",
  "serde_json",

@@ -141,3 +141,5 @@ They are documented in full on their own pages:
 | `hh doctor --json` | `{ schema, status, checks: [{ name, status, detail }] }` | [`docs/doctor.md`](doctor.md) |
 | `hh gc --json` | `{ schema, orphan_files_removed, orphan_bytes_reclaimed, orphan_rows_removed, vacuumed }` | [`docs/gc.md`](gc.md) |
 | `hh stats --json` | `{ schema, sessions, events, blobs: {…}, disk: {…}, largest_sessions: [{ id, short_id, events }] }` | [`docs/stats.md`](stats.md) |
+| `hh scan --json` | `{ schema, total_findings, sessions: [{ id, short_id, findings: [{ type, hash8, count, event_id, step, event_kind, location }] }] }` — findings never contain the secret; `hash8` correlates one secret across rows | [`docs/redaction.md`](redaction.md) |
+| `hh export` | `{ schema, kind: "hh-export", hh_version, session, events }` — `session` is the `hh list --json` session object; `events` are event objects with resolved bodies; redacted by default | [`docs/redaction.md`](redaction.md) |

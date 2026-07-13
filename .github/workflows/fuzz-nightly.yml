@@ -20,7 +20,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        target: [claude_jsonl, mcp_frame, config_toml, blob_decompress]
+        target: [claude_jsonl, mcp_frame, config_toml, blob_decompress, redact_detect]
     steps:
       - uses: actions/checkout@v4
       - uses: dtolnay/rust-toolchain@nightly

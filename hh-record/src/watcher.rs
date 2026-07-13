@@ -1030,17 +1030,32 @@ fn process(
             let hash = BlobStore::hash(&content);
             let size = u64::try_from(content.len()).unwrap_or(u64::MAX);
             let before = known.get(path).cloned();
-            // Store content unless it's binary and the user opted out.
-            let stored_hash = if binary && !opts.record_binary {
-                None
+            // Store content unless it's binary and the user opted out. The
+            // stored hash/size come from the put *outcome*, not the disk
+            // content: with a record-time redactor the stored (redacted)
+            // content hashes differently from the on-disk original, and
+            // events/diffs must reference the blob that actually exists.
+            let (stored_hash, stored_size) = if binary && !opts.record_binary {
+                (None, Some(size))
             } else {
-                blobs
+                let outcome = blobs
                     .put(&content)
                     .map_err(|e| format!("blob put {}: {e}", path.display()))?;
-                Some(hash.clone())
+                (Some(outcome.hash), Some(outcome.size))
             };
-            known.insert(path.to_path_buf(), hash.clone());
-            (before, Some(hash), stored_hash, Some(size), binary)
+            // The before/after chain must point at fetchable blobs, so it
+            // tracks the stored hash when content was stored, and falls back
+            // to the disk-content hash for unstored (binary) files where the
+            // hash is identity metadata only (FR-1.4).
+            let effective_hash = stored_hash.clone().unwrap_or(hash);
+            known.insert(path.to_path_buf(), effective_hash.clone());
+            (
+                before,
+                Some(effective_hash),
+                stored_hash,
+                stored_size,
+                binary,
+            )
         };
 
     let event = Event {

@@ -15,6 +15,7 @@ pub mod config;
 pub mod error;
 pub mod event;
 pub mod migrations;
+pub mod redact;
 pub mod step;
 pub mod store;
 pub mod timeline;
@@ -25,16 +26,23 @@ pub use adapter::{
     AdapterContext, AdapterHandle, AdapterOutcome,
 };
 pub use blob::{BlobStore, PutOutcome};
-pub use config::{parse_bytes, Config, Paths, RecordConfig, ReplayConfig, StorageConfig, Theme};
+pub use config::{
+    parse_bytes, Config, Paths, RecordConfig, RedactionConfig, RedactionRule, ReplayConfig,
+    StorageConfig, Theme,
+};
 pub use error::{BlobError, ConfigError, Error, ResolveError, Result, StorageError};
 pub use event::{
     truncate_summary, AdapterStatus, AgentKind, ChangeKind, Event, EventDetail, EventIndexRow,
     EventKind, EventRow, FileChange, NewSession, SessionRow, SessionStatus,
 };
+pub use redact::{Detectors, Finding, SecretKind};
 // `Uuid` is part of the public surface already (`now_v7` returns it,
 // `NewSession::id` holds it); re-exporting it lets downstream crates name the
 // type without adding `uuid` as a direct dependency.
 pub use step::assign_steps;
-pub use store::{CreatedSession, EventWriter, LargestSession, PruneStats, Store, StoreStats};
+pub use store::{
+    CreatedSession, EventWriter, FindingLocation, LargestSession, PruneStats, RedactOutcome,
+    ScanFinding, SecretSummary, Store, StoreStats,
+};
 pub use timeline::{build_timeline, StepEntry, TerminalSegment, TimelineRow};
 pub use uuid::Uuid;

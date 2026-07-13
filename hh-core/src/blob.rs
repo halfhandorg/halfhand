@@ -29,8 +29,15 @@ fn is_valid_hash(hash: &str) -> bool {
 
 /// A content-addressed blob store backed by a directory on disk and a
 /// `blobs` table in SQLite for refcounting.
+///
+/// When constructed via [`BlobStore::with_redactor`], UTF-8 content is passed
+/// through the redaction engine *before hashing and compression* — the
+/// record-time enforcement point of docs/redaction-design.md. Because the
+/// content is redacted before hashing, the returned hash is the hash of what
+/// is actually stored and content-addressing stays internally consistent.
 pub struct BlobStore {
     blobs_dir: PathBuf,
+    redactor: Option<std::sync::Arc<crate::redact::Detectors>>,
 }
 
 /// The outcome of storing a blob: the hash and the new refcount.
@@ -46,7 +53,22 @@ impl BlobStore {
     /// Create a new [`BlobStore`] rooted at `blobs_dir`. The directory itself
     /// is created lazily on first write with `0700` permissions.
     pub fn new(blobs_dir: PathBuf) -> Self {
-        Self { blobs_dir }
+        Self {
+            blobs_dir,
+            redactor: None,
+        }
+    }
+
+    /// Create a [`BlobStore`] whose [`Self::put`] redacts UTF-8 content
+    /// before storing it (record-time redaction, `[redaction] at_record`).
+    pub fn with_redactor(
+        blobs_dir: PathBuf,
+        redactor: std::sync::Arc<crate::redact::Detectors>,
+    ) -> Self {
+        Self {
+            blobs_dir,
+            redactor: Some(redactor),
+        }
     }
 
     /// Return the on-disk path for a given hash.
@@ -64,10 +86,26 @@ impl BlobStore {
     }
 
     /// Store `content`, compressed with zstd, keyed by its BLAKE3 hash. Returns
-    /// the hash. If the blob already exists on disk, content is not rewritten
-    /// (content-addressing makes it identical). The `blobs` table refcount is
-    /// bumped by the store's writer when an event references this hash.
+    /// the hash *of what was stored*. If the blob already exists on disk,
+    /// content is not rewritten (content-addressing makes it identical). The
+    /// `blobs` table refcount is bumped by the store's writer when an event
+    /// references this hash.
+    ///
+    /// With a redactor attached ([`Self::with_redactor`]), UTF-8 content is
+    /// redacted first; the returned hash/size then describe the redacted
+    /// content, so callers must reference the outcome's hash, never a hash
+    /// they computed over the original bytes.
     pub fn put(&self, content: &[u8]) -> Result<PutOutcome> {
+        if let Some(redactor) = &self.redactor {
+            if let Some(redacted) = redactor.redact_bytes(content) {
+                return self.put_raw(&redacted.bytes);
+            }
+        }
+        self.put_raw(content)
+    }
+
+    /// The unconditional store path behind [`Self::put`] (no redaction).
+    fn put_raw(&self, content: &[u8]) -> Result<PutOutcome> {
         let hash = blake3::hash(content).to_hex().to_string();
         let size = u64::try_from(content.len()).unwrap_or(u64::MAX);
         let path = self.blob_path(&hash);
@@ -144,6 +182,60 @@ impl BlobStore {
         match fs::remove_file(&path) {
             Ok(()) => {
                 // Best-effort cleanup of the now-empty shard dir.
+                if let Some(shard) = path.parent() {
+                    let _ = fs::remove_dir(shard);
+                }
+                Ok(true)
+            }
+            Err(e) if e.kind() == std::io::ErrorKind::NotFound => Ok(false),
+            Err(e) => Err(BlobError::Io { path, source: e }.into()),
+        }
+    }
+
+    /// Securely delete a blob file: best-effort overwrite with zeros + fsync,
+    /// then unlink (docs/redaction-design.md I2). Returns `true` if a file
+    /// was removed. The overwrite raises the bar against recovery of the
+    /// plaintext from the filesystem; it is *not* a forensic guarantee on
+    /// journaling/copy-on-write filesystems or wear-leveled SSDs (documented
+    /// in docs/redaction.md). The caller must have already removed the
+    /// blob's row / confirmed the refcount is zero.
+    pub fn shred(&self, hash: &str) -> Result<bool> {
+        if !is_valid_hash(hash) {
+            return Err(BlobError::HashMismatch {
+                expected: format!("{HASH_HEX_LEN}-char blake3 hex"),
+                actual: hash.to_string(),
+            }
+            .into());
+        }
+        let path = self.blob_path(hash);
+        let len = match fs::metadata(&path) {
+            Ok(m) => m.len(),
+            Err(e) if e.kind() == std::io::ErrorKind::NotFound => return Ok(false),
+            Err(e) => return Err(BlobError::Io { path, source: e }.into()),
+        };
+        // Overwrite in place (open without truncate so the same extents are
+        // rewritten where the filesystem allows it), then fsync before unlink.
+        {
+            use std::io::Write;
+            let mut f = fs::OpenOptions::new()
+                .write(true)
+                .open(&path)
+                .map_err(|e| BlobError::Io {
+                    path: path.clone(),
+                    source: e,
+                })?;
+            let zeros = vec![0u8; usize::try_from(len).unwrap_or(0)];
+            f.write_all(&zeros).map_err(|e| BlobError::Io {
+                path: path.clone(),
+                source: e,
+            })?;
+            f.sync_all().map_err(|e| BlobError::Io {
+                path: path.clone(),
+                source: e,
+            })?;
+        }
+        match fs::remove_file(&path) {
+            Ok(()) => {
                 if let Some(shard) = path.parent() {
                     let _ = fs::remove_dir(shard);
                 }
@@ -422,6 +514,45 @@ mod tests {
         let path = s.blob_path(&out.hash);
         assert!(!s.remove_if_unreferenced(&out.hash, 1).unwrap());
         assert!(path.exists());
+    }
+
+    #[test]
+    fn put_with_redactor_stores_redacted_content_under_its_own_hash() {
+        let tmp = TempDir::new().unwrap();
+        let redactor = std::sync::Arc::new(
+            crate::redact::Detectors::new(&crate::config::RedactionConfig::default()).unwrap(),
+        );
+        let s = BlobStore::with_redactor(tmp.path().join("blobs"), redactor);
+        let secret = "AKIAIOSFODNN7EXAMPLE";
+        let content = format!("creds: {secret}\n");
+        let out = s.put(content.as_bytes()).unwrap();
+        // The returned hash addresses the *redacted* content.
+        assert_ne!(out.hash, BlobStore::hash(content.as_bytes()));
+        let stored = s.get(&out.hash).unwrap();
+        let text = String::from_utf8(stored).unwrap();
+        assert!(!text.contains(secret), "secret must not hit disk: {text}");
+        assert!(text.contains("{{REDACTED:aws-access-key-id:"));
+        assert_eq!(out.size, text.len() as u64);
+        // Clean and binary content pass through untouched.
+        let clean = s.put(b"nothing sensitive").unwrap();
+        assert_eq!(clean.hash, BlobStore::hash(b"nothing sensitive"));
+        let binary = [0u8, 1, 2, 255];
+        let bin_out = s.put(&binary).unwrap();
+        assert_eq!(bin_out.hash, BlobStore::hash(&binary));
+    }
+
+    #[test]
+    fn shred_overwrites_then_removes() {
+        let (_tmp, s) = store();
+        let out = s.put(b"secret to shred").unwrap();
+        let path = s.blob_path(&out.hash);
+        assert!(path.exists());
+        assert!(s.shred(&out.hash).unwrap());
+        assert!(!path.exists());
+        // Second call: already gone.
+        assert!(!s.shred(&out.hash).unwrap());
+        // Malformed hash is an error, never a panic or path traversal.
+        assert!(s.shred("../../etc/passwd").is_err());
     }
 
     #[cfg(unix)]

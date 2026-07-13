@@ -63,6 +63,11 @@ adapter      ─┘
 
 - DB and blob dirs created `0700`; blob files written `0600` (Unix). Atomic
   write via temp + rename + fsync. `--record-input` defaults off.
+- Redaction pipeline (`hh scan`/`hh redact`, always-on export redaction,
+  opt-in record-time scrubbing): detection engine in `hh-core::redact`,
+  enforcement points and invariants in
+  [`docs/redaction-design.md`](docs/redaction-design.md), disclosure policy
+  in [`SECURITY.md`](SECURITY.md).
 
 ## No-network guarantee (NFR-2)
 

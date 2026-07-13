@@ -11,6 +11,42 @@ in CI rather than tracking `latest` until 1.0.
 
 ## [Unreleased]
 
+### Added — redaction pipeline (SRS §8, docs/redaction-design.md)
+- **Secret detection engine** (`hh-core::redact`): compiled detectors for
+  AWS access key ids, GitHub/GitLab/Slack tokens, PEM private-key blocks
+  (including truncated fragments), JWTs, a conservative high-entropy
+  scanner, and user-defined regexes via the new config `[redaction] rules`.
+  Matches are replaced with `{{REDACTED:<type>:<hash8>}}` where `hash8` is
+  a BLAKE3 prefix of the secret — one-way, but stable, so the same secret
+  correlates across events without being stored. Contract (property-tested
+  and fuzzed via the new `redact_detect` target): false positives are
+  acceptable, false negatives on the named token types are bugs.
+- **`hh scan <session|last|--all> [--json]`**: reports detected secrets
+  (type, step, location, hash8) without ever printing them. Exit code **4**
+  when findings exist — the documented redaction/policy exit code — so CI
+  can gate on a clean store.
+- **`hh redact <session> [--yes]`**: irreversibly redacts a recorded
+  session in place — rewrites events and affected blobs (refcounts move
+  with the references), securely deletes originals (best-effort zero
+  overwrite + unlink), appends a `redaction_audit` lifecycle event, and
+  checkpoints + `VACUUM`s so no plaintext survives in the WAL or freelist.
+  Property-tested: after redact, seeded secrets are undetectable anywhere
+  in `hh.db` or the blob store.
+- **`hh export [session] [--out FILE] [--html] [--no-redact]`**: exports a
+  session as a `schema:1` JSON bundle or a self-contained HTML page.
+  **Redacted by default, always** — the whole bundle passes through one
+  redaction chokepoint before a byte is written. `--no-redact` requires an
+  interactive typed confirmation and is refused on a non-TTY stdin (no
+  bypass flag, by design).
+- **Record-time redaction** (opt-in, config `[redaction] at_record = true`):
+  matches are scrubbed *before hitting disk* — event summaries/bodies on
+  the writer task, blob content before hashing/compression.
+- New docs: `docs/redaction.md` (threat model, what is/isn't caught,
+  config), `docs/redaction-design.md` (invariants), and a repo-root
+  `SECURITY.md` with the disclosure policy.
+- New dependency: `regex` (linear-time matching — no catastrophic
+  backtracking on hostile recorded input).
+
 ### Diagnostics
 - A degraded Claude Code adapter session now self-documents in the database,
   not just on stderr: the specific degrade reason is persisted as an `error`

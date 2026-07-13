@@ -70,7 +70,15 @@ pub fn parse_bytes(input: &str) -> std::result::Result<u64, String> {
 }
 
 /// Replay color theme (SRS §4.2 `[replay] theme`).
+///
+/// `#[non_exhaustive]`: this and the other config types below are the crate's
+/// growth-prone public surface — new `[section]` keys/variants are expected
+/// over time (CLAUDE.md v1.0.0 addendum: additive-only). Marking them
+/// non-exhaustive up front means a future added key/variant stays additive
+/// under `cargo-semver-checks --release-type minor` instead of registering as
+/// a break, matching what the check is actually meant to enforce.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize, Default)]
+#[non_exhaustive]
 #[serde(rename_all = "lowercase")]
 pub enum Theme {
     /// Follow the terminal's reported color scheme.
@@ -84,6 +92,7 @@ pub enum Theme {
 
 /// Record-time options (SRS §4.2 `[record]`).
 #[derive(Debug, Clone, PartialEq)]
+#[non_exhaustive]
 pub struct RecordConfig {
     /// Max file size to capture, in bytes (default 4 MiB).
     pub max_file_size: u64,
@@ -108,6 +117,7 @@ impl Default for RecordConfig {
 
 /// Storage options (SRS §4.2 `[storage]`).
 #[derive(Debug, Clone, Default, PartialEq)]
+#[non_exhaustive]
 pub struct StorageConfig {
     /// Data directory override; empty means platform default.
     pub data_dir: PathBuf,
@@ -115,13 +125,52 @@ pub struct StorageConfig {
 
 /// Replay options (SRS §4.2 `[replay]`).
 #[derive(Debug, Clone, PartialEq, Default)]
+#[non_exhaustive]
 pub struct ReplayConfig {
     /// Color theme.
     pub theme: Theme,
 }
 
+/// One user-defined secret detector (`[redaction] rules`, see
+/// docs/redaction-design.md). The `pattern` is compiled by
+/// [`crate::redact::Detectors::new`]; an invalid regex is an actionable error
+/// there, not a silent no-op.
+#[derive(Debug, Clone, PartialEq, Eq)]
+#[non_exhaustive]
+pub struct RedactionRule {
+    /// Short rule name; findings report as `custom:<name>`.
+    pub name: String,
+    /// The regex to match (Rust `regex` syntax, linear-time).
+    pub pattern: String,
+}
+
+/// Redaction options (`[redaction]`, docs/redaction-design.md).
+#[derive(Debug, Clone, PartialEq, Eq)]
+#[non_exhaustive]
+pub struct RedactionConfig {
+    /// Redact matches *before they hit disk* during recording (opt-in;
+    /// default off — sessions record raw locally, and export-time redaction
+    /// guards what leaves the machine).
+    pub at_record: bool,
+    /// Enable the conservative high-entropy string detector (default on).
+    pub entropy: bool,
+    /// User-defined detectors, applied in addition to the built-ins.
+    pub rules: Vec<RedactionRule>,
+}
+
+impl Default for RedactionConfig {
+    fn default() -> Self {
+        Self {
+            at_record: false,
+            entropy: true,
+            rules: Vec::new(),
+        }
+    }
+}
+
 /// The full configuration.
 #[derive(Debug, Clone, Default, PartialEq)]
+#[non_exhaustive]
 pub struct Config {
     /// `[record]`
     pub record: RecordConfig,
@@ -129,6 +178,8 @@ pub struct Config {
     pub storage: StorageConfig,
     /// `[replay]`
     pub replay: ReplayConfig,
+    /// `[redaction]`
+    pub redaction: RedactionConfig,
 }
 
 impl Config {
@@ -261,6 +312,7 @@ const KNOWN: &[(&str, &[&str])] = &[
     ),
     ("storage", &["data_dir"]),
     ("replay", &["theme"]),
+    ("redaction", &["at_record", "entropy", "rules"]),
 ];
 
 /// Walk the parsed table and warn on stderr about any key we do not recognize.
@@ -324,7 +376,60 @@ fn merge_table(cfg: &mut Config, table: &toml::Table) -> Result<()> {
             };
         }
     }
+    if let Some(redaction) = table.get("redaction").and_then(toml::Value::as_table) {
+        if let Some(v) = redaction.get("at_record").and_then(toml::Value::as_bool) {
+            cfg.redaction.at_record = v;
+        }
+        if let Some(v) = redaction.get("entropy").and_then(toml::Value::as_bool) {
+            cfg.redaction.entropy = v;
+        }
+        if let Some(v) = redaction.get("rules") {
+            cfg.redaction.rules = parse_redaction_rules(v)?;
+        }
+    }
     Ok(())
+}
+
+/// Parse `[redaction] rules` — an array of `{ name = "...", pattern = "..." }`
+/// tables. A malformed entry is an actionable error (silently dropping a
+/// user's detector would be a redaction hole, the opposite of "warn, never
+/// fail" — the *key* is known, its *value* is invalid).
+fn parse_redaction_rules(v: &toml::Value) -> Result<Vec<RedactionRule>> {
+    let Some(arr) = v.as_array() else {
+        return Err(ConfigError::Value(
+            "redaction.rules must be an array of { name, pattern } tables, e.g. \
+             rules = [{ name = \"acme\", pattern = \"ACME-[0-9A-F]{16}\" }]"
+                .into(),
+        )
+        .into());
+    };
+    let mut rules = Vec::with_capacity(arr.len());
+    for (i, entry) in arr.iter().enumerate() {
+        let table = entry.as_table().ok_or_else(|| {
+            ConfigError::Value(format!(
+                "redaction.rules[{i}] must be a table with string `name` and `pattern` keys"
+            ))
+        })?;
+        let name = table
+            .get("name")
+            .and_then(toml::Value::as_str)
+            .ok_or_else(|| {
+                ConfigError::Value(format!("redaction.rules[{i}] is missing a string `name`"))
+            })?;
+        let pattern = table
+            .get("pattern")
+            .and_then(toml::Value::as_str)
+            .ok_or_else(|| {
+                ConfigError::Value(format!(
+                    "redaction.rules[{i}] (`{name}`) is missing a string `pattern`"
+                ))
+            })?;
+        rules.push(RedactionRule {
+            name: name.to_string(),
+            pattern: pattern.to_string(),
+        });
+    }
+    Ok(rules)
 }
 
 fn value_to_bytes(v: &toml::Value) -> Result<u64> {
@@ -342,7 +447,12 @@ fn value_to_bytes(v: &toml::Value) -> Result<u64> {
 }
 
 /// Resolved on-disk locations for the Halfhand data directory.
+///
+/// `#[non_exhaustive]`: already only ever built via [`Paths::resolve`] /
+/// [`Paths::with_data_dir`], never a struct literal; this just makes that the
+/// enforced contract so a future resolved path is additive.
 #[derive(Debug, Clone, PartialEq, Eq)]
+#[non_exhaustive]
 pub struct Paths {
     /// The data directory itself (`$XDG_DATA_HOME/halfhand` by default).
     pub data_dir: PathBuf,
@@ -518,6 +628,49 @@ feature = \"x\"
         assert_eq!(cfg.record.max_file_size, 2 * 1024 * 1024);
         assert_eq!(cfg.storage.data_dir, PathBuf::from("/tmp/hh-unknown"));
         // Unknown keys were tolerated (no panic, no error).
+    }
+
+    #[test]
+    fn config_loads_redaction_section() {
+        let tmp = TempDir::new().unwrap();
+        let path = write_config(
+            tmp.path(),
+            "\
+[redaction]
+at_record = true
+entropy = false
+rules = [{ name = \"acme\", pattern = \"ACME-[0-9A-F]{16}\" }]
+",
+        );
+        let cfg = Config::load(&path).unwrap();
+        assert!(cfg.redaction.at_record);
+        assert!(!cfg.redaction.entropy);
+        assert_eq!(
+            cfg.redaction.rules,
+            vec![RedactionRule {
+                name: "acme".into(),
+                pattern: "ACME-[0-9A-F]{16}".into(),
+            }]
+        );
+        // Defaults: off, entropy on, no rules.
+        let d = RedactionConfig::default();
+        assert!(!d.at_record);
+        assert!(d.entropy);
+        assert!(d.rules.is_empty());
+    }
+
+    #[test]
+    fn config_malformed_redaction_rules_error_actionably() {
+        let tmp = TempDir::new().unwrap();
+        // A rules entry missing `pattern` must be an error (a silently dropped
+        // detector is a redaction hole), naming the rule.
+        let path = write_config(tmp.path(), "[redaction]\nrules = [{ name = \"acme\" }]\n");
+        let err = Config::load(&path).unwrap_err().to_string();
+        assert!(err.contains("acme"), "must name the rule: {err}");
+        // Non-array rules value.
+        let path2 = write_config(tmp.path(), "[redaction]\nrules = \"nope\"\n");
+        let err2 = Config::load(&path2).unwrap_err().to_string();
+        assert!(err2.contains("array"), "must explain the shape: {err2}");
     }
 
     #[test]

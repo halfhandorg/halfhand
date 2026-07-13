@@ -61,6 +61,10 @@ pub struct RunOptions {
     pub internal_exclude: Vec<PathBuf>,
     /// `hh` version string (FR-1.2).
     pub hh_version: String,
+    /// Record-time redactor (`[redaction] at_record`, docs/redaction-design.md):
+    /// when set, event summaries/bodies are redacted by the writer task and
+    /// blob content by the redacting blob store, before anything hits disk.
+    pub redactor: Option<Arc<hh_core::redact::Detectors>>,
 }
 
 /// The outcome of a finished recording (FR-1.6).
@@ -184,7 +188,9 @@ pub fn run(store: &Store, opts: &RunOptions) -> crate::Result<RunOutcome> {
     let created = store.create_session(&new_session)?;
     let session_id = created.id;
     let short_id = created.short_id;
-    let writer = Arc::new(Mutex::new(store.event_writer()?));
+    let writer = Arc::new(Mutex::new(
+        store.event_writer_with_redactor(opts.redactor.clone())?,
+    ));
 
     // --- FS watcher (FR-1.4) --------------------------------------------
     let watch_opts = WatchOptions {
@@ -194,7 +200,7 @@ pub fn run(store: &Store, opts: &RunOptions) -> crate::Result<RunOutcome> {
         extra_ignore: opts.extra_ignore.clone(),
         internal_exclude: opts.internal_exclude.clone(),
     };
-    let blobs = Arc::new(BlobStore::new(store.blobs().root().to_path_buf()));
+    let blobs = Arc::new(crate::make_blob_store(store, opts.redactor.clone()));
     // FR-1.5 best-effort: a watcher that cannot be set up (e.g. an unreadable
     // subdir under cwd) degrades to `None` with a stderr warning rather than
     // aborting the whole recording — PTY + adapter capture continue.

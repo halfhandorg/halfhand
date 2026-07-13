@@ -7,9 +7,11 @@
 include!(concat!(env!("OUT_DIR"), "/hh_version.rs"));
 
 mod cli;
+mod export;
 mod inspect;
 mod render;
 mod replay;
+mod secrets;
 
 use std::io::IsTerminal;
 use std::path::PathBuf;
@@ -28,9 +30,43 @@ fn main() -> ExitCode {
         Ok(code) => code,
         Err(e) => {
             print_error(&e);
-            ExitCode::from(1)
+            // Exit-code contract (CLAUDE.md / README): 3 = session not
+            // found, 1 = any other error. clap emits 2 for usage errors on
+            // its own; `hh scan` returns 4 itself when findings exist.
+            if e.chain()
+                .any(|c| c.downcast_ref::<SessionNotFound>().is_some())
+            {
+                ExitCode::from(3)
+            } else {
+                ExitCode::from(1)
+            }
         }
     }
+}
+
+/// Typed marker for "the session argument did not resolve", so [`main`] can
+/// map it to exit code 3 without string-matching error text. Carries the
+/// full, already-formatted actionable message.
+#[derive(Debug)]
+struct SessionNotFound(String);
+
+impl std::fmt::Display for SessionNotFound {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str(&self.0)
+    }
+}
+
+impl std::error::Error for SessionNotFound {}
+
+/// Resolve a session id/`last` argument, mapping failure to the typed
+/// [`SessionNotFound`] (exit code 3) with the same actionable message every
+/// subcommand used before. Shared by every session-taking subcommand.
+fn resolve_session_arg(store: &Store, hint: &str) -> anyhow::Result<String> {
+    store.resolve_session(hint).map_err(|e| {
+        anyhow::Error::new(SessionNotFound(format!(
+            "could not resolve session `{hint}`\n  why: {e}"
+        )))
+    })
 }
 
 fn run(cli: Cli) -> anyhow::Result<ExitCode> {
@@ -44,6 +80,9 @@ fn run(cli: Cli) -> anyhow::Result<ExitCode> {
         Command::Doctor(args) => doctor_command(&args),
         Command::Gc(args) => gc_command(&args),
         Command::Stats(args) => stats_command(&args),
+        Command::Scan(args) => secrets::scan_command(&args),
+        Command::Redact(args) => secrets::redact_command(&args),
+        Command::Export(args) => export::export_command(&args),
     }
 }
 
@@ -92,6 +131,21 @@ fn open_store() -> anyhow::Result<(Store, Paths, Config)> {
     Ok((store, paths, config))
 }
 
+/// Build the record-time redactor when `[redaction] at_record = true`
+/// (docs/redaction-design.md enforcement point 1), `None` otherwise. An
+/// invalid user rule is an actionable error — recording *without* a detector
+/// the user configured would be a silent redaction hole.
+fn record_redactor(
+    config: &hh_core::Config,
+) -> anyhow::Result<Option<std::sync::Arc<hh_core::Detectors>>> {
+    if !config.redaction.at_record {
+        return Ok(None);
+    }
+    let detectors = hh_core::Detectors::new(&config.redaction)
+        .map_err(|e| anyhow::anyhow!("could not compile redaction detectors\n  why: {e}"))?;
+    Ok(Some(std::sync::Arc::new(detectors)))
+}
+
 /// `hh run` (FR-1): record an agent session.
 fn run_command(args: cli::RunArgs) -> anyhow::Result<ExitCode> {
     let (store, paths, config) = open_store()?;
@@ -110,9 +164,10 @@ fn run_command(args: cli::RunArgs) -> anyhow::Result<ExitCode> {
         max_file_size: config.record.max_file_size,
         record_input: args.record_input || config.record.record_input,
         record_binary: config.record.record_binary,
-        extra_ignore: config.record.ignore,
+        extra_ignore: config.record.ignore.clone(),
         internal_exclude,
         hh_version: HH_VERSION.to_string(),
+        redactor: record_redactor(&config)?,
     };
 
     let outcome = hh_record::run(&store, &opts)
@@ -138,9 +193,7 @@ fn replay_command(args: &cli::ReplayArgs) -> anyhow::Result<ExitCode> {
     }
     let (store, _paths, _config) = open_store()?;
     let hint = args.session.as_deref().unwrap_or("last");
-    let session_id = store
-        .resolve_session(hint)
-        .map_err(|e| anyhow::anyhow!("could not resolve session `{hint}`\n  why: {e}"))?;
+    let session_id = resolve_session_arg(&store, hint)?;
     let session = store
         .get_session(&session_id)
         .map_err(|e| anyhow::anyhow!("could not load session\n  why: {e}"))?;
@@ -156,7 +209,7 @@ fn replay_command(args: &cli::ReplayArgs) -> anyhow::Result<ExitCode> {
 /// records each message as an event, attaching to `HH_SESSION_ID` if present or
 /// creating a standalone `mcp-only` session.
 fn mcp_proxy_command(args: cli::McpProxyArgs) -> anyhow::Result<ExitCode> {
-    let (store, _paths, _config) = open_store()?;
+    let (store, _paths, config) = open_store()?;
     let cwd = std::env::current_dir()
         .map_err(|e| anyhow::anyhow!("could not determine current directory\n  why: {e}\n  hint: run `hh` from a directory that exists and is accessible"))?;
     let opts = hh_record::McpProxyOptions {
@@ -164,6 +217,7 @@ fn mcp_proxy_command(args: cli::McpProxyArgs) -> anyhow::Result<ExitCode> {
         cwd,
         session_hint: args.session_hint,
         hh_version: HH_VERSION.to_string(),
+        redactor: record_redactor(&config)?,
     };
     let outcome = hh_record::run_mcp_proxy(&store, &opts)
         .map_err(|e| anyhow::anyhow!("mcp proxy failed\n  why: {e}"))?;
@@ -737,9 +791,7 @@ fn list_command(args: &cli::ListArgs) -> anyhow::Result<ExitCode> {
 /// silently destroys data (NFR-4 / actionable errors).
 fn delete_command(args: &cli::DeleteArgs) -> anyhow::Result<ExitCode> {
     let (store, _paths, _config) = open_store()?;
-    let id = store
-        .resolve_session(&args.session)
-        .map_err(|e| anyhow::anyhow!("could not resolve session `{}`\n  why: {e}", args.session))?;
+    let id = resolve_session_arg(&store, &args.session)?;
     let session = store
         .get_session(&id)
         .map_err(|e| anyhow::anyhow!("could not load session\n  why: {e}"))?;

@@ -55,6 +55,10 @@ pub struct McpProxyOptions {
     pub session_hint: Option<String>,
     /// `hh` version string (FR-1.2).
     pub hh_version: String,
+    /// Record-time redactor (`[redaction] at_record`, docs/redaction-design.md):
+    /// when set, event summaries/bodies are redacted by the writer task and
+    /// blob content by the redacting blob store, before anything hits disk.
+    pub redactor: Option<Arc<hh_core::redact::Detectors>>,
 }
 
 /// The outcome of a finished proxy run (FR-2).
@@ -131,11 +135,12 @@ pub fn run_mcp_proxy(store: &Store, opts: &McpProxyOptions) -> crate::Result<Mcp
         (created.id, created.short_id, now, false)
     };
 
-    let writer =
-        Arc::new(Mutex::new(store.event_writer().map_err(|e| {
-            crate::RecordError::Mcp(format!("open event writer: {e}"))
-        })?));
-    let blobs = Arc::new(BlobStore::new(store.blobs().root().to_path_buf()));
+    let writer = Arc::new(Mutex::new(
+        store
+            .event_writer_with_redactor(opts.redactor.clone())
+            .map_err(|e| crate::RecordError::Mcp(format!("open event writer: {e}")))?,
+    ));
+    let blobs = Arc::new(crate::make_blob_store(store, opts.redactor.clone()));
     // JSON-RPC id (string repr) → (request event id, request unix-ms ts).
     let pending: Arc<Mutex<HashMap<String, (i64, i64)>>> = Arc::new(Mutex::new(HashMap::new()));
     let stop = Arc::new(AtomicBool::new(false));
