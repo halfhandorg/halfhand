@@ -12,6 +12,7 @@ mod import;
 mod inspect;
 mod render;
 mod replay;
+mod search;
 mod secrets;
 
 use std::io::IsTerminal;
@@ -85,6 +86,7 @@ fn run(cli: Cli) -> anyhow::Result<ExitCode> {
         Command::Redact(args) => secrets::redact_command(&args),
         Command::Export(args) => export::export_command(&args),
         Command::Import(args) => import::import_command(&args),
+        Command::Search(args) => search::search_command(&args),
     }
 }
 
@@ -793,17 +795,23 @@ fn print_epilogue(outcome: &hh_record::RunOutcome) {
         }
     }
 
-    // 0-steps guard: a claude-code session that ran an adapter but captured no
-    // steps over >60 s almost certainly means the adapter never found the
-    // transcript (the original silent-breakage symptom). Tell the user plainly.
-    if outcome.agent_kind == AgentKind::ClaudeCode
+    // 0-steps guard: a structured-adapter session that ran an adapter but
+    // captured no steps over >60 s almost certainly means the adapter never
+    // found the transcript (the original silent-breakage symptom). Tell the
+    // user plainly.
+    let is_adapter_active = matches!(
+        outcome.agent_kind,
+        AgentKind::ClaudeCode | AgentKind::CodexCli | AgentKind::GeminiCli
+    );
+    if is_adapter_active
         && outcome.adapter_status != AdapterStatus::None
         && outcome.steps == 0
         && outcome.duration_ms > 60_000
     {
         eprintln!(
-            "hh: warning: recorded 0 steps for a claude-code session over {} \
+            "hh: warning: recorded 0 steps for a {} session over {} \
              — the adapter may be broken; run `hh doctor`",
+            outcome.agent_kind,
             render::humanize_ms(outcome.duration_ms)
         );
     }

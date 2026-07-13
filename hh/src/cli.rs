@@ -124,6 +124,17 @@ pub enum Command {
     /// tampered bundle with a precise error.
     #[command(after_help = "Example:\n  hh import session.hh")]
     Import(ImportArgs),
+
+    /// Search recorded sessions for text matches (FTS5 full-text search).
+    ///
+    /// Searches event summaries and message bodies across all sessions.
+    /// Results show the session, step, event kind, and a highlighted snippet.
+    /// Supports FTS5 query syntax: words, phrases in quotes, prefix with `*`,
+    /// AND/OR/NOT operators.
+    #[command(
+        after_help = "Example:\n  hh search \"error\"\n  hh search \"create file\" --kind tool_call\n  hh search \"api key\" --agent claude-code --json"
+    )]
+    Search(SearchArgs),
 }
 
 /// Arguments for `hh scan`.
@@ -183,6 +194,37 @@ pub struct ExportArgs {
 pub struct ImportArgs {
     /// Path to a bundle produced by `hh export --bundle`.
     pub file: std::path::PathBuf,
+}
+
+/// Arguments for `hh search`.
+#[derive(Args, Debug)]
+pub struct SearchArgs {
+    /// The FTS5 search query (words, phrases, prefix with `*`, AND/OR/NOT).
+    pub query: String,
+
+    /// Filter by agent kind (claude-code, codex-cli, gemini-cli, generic, mcp-only).
+    #[arg(long)]
+    pub agent: Option<String>,
+
+    /// Filter by event kind (user_message, agent_message, tool_call, etc.).
+    #[arg(long)]
+    pub kind: Option<String>,
+
+    /// Only sessions started after this unix-ms timestamp.
+    #[arg(long)]
+    pub since: Option<i64>,
+
+    /// Only sessions whose cwd contains this path fragment.
+    #[arg(long)]
+    pub path: Option<String>,
+
+    /// Maximum results (default 50).
+    #[arg(long, default_value_t = 50)]
+    pub limit: u32,
+
+    /// Emit JSON instead of a table.
+    #[arg(long)]
+    pub json: bool,
 }
 
 /// Arguments for `hh doctor`.

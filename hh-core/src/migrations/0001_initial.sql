@@ -13,7 +13,7 @@ CREATE TABLE sessions (
   exit_code     INTEGER,
   status        TEXT NOT NULL DEFAULT 'recording',
                  -- recording | ok | error | interrupted
-  agent_kind    TEXT NOT NULL,             -- claude-code | generic | mcp-only
+  agent_kind    TEXT NOT NULL,             -- claude-code | codex-cli | gemini-cli | generic | mcp-only
   adapter_status TEXT NOT NULL DEFAULT 'none', -- none | active | degraded
   command       TEXT NOT NULL,             -- JSON array of argv
   cwd           TEXT NOT NULL,

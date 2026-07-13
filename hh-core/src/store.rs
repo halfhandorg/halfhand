@@ -14,6 +14,7 @@ use crate::event::{
 };
 use crate::step::assign_steps as assign_steps_pass;
 use rusqlite::{params, Connection, OpenFlags, OptionalExtension};
+use serde::Serialize;
 use std::fs;
 use std::path::{Path, PathBuf};
 use std::sync::mpsc::{self, Receiver, Sender};
@@ -198,6 +199,91 @@ pub struct RedactOutcome {
     pub secrets: Vec<SecretSummary>,
     /// Row id of the appended redaction audit event.
     pub audit_event_id: i64,
+}
+
+/// A search result from FTS5 full-text search.
+#[derive(Debug, Clone, Serialize)]
+pub struct SearchResult {
+    /// The matching event's row id.
+    pub event_id: i64,
+    /// The owning session's full UUID.
+    pub session_id: String,
+    /// The owning session's 6-hex-char short id.
+    pub session_short_id: String,
+    /// The event's step ordinal, if any.
+    pub step: Option<i64>,
+    /// The event kind.
+    pub kind: EventKind,
+    /// The event's one-line summary.
+    pub summary: String,
+    /// A highlighted snippet from the FTS5 `snippet()` function, with `<b>`
+    /// and `</b>` markers around matching terms.
+    pub snippet: String,
+    /// Milliseconds since session start.
+    pub ts_ms: i64,
+}
+
+/// Filters for [`Store::search`].
+#[derive(Debug, Default)]
+pub struct SearchFilters {
+    /// Restrict to sessions with this agent kind.
+    pub agent_kind: Option<AgentKind>,
+    /// Restrict to events of this kind.
+    pub event_kind: Option<EventKind>,
+    /// Only sessions started after this unix-ms timestamp.
+    pub since: Option<i64>,
+    /// Only sessions whose cwd contains this path fragment.
+    pub path: Option<String>,
+    /// Maximum results (default 50).
+    pub limit: u32,
+}
+
+/// Extract searchable text from an event's `body_json` for FTS5 indexing.
+/// Returns a flat text string suitable for full-text search.
+fn extract_fts_text(body_json: Option<&serde_json::Value>) -> String {
+    let Some(body) = body_json else {
+        return String::new();
+    };
+    match body {
+        serde_json::Value::Object(obj) => {
+            // Text events: extract `text` field
+            if let Some(text) = obj.get("text").and_then(|v| v.as_str()) {
+                return text.to_string();
+            }
+            // Tool calls: extract `name` + `input`
+            if let Some(name) = obj.get("name").and_then(|v| v.as_str()) {
+                let mut text = format!("tool_call: {name}");
+                if let Some(input) = obj.get("input") {
+                    if let Some(input_str) = input.as_str() {
+                        text.push_str(" input: ");
+                        text.push_str(input_str);
+                    } else if let Some(input_obj) = input.as_object() {
+                        if let Some(cmd) = input_obj.get("command").and_then(|v| v.as_str()) {
+                            text.push_str(" command: ");
+                            text.push_str(cmd);
+                        }
+                    }
+                }
+                return text;
+            }
+            // Tool results: extract `content`
+            if let Some(content) = obj.get("content").and_then(|v| v.as_str()) {
+                return content.to_string();
+            }
+            // Error events: extract `reason`
+            if let Some(reason) = obj.get("reason").and_then(|v| v.as_str()) {
+                return reason.to_string();
+            }
+            // Overflow envelopes: no searchable text
+            if obj.get("overflow").and_then(serde_json::Value::as_bool).unwrap_or(false) {
+                return String::new();
+            }
+            // Fallback: pretty-print the JSON (capped)
+            serde_json::to_string(body).unwrap_or_default()
+        }
+        serde_json::Value::String(s) => s.clone(),
+        _ => String::new(),
+    }
 }
 
 /// One event row as read by [`Store::scan_session`] (summary + inline body +
@@ -624,6 +710,77 @@ impl Store {
         Ok(short_id)
     }
 
+    /// Search events across all sessions using FTS5 full-text search.
+    /// Returns matching events with highlighted snippets, ordered by session
+    /// start time descending then event timestamp ascending.
+    ///
+    /// The `query` parameter uses FTS5 query syntax: words, phrases in quotes,
+    /// prefix with `*`, AND/OR/NOT operators. An empty query returns no results.
+    pub fn search(&self, query: &str, filters: &SearchFilters) -> Result<Vec<SearchResult>> {
+        if query.trim().is_empty() {
+            return Ok(Vec::new());
+        }
+        let limit = i64::from(filters.limit.clamp(1, 500));
+        let agent_kind = filters
+            .agent_kind
+            .as_ref()
+            .map(AgentKind::to_string);
+        let event_kind = filters
+            .event_kind
+            .as_ref()
+            .map(EventKind::to_string);
+
+        let sql = "SELECT e.id, e.session_id, s.short_id, e.step, e.kind, e.summary,
+                   snippet(events_fts, 2, '<b>', '</b>', '...', 32) AS snippet,
+                   e.ts_ms
+            FROM events_fts
+            JOIN events e ON e.id = events_fts.rowid
+            JOIN sessions s ON s.id = e.session_id
+            WHERE events_fts MATCH ?1
+              AND (?2 IS NULL OR s.agent_kind = ?2)
+              AND (?3 IS NULL OR e.kind = ?3)
+              AND (?4 IS NULL OR s.started_at >= ?4)
+              AND (?5 IS NULL OR s.cwd LIKE '%' || ?5 || '%')
+            ORDER BY s.started_at DESC, e.ts_ms ASC
+            LIMIT ?6";
+
+        let mut stmt = self
+            .conn
+            .prepare(sql)
+            .map_err(StorageError::Sqlite)?;
+        let rows = stmt.query_map(
+            params![
+                query,
+                agent_kind,
+                event_kind,
+                filters.since,
+                filters.path,
+                limit,
+            ],
+            |r| {
+                let kind_str: String = r.get(4)?;
+                let kind = kind_str.parse().unwrap_or(EventKind::AgentMessage);
+                Ok(SearchResult {
+                    event_id: r.get(0)?,
+                    session_id: r.get(1)?,
+                    session_short_id: r.get(2)?,
+                    step: r.get(3)?,
+                    kind,
+                    summary: r.get(5)?,
+                    snippet: r.get(6)?,
+                    ts_ms: r.get(7)?,
+                })
+            },
+        )
+        .map_err(StorageError::Sqlite)?;
+
+        let mut out = Vec::new();
+        for r in rows {
+            out.push(r.map_err(StorageError::Sqlite)?);
+        }
+        Ok(out)
+    }
+
     /// Delete a session and garbage-collect blobs no longer referenced by any
     /// event (FR-6.1). Returns the number of blob files removed.
     ///
@@ -656,6 +813,12 @@ impl Store {
             v
         };
         let tx = self.conn.unchecked_transaction()?;
+        // Clean up the FTS5 index for this session's events before the cascade
+        // deletes the events (FTS rows are not cascade-deleted).
+        tx.execute(
+            "DELETE FROM events_fts WHERE rowid IN (SELECT id FROM events WHERE session_id = ?1)",
+            params![id],
+        )?;
         // Decrement refcounts by the per-blob reference count, GC'ing any blob
         // that reaches zero (content-addressed, so a blob still referenced by
         // another session stays on disk).
@@ -908,14 +1071,14 @@ impl Store {
                     }),
                 }
             });
-            if let Some(s) = new_summary {
+            if let Some(ref s) = new_summary {
                 tx.execute(
                     "UPDATE events SET summary = ?1 WHERE id = ?2",
                     params![s, event_id],
                 )?;
                 touched = true;
             }
-            if let Some(b) = new_body {
+            if let Some(ref b) = new_body {
                 tx.execute(
                     "UPDATE events SET body_json = ?1 WHERE id = ?2",
                     params![b, event_id],
@@ -924,6 +1087,16 @@ impl Store {
             }
             if touched {
                 events_rewritten += 1;
+                // Update the FTS5 index with the redacted summary/body.
+                // Parse the new body back to a Value for text extraction.
+                let new_body_value: Option<serde_json::Value> = new_body
+                    .as_deref()
+                    .and_then(|s| serde_json::from_str(s).ok());
+                let body_text = extract_fts_text(new_body_value.as_ref());
+                let _ = tx.execute(
+                    "UPDATE events_fts SET summary = ?1, body_text = ?2 WHERE rowid = ?3",
+                    params![new_summary.as_deref().unwrap_or(summary.as_str()), body_text, event_id],
+                );
             }
         }
 
@@ -1880,7 +2053,22 @@ fn insert_event(conn: &Connection, event: &Event) -> std::result::Result<i64, St
             event.correlates,
         ],
     )?;
-    Ok(conn.last_insert_rowid())
+    let new_id = conn.last_insert_rowid();
+    // Maintain the FTS5 index: insert a row for every new event.
+    let body_text = extract_fts_text(event.body_json.as_ref());
+    let _ = conn.execute(
+        "INSERT INTO events_fts (rowid, session_id, summary, body_text, kind, step)
+         VALUES (?1, ?2, ?3, ?4, ?5, ?6)",
+        params![
+            new_id,
+            event.session_id,
+            event.summary,
+            body_text,
+            event.kind.to_string(),
+            event.step,
+        ],
+    );
+    Ok(new_id)
 }
 
 /// Insert an event and its attached `file_changes` row in one transaction
@@ -1924,6 +2112,20 @@ fn insert_event_with_file_change(
         ],
     )?;
     let event_id = tx.last_insert_rowid();
+    // Maintain the FTS5 index: insert a row for every new event.
+    let body_text = extract_fts_text(event.body_json.as_ref());
+    let _ = tx.execute(
+        "INSERT INTO events_fts (rowid, session_id, summary, body_text, kind, step)
+         VALUES (?1, ?2, ?3, ?4, ?5, ?6)",
+        params![
+            event_id,
+            event.session_id,
+            event.summary,
+            body_text,
+            event.kind.to_string(),
+            event.step,
+        ],
+    );
     tx.execute(
         "INSERT INTO file_changes (event_id, path, change_kind, before_hash, after_hash, is_binary)
          VALUES (?1, ?2, ?3, ?4, ?5, ?6)",

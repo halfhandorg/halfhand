@@ -101,3 +101,7 @@ harness = false
 name = "adapter_jsonl"
 harness = false
 required-features = ["fuzzing"]
+
+[[bench]]
+name = "search"
+harness = false
