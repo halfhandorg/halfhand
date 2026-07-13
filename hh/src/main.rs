@@ -1120,23 +1120,27 @@ mod tests {
     use std::path::PathBuf;
 
     fn row(short: &str, status: SessionStatus, adapter: AdapterStatus, steps: i64) -> SessionRow {
-        SessionRow {
-            id: format!("00000000-0000-7000-8000-{short}"),
-            short_id: short.to_string(),
-            // 2026-07-10T12:00:00Z → a stable "started" so relative time is
-            // deterministic only if `now` is pinned; we pass a fixed `now`.
-            started_at: 1_782_052_800_000,
-            ended_at: Some(1_782_053_120_000),
-            exit_code: Some(0),
-            status,
-            agent_kind: AgentKind::ClaudeCode,
-            adapter_status: adapter,
-            command: vec!["claude".into()],
-            cwd: PathBuf::from("/tmp/work"),
-            step_count: steps,
-            imported_from: None,
-            files_changed: 7,
-        }
+        // `SessionRow` is `#[non_exhaustive]` (a growth-prone read model) —
+        // even `..SessionRow::default()` update syntax is a struct
+        // *expression* and is blocked cross-crate (E0639); plain field
+        // assignment on a `SessionRow::default()` is not, since the fields
+        // stay `pub`. This is the sanctioned pattern for external fixtures.
+        let mut r = SessionRow::default();
+        r.id = format!("00000000-0000-7000-8000-{short}");
+        r.short_id = short.to_string();
+        // 2026-07-10T12:00:00Z → a stable "started" so relative time is
+        // deterministic only if `now` is pinned; we pass a fixed `now`.
+        r.started_at = 1_782_052_800_000;
+        r.ended_at = Some(1_782_053_120_000);
+        r.exit_code = Some(0);
+        r.status = status;
+        r.agent_kind = AgentKind::ClaudeCode;
+        r.adapter_status = adapter;
+        r.command = vec!["claude".into()];
+        r.cwd = PathBuf::from("/tmp/work");
+        r.step_count = steps;
+        r.files_changed = 7;
+        r
     }
 
     #[test]

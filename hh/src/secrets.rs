@@ -295,21 +295,24 @@ mod tests {
     use std::path::PathBuf;
 
     fn session(short: &str) -> SessionRow {
-        SessionRow {
-            id: format!("00000000-0000-7000-8000-{short}000000"),
-            short_id: short.to_string(),
-            started_at: 1_782_052_800_000,
-            ended_at: Some(1_782_053_120_000),
-            exit_code: Some(0),
-            status: SessionStatus::Ok,
-            agent_kind: AgentKind::Generic,
-            adapter_status: AdapterStatus::None,
-            command: vec!["agent".into()],
-            cwd: PathBuf::from("/tmp/work"),
-            step_count: 12,
-            files_changed: 2,
-            imported_from: None,
-        }
+        // `SessionRow` is `#[non_exhaustive]`; see the comment in
+        // `hh/src/main.rs`'s `row()` fixture for why this uses
+        // `SessionRow::default()` + field assignment rather than a struct
+        // literal (even with `..` update syntax).
+        let mut r = SessionRow::default();
+        r.id = format!("00000000-0000-7000-8000-{short}000000");
+        r.short_id = short.to_string();
+        r.started_at = 1_782_052_800_000;
+        r.ended_at = Some(1_782_053_120_000);
+        r.exit_code = Some(0);
+        r.status = SessionStatus::Ok;
+        r.agent_kind = AgentKind::Generic;
+        r.adapter_status = AdapterStatus::None;
+        r.command = vec!["agent".into()];
+        r.cwd = PathBuf::from("/tmp/work");
+        r.step_count = 12;
+        r.files_changed = 2;
+        r
     }
 
     /// `hh scan` plain output: the per-session block with an aligned findings

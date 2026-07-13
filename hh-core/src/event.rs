@@ -268,7 +268,19 @@ impl NewSession {
 }
 
 /// A session row as read back from the DB.
+///
+/// `#[non_exhaustive]`: this is a growth-prone read model (this PR adds
+/// `imported_from`; more fields — `hostname`/`model`/`git_*`, none of which
+/// `SessionRow` exposes today — are a plausible future addition). Marking it
+/// non-exhaustive now means a future added field stays additive under
+/// `cargo-semver-checks --release-type minor` instead of registering as a
+/// break, matching the precedent set for `Config`/the error enums. External
+/// construction goes through [`Default`] + functional-record-update
+/// (`SessionRow { field: value, ..SessionRow::default() }`), which — unlike
+/// a struct literal naming every field — stays valid across a
+/// `#[non_exhaustive]` boundary; `hh`'s own test fixtures use this pattern.
 #[derive(Debug, Clone)]
+#[non_exhaustive]
 pub struct SessionRow {
     /// Full UUID string.
     pub id: String,
@@ -298,6 +310,32 @@ pub struct SessionRow {
     /// or `None` for a locally-recorded session (SRS v1.0.0 addendum: additive
     /// column, migration 0003).
     pub imported_from: Option<String>,
+}
+
+impl Default for SessionRow {
+    /// Neutral placeholder values — the sanctioned way to build a
+    /// `#[non_exhaustive]` `SessionRow` from outside this crate is
+    /// `SessionRow { field: value, ..SessionRow::default() }`, not a full
+    /// struct literal. Real rows always come from [`crate::store::Store`]
+    /// queries; this exists for that FRU pattern (test fixtures today, any
+    /// future caller tomorrow), not for direct use.
+    fn default() -> Self {
+        Self {
+            id: String::new(),
+            short_id: String::new(),
+            started_at: 0,
+            ended_at: None,
+            exit_code: None,
+            status: SessionStatus::Recording,
+            agent_kind: AgentKind::Generic,
+            adapter_status: AdapterStatus::None,
+            command: Vec::new(),
+            cwd: PathBuf::new(),
+            step_count: 0,
+            files_changed: 0,
+            imported_from: None,
+        }
+    }
 }
 
 /// An event to append to a session (SRS §4.1 `events`).
