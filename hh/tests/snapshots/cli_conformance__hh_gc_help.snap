@@ -1,0 +1,17 @@
+---
+source: hh/tests/cli_conformance.rs
+expression: "String::from_utf8_lossy(&out.stdout)"
+---
+Reclaim disk space: prune orphaned blobs and vacuum the database (Area 3)
+
+Usage: hh gc [OPTIONS]
+
+Options:
+      --no-vacuum  Skip the (slow, disk-hungry) VACUUM; only prune orphaned blob files and stale rows. VACUUM rebuilds `hh.db` and needs temporary free space, so use this on a nearly-full disk
+      --json       Emit machine-readable JSON instead of plain lines
+  -h, --help       Print help
+
+Example:
+  hh gc
+  hh gc --json
+  hh gc --no-vacuum

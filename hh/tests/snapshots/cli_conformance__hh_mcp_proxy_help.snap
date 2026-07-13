@@ -1,0 +1,18 @@
+---
+source: hh/tests/cli_conformance.rs
+expression: "String::from_utf8_lossy(&out.stdout)"
+---
+Run an MCP server behind a recording stdio proxy (SRS FR-2)
+
+Usage: hh mcp-proxy [OPTIONS] -- <COMMAND>...
+
+Arguments:
+  <COMMAND>...  The MCP server command and its arguments, after `--`
+
+Options:
+      --session-hint <SESSION_HINT>  A human-readable hint for a standalone mcp-only session. Accepted for forward compatibility but not yet persisted anywhere (no session-name column exists today) — it has no visible effect. See docs/mcp-proxy.md
+  -h, --help                         Print help
+
+Example:
+  hh mcp-proxy -- uvx my-mcp-server
+  hh mcp-proxy --session-hint api-server -- node server.js

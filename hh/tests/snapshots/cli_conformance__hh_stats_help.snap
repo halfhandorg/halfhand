@@ -1,0 +1,17 @@
+---
+source: hh/tests/cli_conformance.rs
+expression: "String::from_utf8_lossy(&out.stdout)"
+---
+Summarize the store: sessions, events, disk usage, largest sessions (Area 3)
+
+Usage: hh stats [OPTIONS]
+
+Options:
+      --top <TOP>  Number of largest sessions (by event count) to list [default: 5]
+      --json       Emit machine-readable JSON instead of a table
+  -h, --help       Print help
+
+Example:
+  hh stats
+  hh stats --json
+  hh stats --top 10

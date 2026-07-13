@@ -45,7 +45,7 @@ The search uses FTS5 query syntax:
 
 | Flag | Description |
 |------|-------------|
-| `--agent <kind>` | Filter by agent kind (`claude-code`, `codex-cli`, `gemini-cli`, `generic`) |
+| `--agent <kind>` | Filter by agent kind (`claude-code`, `claude-desktop`, `codex-cli`, `gemini-cli`, `generic`, `mcp-only`) |
 | `--kind <kind>` | Filter by event kind (`user_message`, `agent_message`, `tool_call`, etc.) |
 | `--since <ms>` | Only sessions started after this unix-ms timestamp |
 | `--path <path>` | Only sessions whose cwd contains this path fragment |

@@ -446,7 +446,7 @@ fn build_tar(manifest: &[u8], events: &[u8], blobs: &BTreeMap<String, Vec<u8>>) 
 fn session_to_bundle_json(row: &SessionRow) -> serde_json::Value {
     let duration_ms = row.ended_at.map(|end| (end - row.started_at).max(0));
     serde_json::json!({
-        "schema": 1,
+        "schema": crate::JSON_SCHEMA_VERSION,
         "id": row.id,
         "short_id": row.short_id,
         "status": row.status.to_string(),

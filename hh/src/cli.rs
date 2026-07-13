@@ -202,7 +202,7 @@ pub struct SearchArgs {
     /// The FTS5 search query (words, phrases, prefix with `*`, AND/OR/NOT).
     pub query: String,
 
-    /// Filter by agent kind (claude-code, codex-cli, gemini-cli, generic, mcp-only).
+    /// Filter by agent kind (claude-code, claude-desktop, codex-cli, gemini-cli, generic, mcp-only).
     #[arg(long)]
     pub agent: Option<String>,
 
@@ -243,7 +243,8 @@ pub struct RunArgs {
     #[arg(long)]
     pub record_input: bool,
 
-    /// Force an adapter rather than auto-detecting (`claude-code`).
+    /// Force an adapter rather than auto-detecting (`claude-code`,
+    /// `claude-desktop`, `codex-cli`, `gemini-cli`).
     #[arg(long)]
     pub adapter: Option<String>,
 
@@ -314,7 +315,9 @@ pub struct DeleteArgs {
 /// Arguments for `hh mcp-proxy`.
 #[derive(Args, Debug)]
 pub struct McpProxyArgs {
-    /// A human-readable hint stored as the session name for a standalone mcp-only session.
+    /// A human-readable hint for a standalone mcp-only session. Accepted for
+    /// forward compatibility but not yet persisted anywhere (no session-name
+    /// column exists today) — it has no visible effect. See docs/mcp-proxy.md.
     #[arg(long)]
     pub session_hint: Option<String>,
 

@@ -11,6 +11,71 @@ in CI rather than tracking `latest` until 1.0.
 
 ## [Unreleased]
 
+### Added — 1.0 stability groundwork
+- **`STABILITY.md`**: the 1.0 promise for CLI flags/exit codes (additive-only,
+  deprecate-before-remove), `--json` (schema frozen, additive-only, see
+  below), the on-disk DB (forward-only automatic migrations; `--json` and
+  `hh export` bundles — not raw SQL — are the supported programmatic
+  interface), MSRV (bumps are minor releases only), and hh-core's Rust API
+  (enforced today by the `cargo-semver-checks` CI job).
+- **JSON schema bumped to `schema:2`**, frozen for the 1.0 series: additive
+  changes (new fields, new enum values, new `body` shapes) no longer bump the
+  integer, reversing the beta-era policy. `schema:2` folds in drift that
+  shipped without a version bump in the previous entry below — three new
+  `agent_kind` values and the `redaction_audit` lifecycle body — documented
+  field-by-field with a diff from `schema:1` in `docs/json.md`. A new
+  `hh-core::event::JSON_SCHEMA_VERSION` constant is now the single source of
+  truth every JSON-emitting call site (including `hh-core::bundle`, for `hh
+  export --bundle`) reads from, replacing several independently hardcoded
+  `1`s.
+- **Docs/code reconciliation audit**: `README.md`'s command table was missing
+  `hh gc`/`hh stats`/`hh import`/`hh search` and still called the Codex/
+  Gemini/Claude Desktop adapters "planned for v0.2" after they'd shipped
+  (see the entry below); `docs/json.md`'s `agent_kind` table and
+  `docs/search.md`'s `--agent` filter list were missing `claude-desktop` (and
+  `docs/search.md` also missing `mcp-only`); `hh mcp-proxy --session-hint`'s
+  `--help` text implied it was stored when it is in fact accepted but not
+  yet persisted anywhere (now documented honestly in `docs/mcp-proxy.md`).
+- **`hh-core::deprecation::warn_deprecated`**: the standard stderr format for
+  a deprecation warning (`hh: warning: <what> is deprecated; <guidance>`),
+  deduplicated per unique warning id so a call site can never print more than
+  once per invocation. `Config::load`'s legacy `halfhand.toml`/`hh.toml`
+  fallback notice now goes through it.
+- **CLI conformance test** (`hh/tests/cli_conformance.rs`): snapshot-tests
+  `hh --help` and every `hh <sub> --help`, and asserts the documented exit
+  codes — `2` usage error, `3` session not found, `4` `hh scan` with
+  findings.
+
+### Added — Codex CLI, Gemini CLI, and Claude Desktop adapters; cross-session search (docs/search.md, docs/adr/0003-fts-index-strategy.md)
+- **Codex CLI adapter**: tails `~/.codex/sessions/YYYY/MM/DD/rollout-*.jsonl`,
+  converting `response_item` (message, reasoning, function_call,
+  custom_tool_call) and `event_msg` (user_message, agent_message,
+  token_count, exec_command_end) records to the same structured event model
+  as the Claude Code adapter (`agent_kind = codex-cli`).
+- **Gemini CLI adapter**: tails `~/.gemini/tmp/<hash>/chats/session-*.jsonl`,
+  converting `user`/`gemini` records (tool calls, thoughts, tokens)
+  (`agent_kind = gemini-cli`).
+- **Claude Desktop adapter**: reuses the Claude Code JSONL tailer/parser
+  (identical transcript format) under its own `agent_kind = claude-desktop`
+  so `hh list`/`hh inspect` distinguish the two.
+- Force any of the four with `hh run --adapter <claude-code|claude-desktop|
+  codex-cli|gemini-cli> -- <command>`; auto-detection matches on the wrapped
+  command's basename same as before.
+- **`hh search <query> [--agent] [--kind] [--since] [--path] [--limit]
+  [--json]`**: FTS5 full-text search across every recorded session's event
+  summaries and message bodies, with highlighted snippets in the table view.
+  Backed by a new `events_fts` virtual table (migration 0004, additive) kept
+  incrementally in sync by the writer thread on every append, and maintained
+  (rows removed) on `hh delete` and `hh redact` — a redacted secret is
+  provably not findable via search (property-tested). `--limit` defaults to
+  50, capped at 500.
+- Fuzz targets for the new Codex/Gemini JSONL parsers (`fuzz/fuzz_targets/
+  codex_jsonl.rs`, `gemini_jsonl.rs`) and a search benchmark (target <100ms
+  across 100 sessions × 1000 events).
+- `AgentKind` marked `#[non_exhaustive]` (new variants append at the end, so
+  existing discriminants don't shift); `cargo-semver-checks` CI excludes the
+  one-time `enum_marked_non_exhaustive` lint for it.
+
 ### Added — redaction pipeline (SRS §8, docs/redaction-design.md)
 - **Secret detection engine** (`hh-core::redact`): compiled detectors for
   AWS access key ids, GitHub/GitLab/Slack tokens, PEM private-key blocks

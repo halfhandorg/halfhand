@@ -1,0 +1,17 @@
+---
+source: hh/tests/cli_conformance.rs
+expression: "String::from_utf8_lossy(&out.stdout)"
+---
+List recorded sessions, newest first (SRS FR-5)
+
+Usage: hh list [OPTIONS]
+
+Options:
+      --limit <LIMIT>  Maximum number of sessions to print (default 20) [default: 20]
+      --json           Emit JSON instead of a table
+  -h, --help           Print help
+
+Example:
+  hh list
+  hh list --limit 50
+  hh list --json

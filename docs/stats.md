@@ -36,11 +36,11 @@ lists none but still reports the totals).
 
 ## `--json`
 
-`hh stats --json` emits a stable object (carrying `schema:1`):
+`hh stats --json` emits a stable object (carrying `schema:2`):
 
 ```jsonc
 {
-  "schema": 1,
+  "schema": 2,
   "sessions": 2,
   "events": 5,
   "blobs": {

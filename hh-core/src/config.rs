@@ -197,11 +197,14 @@ impl Config {
             Some(table) => Some(table),
             None => match legacy_fallback_path(config_path) {
                 Some(legacy) => {
-                    eprintln!(
-                        "hh: note: {legacy} is a deprecated config filename; rename it to \
-                         {canonical} (loading {legacy} for now so its settings take effect).",
-                        legacy = legacy.display(),
-                        canonical = config_path.display(),
+                    crate::deprecation::warn_deprecated(
+                        "legacy-config-filename",
+                        &format!("the config filename `{}`", legacy.display()),
+                        &format!(
+                            "rename it to `{}` (loading `{}` for now so its settings still take effect)",
+                            config_path.display(),
+                            legacy.display(),
+                        ),
                     );
                     read_or_default_config(&legacy)?
                 }

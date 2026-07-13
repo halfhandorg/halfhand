@@ -694,8 +694,8 @@ fn list_shows_aligned_table_and_json() {
     assert_eq!(arr.len(), 1);
     let obj = &arr[0];
     assert_eq!(
-        obj["schema"], 1,
-        "session object carries schema:1 (docs/json.md)"
+        obj["schema"], 2,
+        "session object carries schema:2 (docs/json.md)"
     );
     assert_eq!(obj["status"], "ok");
     assert_eq!(obj["agent_kind"], "generic");
@@ -1328,7 +1328,7 @@ fn claude_adapter_e2e() {
 /// AC-1 (automatable read-side): after a structured `claude` session is
 /// recorded, the read-side commands surface it correctly — `hh list --json`
 /// reports `agent_kind=claude-code`, and `hh inspect last --json` emits the
-/// structured events as NDJSON conforming to `docs/json.md` (`schema:1`), with
+/// structured events as NDJSON conforming to `docs/json.md` (`schema:2`), with
 /// at least one `tool_call`/`tool_result` pair. The live-API-key smoke against
 /// the genuine `claude` binary is the manual part of AC-1
 /// (`docs/manual-qa.md`); this test covers everything else.
@@ -1359,7 +1359,7 @@ fn inspect_and_list_on_claude_code_session() {
     assert_eq!(arr.len(), 1, "exactly one session expected: {parsed}");
     assert_eq!(arr[0]["agent_kind"], "claude-code");
     assert_eq!(arr[0]["adapter_status"], "active");
-    assert_eq!(arr[0]["schema"], 1, "session object carries schema:1");
+    assert_eq!(arr[0]["schema"], 2, "session object carries schema:2");
 
     // `hh inspect last --json` emits the structured events as NDJSON.
     let insp = hh()
@@ -1381,7 +1381,7 @@ fn inspect_and_list_on_claude_code_session() {
     for line in lines.lines() {
         let v: serde_json::Value =
             serde_json::from_str(line).expect("each NDJSON line is valid JSON");
-        assert_eq!(v["schema"], 1, "every event object carries schema:1: {v}");
+        assert_eq!(v["schema"], 2, "every event object carries schema:2: {v}");
         kinds.push(v["kind"].as_str().unwrap_or("").to_string());
     }
     assert!(
@@ -1715,7 +1715,7 @@ fn inspect_summary_lists_steps_and_step_detail_shows_body() {
     );
 
     // --json without --step is NDJSON: one JSON object per line, each with
-    // schema:1.
+    // schema:2.
     let j = hh()
         .args(["inspect", "last", "--json"])
         .env("HH_DATA_DIR", temp.data.path())
@@ -1734,7 +1734,7 @@ fn inspect_summary_lists_steps_and_step_detail_shows_body() {
     for line in lines.lines() {
         let v: serde_json::Value =
             serde_json::from_str(line).expect("each NDJSON line is valid JSON");
-        assert_eq!(v["schema"], 1, "every event object carries schema:1");
+        assert_eq!(v["schema"], 2, "every event object carries schema:2");
         assert!(v["kind"].is_string(), "every event object has a kind");
     }
 }
@@ -1756,7 +1756,7 @@ fn inspect_json_is_valid_against_jq() {
     assert_eq!(out.status.code(), Some(3));
 
     // NDJSON stream: jq -s slurps every line into an array; every object has
-    // schema:1 and a string kind.
+    // schema:2 and a string kind.
     let mut ndjson = hh()
         .args(["inspect", "last", "--json"])
         .env("HH_DATA_DIR", temp.data.path())
@@ -1767,7 +1767,7 @@ fn inspect_json_is_valid_against_jq() {
     let jq = std::process::Command::new("jq")
         .args([
             "-se",
-            "all(.schema == 1) and all(.kind | type == \"string\") and length >= 1",
+            "all(.schema == 2) and all(.kind | type == \"string\") and length >= 1",
         ])
         .stdin(ndjson_stdout)
         .output()
@@ -1784,7 +1784,7 @@ fn inspect_json_is_valid_against_jq() {
         String::from_utf8_lossy(&jq.stderr)
     );
 
-    // --step 1 --json is a single object with schema:1 and a .events array.
+    // --step 1 --json is a single object with schema:2 and a .events array.
     let mut step = hh()
         .args(["inspect", "last", "--step", "1", "--json"])
         .env("HH_DATA_DIR", temp.data.path())
@@ -1795,7 +1795,7 @@ fn inspect_json_is_valid_against_jq() {
     let jq2 = std::process::Command::new("jq")
         .args([
             "-e",
-            ".schema == 1 and (.events | type == \"array\") and .step == 1",
+            ".schema == 2 and (.events | type == \"array\") and .step == 1",
         ])
         .stdin(step_stdout)
         .output()
@@ -2093,7 +2093,7 @@ fn delete_shared_blob_survives_deleting_one_session() {
 
 /// `hh gc` prunes an orphaned blob file (a file written to disk but never
 /// referenced by an event — the crash-leftover case `hh delete` does not reach)
-/// and reports it in the epilogue. `--json` carries the stable `schema:1`.
+/// and reports it in the epilogue. `--json` carries the stable `schema:2`.
 #[test]
 fn gc_prunes_orphan_blobs_and_reports() {
     let temp = Temp::new();
@@ -2142,7 +2142,7 @@ fn gc_prunes_orphan_blobs_and_reports() {
         "the orphan blob must be removed by hh gc"
     );
 
-    // `hh gc --json` carries schema:1 and, on a now-clean store, zero counts.
+    // `hh gc --json` carries schema:2 and, on a now-clean store, zero counts.
     let j = hh()
         .args(["gc", "--json"])
         .env("HH_DATA_DIR", temp.data.path())
@@ -2150,7 +2150,7 @@ fn gc_prunes_orphan_blobs_and_reports() {
         .unwrap();
     assert!(j.status.success(), "hh gc --json failed");
     let v: serde_json::Value = serde_json::from_slice(&j.stdout).expect("gc --json valid");
-    assert_eq!(v["schema"], 1);
+    assert_eq!(v["schema"], 2);
     assert_eq!(v["vacuumed"], true, "default hh gc vacuums");
     assert_eq!(v["orphan_files_removed"], 0, "nothing left to prune");
 }
@@ -2182,7 +2182,7 @@ fn gc_no_vacuum_skips_vacuum() {
         .output()
         .unwrap();
     let v: serde_json::Value = serde_json::from_slice(&j.stdout).unwrap();
-    assert_eq!(v["schema"], 1);
+    assert_eq!(v["schema"], 2);
     assert_eq!(
         v["vacuumed"], false,
         "--no-vacuum must report vacuumed=false"
@@ -2190,7 +2190,7 @@ fn gc_no_vacuum_skips_vacuum() {
 }
 
 /// `hh stats` reports counts and the largest session; `--json` carries the
-/// stable `schema:1` with a `disk` breakdown and a `largest_sessions` array.
+/// stable `schema:2` with a `disk` breakdown and a `largest_sessions` array.
 #[test]
 fn stats_reports_counts_and_largest() {
     let temp = Temp::new();
@@ -2231,7 +2231,7 @@ fn stats_reports_counts_and_largest() {
         .unwrap();
     assert!(j.status.success());
     let v: serde_json::Value = serde_json::from_slice(&j.stdout).expect("stats --json valid");
-    assert_eq!(v["schema"], 1);
+    assert_eq!(v["schema"], 2);
     assert_eq!(v["sessions"], 1, "exactly one session recorded");
     assert!(
         v["events"].as_u64().unwrap() >= 1,
@@ -2350,7 +2350,7 @@ fn scan_reports_seeded_secrets_and_exits_4() {
         "scan --json must not leak secrets: {text}"
     );
     let v: serde_json::Value = serde_json::from_slice(&j.stdout).expect("valid JSON");
-    assert_eq!(v["schema"], 1);
+    assert_eq!(v["schema"], 2);
     assert!(v["total_findings"].as_u64().unwrap() >= 2);
     let findings = v["sessions"][0]["findings"].as_array().unwrap();
     let types: Vec<&str> = findings
@@ -2467,7 +2467,7 @@ fn export_is_redacted_by_default_and_no_redact_needs_a_tty() {
     assert!(text.contains("{{REDACTED:"), "tokens present: {text}");
     let v: serde_json::Value = serde_json::from_slice(&out.stdout).expect("valid JSON bundle");
     assert_eq!(v["kind"], "hh-export");
-    assert_eq!(v["schema"], 1);
+    assert_eq!(v["schema"], 2);
     assert!(v["events"].as_array().unwrap().len() > 1);
 
     // HTML export to a file: self-contained, redacted.

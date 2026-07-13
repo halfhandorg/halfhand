@@ -31,12 +31,12 @@ modes behind that class of silent breakage.
 
 ## `--json`
 
-`hh doctor --json` emits a stable, documented object (carrying `schema:1`)
+`hh doctor --json` emits a stable, documented object (carrying `schema:2`)
 with a `status` of `ok` or `fail` and a per-check array, for scripting / CI:
 
 ```jsonc
 {
-  "schema": 1,
+  "schema": 2,
   "status": "fail",
   "checks": [
     { "name": "data dir writable",        "status": "ok",   "detail": "…" },
