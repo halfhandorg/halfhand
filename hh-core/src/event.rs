@@ -53,6 +53,8 @@ impl FromStr for SessionStatus {
 pub enum AgentKind {
     /// Claude Code (structured adapter active).
     ClaudeCode,
+    /// Claude Desktop app (structured adapter active).
+    ClaudeDesktop,
     /// OpenAI Codex CLI (structured adapter active).
     CodexCli,
     /// Google Gemini CLI (structured adapter active).
@@ -67,6 +69,7 @@ impl fmt::Display for AgentKind {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.write_str(match self {
             Self::ClaudeCode => "claude-code",
+            Self::ClaudeDesktop => "claude-desktop",
             Self::CodexCli => "codex-cli",
             Self::GeminiCli => "gemini-cli",
             Self::Generic => "generic",
@@ -80,6 +83,7 @@ impl FromStr for AgentKind {
     fn from_str(s: &str) -> std::result::Result<Self, Self::Err> {
         match s {
             "claude-code" => Ok(Self::ClaudeCode),
+            "claude-desktop" => Ok(Self::ClaudeDesktop),
             "codex-cli" => Ok(Self::CodexCli),
             "gemini-cli" => Ok(Self::GeminiCli),
             "generic" => Ok(Self::Generic),

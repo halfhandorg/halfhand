@@ -37,6 +37,7 @@ pub fn detect_agent(command: &[String]) -> AgentKind {
         .to_ascii_lowercase();
     match stem.as_str() {
         "claude" => AgentKind::ClaudeCode,
+        "claude-desktop" => AgentKind::ClaudeDesktop,
         "codex" => AgentKind::CodexCli,
         "gemini" => AgentKind::GeminiCli,
         _ => AgentKind::Generic,

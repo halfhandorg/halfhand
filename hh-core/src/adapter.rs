@@ -146,13 +146,15 @@ pub trait Adapter: Send + 'static {
 }
 
 /// Detect which adapter applies to `command` (FR-1.5). Returns `None` for a
-/// generic agent (PTY-only capture). Detection order: Claude Code, Codex CLI,
-/// Gemini CLI — by the basename of `command[0]`. A forced adapter from
-/// `hh run --adapter` is resolved by the recorder, not here.
+/// generic agent (PTY-only capture). Detection order: Claude Code, Claude
+/// Desktop, Codex CLI, Gemini CLI — by the basename of `command[0]`. A forced
+/// adapter from `hh run --adapter` is resolved by the recorder, not here.
 #[must_use]
 pub fn select(command: &[String], _cwd: &Path) -> Option<Box<dyn Adapter>> {
     if is_claude_code(command) {
         Some(Box::new(ClaudeAdapter))
+    } else if is_claude_desktop(command) {
+        Some(Box::new(ClaudeDesktopAdapter))
     } else if is_codex_cli(command) {
         Some(Box::new(CodexAdapter))
     } else if is_gemini_cli(command) {
@@ -171,6 +173,7 @@ pub fn select(command: &[String], _cwd: &Path) -> Option<Box<dyn Adapter>> {
 pub fn resolve_override(name: &str) -> Option<Box<dyn Adapter>> {
     match name {
         "claude-code" => Some(Box::new(ClaudeAdapter)),
+        "claude-desktop" => Some(Box::new(ClaudeDesktopAdapter)),
         "codex-cli" => Some(Box::new(CodexAdapter)),
         "gemini-cli" => Some(Box::new(GeminiAdapter)),
         _ => None,
@@ -188,6 +191,17 @@ pub fn is_claude_code(command: &[String]) -> bool {
     let base = prog.rsplit(['/', '\\']).next().unwrap_or(prog);
     let base = base.strip_suffix(".exe").unwrap_or(base);
     base.eq_ignore_ascii_case("claude")
+}
+
+/// True if the command's program basename is `claude-desktop` (stripping a
+/// Windows `.exe`). Claude Desktop uses the same JSONL session format as Claude
+/// Code, so the adapter reuses the same tailer.
+#[must_use]
+pub fn is_claude_desktop(command: &[String]) -> bool {
+    let prog = command.first().map_or("", String::as_str);
+    let base = prog.rsplit(['/', '\\']).next().unwrap_or(prog);
+    let base = base.strip_suffix(".exe").unwrap_or(base);
+    base.eq_ignore_ascii_case("claude-desktop")
 }
 
 /// True if the command's program basename is `codex` (stripping a Windows
@@ -868,6 +882,35 @@ fn rotate_to_newer(slug_dir: &Path, current: &Path, started_at_unix_ms: i64) -> 
     match (newer_mtime, cur_mtime) {
         (Some(n), Some(c)) if n > c => Some(newest),
         _ => None,
+    }
+}
+
+// ---------------------------------------------------------------------------
+// Claude Desktop adapter
+// ---------------------------------------------------------------------------
+
+/// The Claude Desktop adapter: same JSONL format as Claude Code
+/// (`~/.claude/projects/<slug>/*.jsonl`), so it reuses the same tailer and
+/// parser. The only difference is the `AgentKind` reported to the session row
+/// (`claude-desktop` vs `claude-code`), so `hh list` distinguishes them.
+#[derive(Debug, Clone)]
+pub struct ClaudeDesktopAdapter;
+
+impl Adapter for ClaudeDesktopAdapter {
+    fn agent_kind(&self) -> AgentKind {
+        AgentKind::ClaudeDesktop
+    }
+
+    #[allow(clippy::unused_self)]
+    fn spawn(self: Box<Self>, ctx: AdapterContext) -> std::io::Result<AdapterHandle> {
+        let (tx, rx) = mpsc::channel::<Event>();
+        let outcome = std::thread::Builder::new()
+            .name("hh-claude-desktop-adapter".into())
+            .spawn(move || run_claude_tailer(ctx, tx))?;
+        Ok(AdapterHandle {
+            events: rx,
+            outcome,
+        })
     }
 }
 
