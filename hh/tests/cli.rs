@@ -5,16 +5,50 @@
 //! These cover `--version`/`--help` (FR-6.2), the "not implemented" path for
 //! subcommands still on the roadmap, and a full `hh run` end-to-end against a
 //! fixture script (SRS acceptance #2).
+//!
+//! Isolation also extends to the *config* directory, not just the data dir:
+//! `Paths::resolve` reads `config.toml` from the platform config dir
+//! (`$XDG_CONFIG_HOME`/`$HOME/.config` on Linux, `$HOME/Library/Application
+//! Support` on macOS) independently of `HH_DATA_DIR`. Without isolating that
+//! too, a developer's real `~/.config/halfhand/config.toml` (e.g.
+//! `[redaction] at_record = true`) would silently change what these tests
+//! record and every assertion downstream of it — exactly the class of bug
+//! CLAUDE.md's "never touch the real data dir" rule exists to prevent, just
+//! one directory over. [`hh()`] points `HOME`/`XDG_CONFIG_HOME` at a
+//! per-test-binary tempdir with no config file in it by default; a test that
+//! wants a specific config chains its own `.env("HOME", ...)` after `hh()`
+//! (a later `.env()` call for the same key always wins), as the Claude-adapter
+//! and `at_record` tests below already do.
 
 use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
+use std::sync::OnceLock;
 
 use rusqlite::Connection;
 
+/// An empty config-home directory shared by every [`hh()`] call in this test
+/// binary — created once, never containing a `halfhand/config.toml`, so no
+/// test's outcome depends on whatever is in the real developer machine's
+/// config. Never cleaned up mid-run (kept alive for the process lifetime,
+/// same tradeoff the fuzz harnesses make for their process-lifetime tempdirs);
+/// the OS reclaims it along with the rest of the test binary's temp files.
+fn isolated_config_home() -> &'static Path {
+    static HOME: OnceLock<tempfile::TempDir> = OnceLock::new();
+    HOME.get_or_init(|| tempfile::tempdir().expect("isolated config-home tempdir"))
+        .path()
+}
+
 /// Build a `Command` that runs the compiled `hh` binary. Cargo sets
 /// `CARGO_BIN_EXE_hh` to its path for integration tests of the `hh` bin crate.
+/// Defaults `HOME`/`XDG_CONFIG_HOME` to an isolated, config-free directory
+/// (see the module docs); chain `.env("HOME", ...)` / `.env("XDG_CONFIG_HOME",
+/// ...)` after this call to override for a test that wants a specific config.
 fn hh() -> Command {
-    Command::new(env!("CARGO_BIN_EXE_hh"))
+    let mut cmd = Command::new(env!("CARGO_BIN_EXE_hh"));
+    let home = isolated_config_home();
+    cmd.env("HOME", home);
+    cmd.env("XDG_CONFIG_HOME", home);
+    cmd
 }
 
 /// Absolute path to a fixture under `tests/fixtures/`.
