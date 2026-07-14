@@ -6,6 +6,7 @@ rust-version.workspace = true
 license.workspace = true
 authors.workspace = true
 repository.workspace = true
+homepage.workspace = true
 description = "Local-first CLI flight recorder for AI agents"
 keywords = ["cli", "ai-agent", "recorder", "flight-recorder", "replay"]
 categories = ["command-line-utilities", "development-tools"]

@@ -45,3 +45,10 @@ doc_markdown = "allow"
 lto = "thin"
 strip = true
 codegen-units = 1
+
+# cargo-dist builds release binaries with `--profile dist` (see
+# dist-workspace.toml and the generated .github/workflows/release.yml). It must
+# be defined here or `dist build` fails with "profile `dist` is not defined".
+# Inherits the release profile's lto/strip/codegen-units settings.
+[profile.dist]
+inherits = "release"
