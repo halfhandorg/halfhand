@@ -2,6 +2,7 @@
 //! pane, status/prompt line, and the `?` help overlay.
 
 use super::data::ReplayData;
+use super::json::strip_control_sequences;
 use super::kind;
 use super::state::{AppState, Focus, Mode};
 use super::theme::Theme;
@@ -134,7 +135,7 @@ fn render_row<'a>(row: &TimelineRow, theme: Theme, selected: bool) -> ListItem<'
         format!("{:<5}", kind::badge_label(row.kind())),
         theme.badge_style(row.kind()),
     );
-    let label = Span::raw(format!(" {}", row.label()));
+    let label = Span::raw(format!(" {}", strip_control_sequences(&row.label())));
     let line = Line::from(vec![ts, badge, label]);
     let item = ListItem::new(line);
     if selected {
@@ -198,6 +199,7 @@ fn render_terminal_segment(
             .and_then(|v| v.get("text"))
             .and_then(|v| v.as_str())
             .unwrap_or("");
+        let text = strip_control_sequences(text);
         for line in text.lines() {
             lines.push(Line::from(line.to_string()));
         }
@@ -225,7 +227,7 @@ fn render_step_detail(step: &StepEntry, data: &mut ReplayData, theme: Theme) -> 
         | EventKind::Lifecycle => render_text_detail(&details),
         EventKind::Error => {
             let mut lines = vec![Line::from(Span::styled(
-                primary.summary.clone(),
+                strip_control_sequences(&primary.summary),
                 theme.error_style(),
             ))];
             if let Some(body) = &primary.body_json {
@@ -256,8 +258,11 @@ fn render_text_detail(details: &[EventDetail]) -> Vec<Line<'static>> {
             .and_then(|v| v.as_str())
             .filter(|t| !t.is_empty());
         match text {
-            Some(t) => lines.extend(t.lines().map(|l| Line::from(l.to_string()))),
-            None => lines.push(Line::from(d.summary.clone())),
+            Some(t) => {
+                let t = strip_control_sequences(t);
+                lines.extend(t.lines().map(|l| Line::from(l.to_string())));
+            }
+            None => lines.push(Line::from(strip_control_sequences(&d.summary))),
         }
     }
     lines
@@ -270,7 +275,7 @@ fn render_file_change_detail(
 ) -> Vec<Line<'static>> {
     match &primary.file_change {
         Some(fc) => super::diff::render_file_change(fc, data.store(), theme),
-        None => vec![Line::from(primary.summary.clone())],
+        None => vec![Line::from(strip_control_sequences(&primary.summary))],
     }
 }
 
@@ -295,7 +300,11 @@ fn render_pair_detail(
             lines.push(Line::from(""));
         }
         lines.push(Line::from(Span::styled(
-            format!("{} — {}", kind::badge_label(d.kind), d.summary),
+            format!(
+                "{} — {}",
+                kind::badge_label(d.kind),
+                strip_control_sequences(&d.summary)
+            ),
             theme.accent_style(),
         )));
         if let Some(body) = &d.body_json {
@@ -705,6 +714,114 @@ mod tests {
         assert!(
             text.contains("TERM"),
             "terminal segment reachable via `t`:\n{text}"
+        );
+    }
+
+    /// Regression test for the claude-code adapter bug: a `Bash` tool result
+    /// commonly carries the underlying command's raw ANSI codes (colored
+    /// `git diff`, colored test runners, etc). ratatui writes `Span`
+    /// content straight to the real terminal via crossterm's `Print`, so a
+    /// leaked `ESC[...` sequence is interpreted as a cursor move/color
+    /// reset instead of a glyph — corrupting the whole pane, exactly like
+    /// the garbled detail view reported against `hh replay`. No `ESC` byte
+    /// may reach the rendered frame, from the tool-result body, a terminal
+    /// segment, or an event summary.
+    #[test]
+    fn detail_pane_strips_ansi_from_claude_code_tool_output() {
+        let tmp = TempDir::new().unwrap();
+        let store = Store::open(&tmp.path().join("hh.db"), &tmp.path().join("blobs")).unwrap();
+        let new_session = NewSession {
+            id: hh_core::event::now_v7(),
+            started_at: 0,
+            agent_kind: AgentKind::ClaudeCode,
+            adapter_status: AdapterStatus::Active,
+            command: vec!["claude".into()],
+            cwd: PathBuf::from("/tmp/work"),
+            hostname: None,
+            hh_version: "0.1.0-beta.1".into(),
+            model: Some("glm-5.2".into()),
+            git_branch: None,
+            git_sha: None,
+            git_dirty: None,
+        };
+        let created = store.create_session(&new_session).unwrap();
+        let ansi_summary = "tool_result: \u{1b}[32m\u{2713} ok\u{1b}[0m";
+        {
+            let writer = store.event_writer().unwrap();
+            let call_id = writer
+                .append_event(Event {
+                    session_id: created.id.clone(),
+                    ts_ms: 0,
+                    kind: EventKind::ToolCall,
+                    step: None,
+                    summary: "tool_call: Bash".into(),
+                    body_json: Some(
+                        serde_json::json!({"name": "Bash", "input": {"command": "git diff --color"}}),
+                    ),
+                    blob_hash: None,
+                    blob_size: None,
+                    correlates: None,
+                })
+                .unwrap();
+            writer
+                .append_event(Event {
+                    session_id: created.id.clone(),
+                    ts_ms: 500,
+                    kind: EventKind::ToolResult,
+                    step: None,
+                    summary: ansi_summary.into(),
+                    body_json: Some(serde_json::json!({
+                        "content": "\u{1b}[32m+added line\u{1b}[0m\n\u{1b}[31m-removed line\u{1b}[0m"
+                    })),
+                    blob_hash: None,
+                    blob_size: None,
+                    correlates: Some(call_id),
+                })
+                .unwrap();
+            writer
+                .append_event(Event {
+                    session_id: created.id.clone(),
+                    ts_ms: 100,
+                    kind: EventKind::TerminalOutput,
+                    step: None,
+                    summary: "terminal chunk".into(),
+                    body_json: Some(serde_json::json!({
+                        "text": "\u{1b}[1mrunning\u{1b}[0m\n"
+                    })),
+                    blob_hash: None,
+                    blob_size: None,
+                    correlates: None,
+                })
+                .unwrap();
+            writer.finish().unwrap();
+        }
+        store.assign_steps(&created.id).unwrap();
+        let session = store.get_session(&created.id).unwrap();
+        let index = store.list_event_index(&created.id).unwrap();
+        let mut app = AppState::new(session, index);
+        let mut data = ReplayData::new(store);
+
+        let text = render(&app, &mut data);
+        assert!(
+            !text.contains('\u{1b}'),
+            "ESC leaked from ToolCall row selection:\n{text}"
+        );
+
+        update(&mut app, AppEvent::Key(KeyInput::Char('j')));
+        assert_eq!(app.selected_row().unwrap().kind(), EventKind::ToolCall);
+        let text = render(&app, &mut data);
+        assert!(
+            !text.contains('\u{1b}'),
+            "ESC leaked into the tool_call/tool_result detail pane:\n{text}"
+        );
+        assert!(text.contains("added line"));
+        assert!(text.contains("removed line"));
+
+        update(&mut app, AppEvent::Key(KeyInput::Char('t')));
+        let text = render(&app, &mut data);
+        assert!(
+            !text.contains('\u{1b}'),
+            "ESC leaked from a terminal_output segment:\n{text}"
         );
     }
 }
