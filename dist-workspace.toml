@@ -57,11 +57,20 @@ targets = [
     "aarch64-pc-windows-msvc",
 ]
 
-# Installers to generate for each app.
+# Installers to generate for each app. `homebrew` generates the `halfhand.rb`
+# formula as a release *asset* (so it's downloadable for manual install / a
+# future tap) — it does NOT by itself push to a tap.
 installers = ["shell", "powershell", "homebrew"]
-# Publish jobs to run in CI — push the Homebrew formula to the tap.
-publish-jobs = ["homebrew"]
-# GitHub repo to publish the Homebrew formula to (must already exist).
+# Publish jobs to run in CI. `homebrew` (which pushes the formula to the tap
+# repo below) is intentionally NOT listed: the tap repo `halfhand-org/homebrew-tap`
+# does not exist yet and no `HOMEBREW_TAP_TOKEN` secret is configured, so the
+# publish-homebrew-formula job would fail at `actions/checkout` ("Input
+# required and not supplied: token"). Once the tap repo exists and the
+# `HOMEBREW_TAP_TOKEN` Actions secret is set on this repo, re-add "homebrew"
+# here, run `dist generate`, and commit — the next release publishes the formula.
+publish-jobs = []
+# GitHub repo to publish the Homebrew formula to. Dormant while `homebrew` is
+# absent from `publish-jobs`; referenced again once it's re-added.
 tap = "halfhand-org/homebrew-tap"
 # Don't publish a prerelease formula for beta tags; the tap targets stable
 # releases. Beta binaries still ship on the GitHub Release.
