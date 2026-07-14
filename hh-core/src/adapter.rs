@@ -926,7 +926,7 @@ impl Adapter for ClaudeDesktopAdapter {
 /// ## Experimental
 ///
 /// This adapter is built against the researched Codex CLI rollout format
-/// (https://github.com/openai/codex) without real captured fixture files.
+/// (<https://github.com/openai/codex>) without real captured fixture files.
 /// The parser handles the documented record types (`session_meta`,
 /// `turn_context`, `response_item`, `event_msg`) and degrades gracefully on
 /// unknown types. If you encounter a session that produces 0 steps despite
@@ -1518,7 +1518,7 @@ fn extract_codex_event_text(obj: &serde_json::Map<String, serde_json::Value>) ->
 /// ## Experimental
 ///
 /// This adapter is built against the researched Gemini CLI session format
-/// (https://github.com/google-gemini/gemini-cli). The parser handles the
+/// (<https://github.com/google-gemini/gemini-cli>). The parser handles the
 /// documented record types (`session_metadata`, `user`, `gemini`,
 /// `message_update`) and degrades gracefully on unknown types. If you encounter
 /// a session that produces 0 steps despite having a transcript, run

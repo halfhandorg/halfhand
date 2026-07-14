@@ -1,10 +1,9 @@
 //! CLI definition (clap derive) for `hh` (FR-6.2).
 //!
 //! Every subcommand carries a one-line usage example in its `after_help`, so
-//! `hh <sub> --help` shows an example (FR-6.2). Subcommand bodies are not
-//! implemented in this skeleton — the dispatch in [`crate::main`] returns a
-//! structured "not implemented" error for each, except `--version` and
-//! `--help`, which clap handles directly.
+//! `hh <sub> --help` shows an example (FR-6.2). Subcommand dispatch lives in
+//! the binary's `main.rs` (`crate::run`); `--version` and `--help` are handled
+//! directly by clap.
 
 use clap::{Args, Parser, Subcommand};
 
@@ -99,7 +98,7 @@ pub enum Command {
     /// Irreversibly redact secrets from a recorded session in place.
     ///
     /// Rewrites events and affected blobs, replacing each secret with
-    /// {{REDACTED:<type>:<hash8>}}; originals are securely deleted and the
+    /// `{{REDACTED:<type>:<hash8>}}`; originals are securely deleted and the
     /// database is compacted so no plaintext copy survives. See
     /// docs/redaction.md for the guarantees and their limits.
     #[command(after_help = "Example:\n  hh redact a1b2c3\n  hh redact last --yes")]

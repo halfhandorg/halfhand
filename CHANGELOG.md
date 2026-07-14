@@ -11,6 +11,47 @@ in CI rather than tracking `latest` until 1.0.
 
 ## [Unreleased]
 
+_Nothing yet._
+
+## [1.0.0] — 2026-07-14
+
+Halfhand 1.0.0. The first stable release. From here on the contracts in
+`STABILITY.md` hold: CLI flags/exit codes, `--json` output, the on-disk
+database, MSRV, and the `hh-core` Rust API change only additively (or via a
+documented deprecation). A database written by `v0.1.0-beta.1` opens and
+reads correctly under 1.0 — proven by the permanent
+`hh/tests/migration_from_beta.rs` against a committed beta-created fixture.
+
+### Highlights
+
+- **Secret redaction** (`hh scan`, `hh redact`): detect secrets in recorded
+  sessions, report them without ever printing the value, and irreversibly
+  redact in place — events and blobs rewritten, originals securely deleted,
+  DB compacted. Exits `4` on findings so CI can gate on a clean scan.
+- **Export / HTML replay** (`hh export --bundle|--html`, `hh import`):
+  portable `.hh` archives (manifest + events + referenced blobs, zstd), a
+  self-contained single-file HTML replay page (`hh replay --web`), and `hh
+  import` to bring a bundle back under a new id. Exports are **always
+  redacted by default**; opting out needs an interactive TTY confirmation.
+- **Codex CLI, Gemini CLI, and Claude Desktop adapters** in addition to
+  Claude Code, each with a fuzz target that never panics on malformed input.
+- **Cross-session FTS5 search** (`hh search`): words, phrases, prefix `*`,
+  AND/OR/NOT, with `--agent`/`--kind`/`--since`/`--path` filters and `--json`.
+- **Windows support** (build-only per SRS §2.2): CI builds on
+  `windows-latest` every push; PTY recording on Windows remains best-effort.
+- **Stability contract** (`STABILITY.md`): the 1.0 promise for CLI, `--json`
+  (schema frozen at `2`), the on-disk DB (forward-only migrations),
+  MSRV (1.75, minor-release bumps only), and `hh-core` semver (enforced by
+  the `cargo-semver-checks` CI job).
+- **Release pipeline** via cargo-dist: per-target binaries (mac/linux
+  gnu+musl, windows msvc), SHA-256 checksums, shell + powershell installers,
+  a Homebrew formula, and keyless GitHub artifact attestations
+  (`gh attestation verify`). `hh completions <shell>` and a generated `hh.1`
+  man page ship in every archive.
+- **Docs site** (mdbook) on GitHub Pages, with a printable hand-run
+  `docs/manual-qa.md` checklist and `docs/1.0-definition-of-done.md` mapping
+  every release bar to its proof.
+
 ### Added — 1.0 release-readiness
 - **`hh completions <shell>`**: prints a shell completion script (bash, zsh,
   fish, powershell, elvish) via `clap_complete` (FR-6.2 ergonomics). New
@@ -29,9 +70,7 @@ in CI rather than tracking `latest` until 1.0.
   (and on push to main as a preview) via `.github/workflows/docs.yml`. The
   existing `docs/*.md` and `docs/adr/*.md` are rendered in place (no path
   moves, preserving the 93 in-repo references); new pages: Quickstart,
-  Recording, Replay & Inspect, Adapters, FAQ, Stability, Security. A
-  `.github/workflows/docs-check.yml` job executes the Quickstart commands
-  against a built binary in a temp data dir so docs never drift from the CLI.
+  Recording, Replay & Inspect, Adapters, FAQ, Stability, Security.
 - **Repo hygiene**: bug-report and feature-request issue templates (the bug
   form requires `hh --version` and `hh stats` output), a PR template encoding
   the CLAUDE.md done-definition, `CODE_OF_CONDUCT.md` (Contributor Covenant
@@ -469,5 +508,6 @@ hardened Windows PTY support, cross-process step-ordinal coordination, and
 revisiting the `std::thread` vs `tokio` boundary (ADR-0001) only if a
 concurrent/streaming feature lands.
 
-[Unreleased]: https://github.com/halfhandorg/halfhand/compare/v0.1.0-beta.1...HEAD
+[Unreleased]: https://github.com/halfhandorg/halfhand/compare/v1.0.0...HEAD
+[1.0.0]: https://github.com/halfhandorg/halfhand/releases/tag/v1.0.0
 [0.1.0-beta.1]: https://github.com/halfhandorg/halfhand/releases/tag/v0.1.0-beta.1

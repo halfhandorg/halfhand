@@ -34,6 +34,7 @@
 # Appendices
 
 - [FAQ](./faq.md)
+- [1.0 definition of done](./1.0-definition-of-done.md)
 - [Manual QA](./manual-qa.md)
 - [Architecture decision records](./adr/0001-threads-vs-tokio.md)
   - [ADR 0001: threads vs tokio](./adr/0001-threads-vs-tokio.md)

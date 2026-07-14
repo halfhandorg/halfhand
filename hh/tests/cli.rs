@@ -68,7 +68,7 @@ fn version_prints_pkg_version() {
     );
     let stdout = String::from_utf8_lossy(&out.stdout);
     assert!(
-        stdout.contains("0.1.0-beta.1"),
+        stdout.contains("1.0.0"),
         "expected package version in: {stdout}"
     );
     // NFR-8: git sha is embedded in parentheses.

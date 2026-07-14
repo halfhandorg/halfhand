@@ -1,11 +1,11 @@
 //! `hh-record` — the Halfhand recorder layer (SRS §6).
 //!
 //! Drives a PTY-recorded agent session: spawns the agent in a PTY
-//! ([`runner`]), watches the working tree for file changes ([`watcher`]),
+//! (`runner`), watches the working tree for file changes (`watcher`),
 //! feeds both into the single-writer SQLite store via `hh-core`, and — when a
 //! structured-event adapter applies (FR-1.5, Claude Code today) — drains its
 //! parsed events into the same store with `tool_call`→`tool_result` correlation.
-//! The MCP stdio proxy (FR-2) lives in [`mcp_proxy`].
+//! The MCP stdio proxy (FR-2) lives in `mcp_proxy`.
 //!
 //! The threads-vs-tokio decision is recorded in
 //! `docs/adr/0001-threads-vs-tokio.md`.
