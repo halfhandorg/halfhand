@@ -9,6 +9,7 @@ rust-version = "1.75"
 license = "Apache-2.0"
 authors = ["Saadman Rafat"]
 repository = "https://github.com/halfhandorg/halfhand"
+homepage = "https://halfhandorg.github.io/halfhand/"
 
 # Shared internal deps: path + version so cargo-deny's `bans.wildcards` check
 # (which flags deps with no pinned version) doesn't reject our own workspace

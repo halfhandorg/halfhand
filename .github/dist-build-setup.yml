@@ -10,9 +10,9 @@
 # `$GITHUB_ENV` makes it available to the subsequent `dist build` step and to
 # any `cargo`/`cross` invocation it spawns.
 #
-# This file is a YAML *list of steps* (the `steps:` value), merged into the
-# build job by cargo-dist's generated workflow.
-steps:
-  - name: Set HH_BUILD_SHA for sha-embedding (NFR-8)
-    shell: bash
-    run: echo "HH_BUILD_SHA=${GITHUB_SHA}" >> "$GITHUB_ENV"
+# This file is a YAML *list of steps* (the sequence that becomes the build
+# job's `steps:`), merged into the build job by cargo-dist's generated
+# workflow. The top level is the sequence itself — no enclosing `steps:` key.
+- name: Set HH_BUILD_SHA for sha-embedding (NFR-8)
+  shell: bash
+  run: echo "HH_BUILD_SHA=${GITHUB_SHA}" >> "$GITHUB_ENV"
