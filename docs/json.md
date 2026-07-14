@@ -11,20 +11,43 @@ core shapes: a **session object** (one row in `hh list --json`) and an
 | `hh inspect --json` | event objects, one per event, in `(ts_ms, id)` order | NDJSON — one object per line |
 | `hh inspect --json --step N` | a single step object | one JSON object |
 
-The diagnostic/lifecycle commands also emit `schema:1` objects; they are
+The diagnostic/lifecycle commands also emit `schema:2` objects; they are
 documented on their own pages and linked from [Other JSON outputs](#other-json-outputs).
 
 Consumers should gate on `schema` before reading any other field. Unknown
-fields must be ignored (additive changes bump `schema`; we never silently
-rename or remove a documented field within a version).
+fields — and unknown values within a documented field, such as a new
+`agent_kind` — must be ignored; we never silently rename or remove a
+documented field within a version.
 
 ## Versioning
 
-`schema` is a monotonically increasing integer. The current version is **1**.
-A change that adds a field bumps `schema` and is documented here. A change
-that removes or renames a field, or changes a field's type, is a breaking
-change and is *not* done within a version — it ships as a new `schema` value
-with both shapes documented.
+`schema` is a single integer shared by every JSON-emitting command (session
+objects, event/step objects, and the `doctor`/`gc`/`stats`/`scan`/`export`
+objects on their own pages). The current version is **2**, frozen for the
+1.0 series ([`STABILITY.md`](../STABILITY.md)):
+
+- **Additive changes — a new field, a new enum value, a new `body` shape —
+  do not bump `schema` further.** They are documented here (and on the
+  relevant page) as they land, and the field they extend is always present.
+  This is a change from the pre-1.0 (`0.1.x-beta`) policy, under which every
+  additive change bumped the integer.
+- A change that removes or renames a field, or changes a field's type, is
+  breaking and is never made within `schema:2`. It ships as a new `schema`
+  value with both shapes documented side by side, gated behind a major
+  version of `hh` per `STABILITY.md`.
+
+### Diff from schema 1
+
+`schema:2` folds in additive drift from the `0.1.x-beta` series that never
+got its own version bump, so `schema:1` output is missing:
+
+- Three `agent_kind` values: `claude-desktop`, `codex-cli`, `gemini-cli`
+  (only `claude-code`, `generic`, `mcp-only` existed under `schema:1`).
+- The `lifecycle` event's `redaction_audit` body shape (produced by `hh
+  redact`; see [`body` by kind](#body-by-kind) below).
+
+No field was removed, renamed, or retyped — every `schema:1` consumer that
+already ignores unknown fields/values reads `schema:2` output unchanged.
 
 ---
 
@@ -34,11 +57,11 @@ One object per recorded session, newest-first.
 
 | Field | Type | Always present? | Description |
 |---|---|---|---|
-| `schema` | integer | yes | `1`. |
+| `schema` | integer | yes | `2`. |
 | `id` | string | yes | Full UUIDv7 session id. |
 | `short_id` | string | yes | 6-hex-char short id (the random tail of the UUIDv7; see `NewSession::short_id`). |
 | `status` | string | yes | One of `recording`, `ok`, `error`, `interrupted`. |
-| `agent_kind` | string | yes | One of `claude-code`, `generic`, `mcp-only`. |
+| `agent_kind` | string | yes | One of `claude-code`, `claude-desktop`, `codex-cli`, `gemini-cli`, `generic`, `mcp-only`. New values are additive (added in `schema:2`: `claude-desktop`, `codex-cli`, `gemini-cli` — see [Diff from schema 1](#diff-from-schema-1)); consumers must ignore a value they don't recognize rather than error. |
 | `adapter_status` | string | yes | One of `none`, `active`, `degraded`. `active` while a structured adapter tailed events; `degraded` if the adapter failed but PTY/FS recording continued; `none` for a generic PTY-only session. |
 | `started_at` | integer | yes | Session start, unix-ms UTC. |
 | `ended_at` | integer \| null | yes | Session end, unix-ms UTC. `null` while recording or if the session was interrupted before finalizing. |
@@ -59,7 +82,7 @@ step object's `events` array (`hh inspect --json --step N`).
 
 | Field | Type | Always present? | Description |
 |---|---|---|---|
-| `schema` | integer | yes | `1`. |
+| `schema` | integer | yes | `2`. |
 | `session` | object | yes | `{ "id": <full uuid>, "short_id": <6 hex> }`. |
 | `id` | integer | yes | The `events.id` row id (rowid PK). Stable within a session; used by `correlates`. |
 | `ts_ms` | integer | yes | Milliseconds since the session's `started_at`. |
@@ -88,7 +111,7 @@ the built-in adapters emit today:
 | `mcp_notification` | the forwarded JSON-RPC notification object |
 | `error` | `{ "message": "…" }` |
 | `file_change` | `null` (the structured change is in `file_change`) |
-| `lifecycle` | `null`, or `{ "event": "start" | "exit" }` |
+| `lifecycle` | `null`; `{ "event": "start" | "exit" }`; or (added in `schema:2`, produced by `hh redact`) `{ "redaction_audit": { "secrets": [{ "type", "hash8", "count" }], "events_rewritten", "blobs_rewritten" } }` — the session self-documenting what a redaction removed, never the secret material itself. |
 
 Future adapter bodies are additive: new keys may appear within `body` without
 bumping `schema`.
@@ -111,7 +134,7 @@ A single JSON object describing one step.
 
 | Field | Type | Description |
 |---|---|---|
-| `schema` | integer | `1`. |
+| `schema` | integer | `2`. |
 | `session` | object | `{ "id", "short_id" }` as in the event object. |
 | `step` | integer | The 1-based step ordinal. |
 | `kind` | string | The step's badge kind — the "opening" side of a correlated pair (a `tool_call` over its `tool_result`; an `mcp_request` over its `mcp_response`). |

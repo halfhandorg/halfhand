@@ -1,0 +1,42 @@
+---
+source: hh/tests/cli_conformance.rs
+expression: "String::from_utf8_lossy(&out.stdout)"
+---
+Halfhand records AI agent sessions to a local SQLite database and
+replays them faithfully. All data stays on your machine;
+Halfhand makes zero network calls (SRS NFR-2).
+
+Recorded sessions can contain secrets present in prompts and
+outputs — use `hh delete` to remove them.
+
+Usage: hh <COMMAND>
+
+Commands:
+  run        Record an agent session inside a PTY (SRS FR-1)
+  replay     Faithfully play back a recorded session in an interactive TUI (SRS FR-3)
+  inspect    Print non-interactive detail about a session (SRS FR-4)
+  list       List recorded sessions, newest first (SRS FR-5)
+  delete     Delete a session and garbage-collect its blobs (SRS FR-6.1)
+  mcp-proxy  Run an MCP server behind a recording stdio proxy (SRS FR-2)
+  doctor     Diagnose the recording stack and report pass/fail per check
+  gc         Reclaim disk space: prune orphaned blobs and vacuum the database (Area 3)
+  stats      Summarize the store: sessions, events, disk usage, largest sessions (Area 3)
+  scan       Scan recorded sessions for secrets (docs/redaction.md)
+  redact     Irreversibly redact secrets from a recorded session in place
+  export     Export a session as a JSON bundle, a portable `.hh` archive, or a self-contained HTML page
+  import     Import a portable session bundle produced by `hh export --bundle`
+  search     Search recorded sessions for text matches (FTS5 full-text search)
+  help       Print this message or the help of the given subcommand(s)
+
+Options:
+  -h, --help
+          Print help (see a summary with '-h')
+
+  -V, --version
+          Print version
+
+Examples:
+  hh run -- claude              record a Claude Code session
+  hh replay last                 replay the most recent session
+  hh inspect a1b2c3 --json       print session detail as JSON
+  hh list                        list recorded sessions

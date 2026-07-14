@@ -1,0 +1,20 @@
+---
+source: hh/tests/cli_conformance.rs
+expression: "String::from_utf8_lossy(&out.stdout)"
+---
+Import a portable session bundle produced by `hh export --bundle`.
+
+Validates the bundle's manifest and blob hashes, then imports it under a brand-new local session id — the original id is preserved in the new session's `imported_from` field. Refuses a corrupt or tampered bundle with a precise error.
+
+Usage: hh import <FILE>
+
+Arguments:
+  <FILE>
+          Path to a bundle produced by `hh export --bundle`
+
+Options:
+  -h, --help
+          Print help (see a summary with '-h')
+
+Example:
+  hh import session.hh

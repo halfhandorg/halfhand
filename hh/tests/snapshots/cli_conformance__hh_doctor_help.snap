@@ -1,0 +1,20 @@
+---
+source: hh/tests/cli_conformance.rs
+expression: "String::from_utf8_lossy(&out.stdout)"
+---
+Diagnose the recording stack and report pass/fail per check.
+
+`hh doctor` is a read-only health probe: it does not mutate the database or write to the data dir beyond a self-cleaning watcher probe. Each check prints a `✓`/`✗` line and the command exits nonzero if any check fails, so it is safe to run from CI or before a session you suspect is broken.
+
+Usage: hh doctor [OPTIONS]
+
+Options:
+      --json
+          Emit machine-readable JSON (one object with a per-check array) instead of plain pass/fail lines
+
+  -h, --help
+          Print help (see a summary with '-h')
+
+Example:
+  hh doctor
+  hh doctor --json | jq

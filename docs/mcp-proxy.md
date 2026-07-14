@@ -39,6 +39,11 @@ appends (the intra-process single-writer rule). Attached mode is a separate
 process from the parent `hh run`, so cross-process SQLite/WAL concurrency
 applies — `busy_timeout(5s)` is already set.
 
+`--session-hint <name>` is accepted (and parsed) but not yet persisted
+anywhere — there is no session-name column in the schema today, so it has no
+visible effect on a standalone session. It exists for forward compatibility;
+adding a name column is additive and can land without a flag change.
+
 ## Wiring it into a client
 
 Wrap `hh mcp-proxy --` as a stdio transport in the client's `mcpServers`

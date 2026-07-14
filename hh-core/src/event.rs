@@ -10,6 +10,21 @@ use std::path::PathBuf;
 use std::str::FromStr;
 use uuid::Uuid;
 
+/// The `schema` integer stamped on every `hh` JSON object — session objects
+/// (`hh list --json`), event/step objects (`hh inspect --json`), and the
+/// diagnostic/lifecycle command objects (`hh doctor`/`gc`/`stats`/`scan`
+/// `--json`, `hh export`). One counter shared across all of them (see
+/// `docs/json.md`).
+///
+/// Frozen at `2` for the 1.0 series (STABILITY.md): additive changes — a new
+/// field, a new enum value, a new `body` shape — are documented in
+/// `docs/json.md` without bumping this constant further. It only moves again
+/// for a breaking change, which ships behind `hh`'s own major-version bump.
+/// `2` itself folds in the beta-era additive drift that never got a version
+/// bump: three new `agent_kind` values (`claude-desktop`, `codex-cli`,
+/// `gemini-cli`) and the `lifecycle` event's `redaction_audit` body shape.
+pub const JSON_SCHEMA_VERSION: u64 = 2;
+
 /// Session status (SRS §4.1 `sessions.status`).
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum SessionStatus {

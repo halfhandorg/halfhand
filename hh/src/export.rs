@@ -599,7 +599,7 @@ mod tests {
     /// text) — the full XSS surface this page must neutralize.
     fn payload() -> serde_json::Value {
         serde_json::json!({
-            "schema": 1,
+            "schema": crate::inspect::SCHEMA_VERSION,
             "kind": "hh-export-html",
             "hh_version": "test",
             "session": {

@@ -1,0 +1,23 @@
+---
+source: hh/tests/cli_conformance.rs
+expression: "String::from_utf8_lossy(&out.stdout)"
+---
+Print non-interactive detail about a session (SRS FR-4)
+
+Usage: hh inspect [OPTIONS] [SESSION]
+
+Arguments:
+  [SESSION]  Session short id, full id, or `last`
+
+Options:
+      --step <STEP>  Print the full detail of step N
+      --json         Emit stable, documented JSON (single object with --step, NDJSON stream otherwise)
+      --diff         Print the concatenated unified diff of file changes
+      --failed       Jump to the first error/failed step
+  -h, --help         Print help
+
+Example:
+  hh inspect last
+  hh inspect a1b2c3 --step 7
+  hh inspect last --json | jq
+  hh inspect last --diff

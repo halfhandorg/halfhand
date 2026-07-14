@@ -1,0 +1,18 @@
+---
+source: hh/tests/cli_conformance.rs
+expression: "String::from_utf8_lossy(&out.stdout)"
+---
+Delete a session and garbage-collect its blobs (SRS FR-6.1)
+
+Usage: hh delete [OPTIONS] <SESSION>
+
+Arguments:
+  <SESSION>  Session short id, full id, or `last`
+
+Options:
+      --yes   Skip the confirmation prompt
+  -h, --help  Print help
+
+Example:
+  hh delete a1b2c3
+  hh delete last --yes

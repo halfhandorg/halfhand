@@ -63,16 +63,20 @@ marked `interrupted`.
 
 | Command | What it does |
 |---|---|
-| `hh run -- <command>` | Record an agent session inside a PTY (FR-1). `--record-input` also captures keystrokes. `--adapter claude-code` forces an adapter. |
+| `hh run -- <command>` | Record an agent session inside a PTY (FR-1). `--record-input` also captures keystrokes. `--adapter <kind>` forces an adapter. |
 | `hh mcp-proxy -- <server>` | Wrap an MCP server in a recording stdio proxy (FR-2). |
-| `hh replay <id\|last>` | Faithfully play back a session in an interactive TUI (FR-3). |
-| `hh inspect <id\|last>` | Print non-interactive detail: summary, `--step N`, `--json`, `--diff` (FR-4). |
+| `hh replay <id\|last>` | Faithfully play back a session in an interactive TUI (FR-3); `--web` exports the HTML replay instead. |
+| `hh inspect <id\|last>` | Print non-interactive detail: summary, `--step N`, `--json`, `--diff`, `--failed` jumps to the first error step (FR-4). |
 | `hh list` | List recorded sessions, newest first; `--json`, `--limit` (FR-5). |
 | `hh delete <id\|last> --yes` | Delete a session and garbage-collect its blobs (FR-6.1). |
+| `hh search <query>` | Full-text search over event summaries/bodies (FTS5); `--agent`, `--kind`, `--since`, `--path`, `--limit`, `--json`. |
 | `hh scan <id\|last\|--all>` | Report recorded secrets (type, step, location, hash8 — never the secret); `--json`; exits 4 on findings. |
 | `hh redact <id\|last>` | Irreversibly remove detected secrets from a session in place. |
-| `hh export <id\|last>` | Export a session as a JSON bundle or `--html` page — **redacted by default**. |
+| `hh export <id\|last>` | Export a session as a JSON bundle, a portable `--bundle` (`hh import`-able), or an `--html` page — **redacted by default**. |
+| `hh import <file>` | Import a bundle produced by `hh export --bundle` as a new local session. |
 | `hh doctor` | Diagnose the recording stack and print pass/fail per check; `--json`. |
+| `hh gc` | Prune orphaned blobs and vacuum the database to reclaim disk space; `--json`, `--no-vacuum`. |
+| `hh stats` | Summarize the store: sessions, events, disk usage, largest sessions; `--json`, `--top N`. |
 
 Every subcommand takes `--help` with a usage example. Run `hh --help` for the
 overview.
@@ -94,7 +98,11 @@ internal turns as structured events.
   (`~/.claude/projects/<project>/*.jsonl`) as it's written and turns each
   record into an event, correlating every `tool_result` back to the
   `tool_call` that produced it.
-- Force a specific adapter: `hh run --adapter claude-code -- claude`.
+- **Claude Desktop**, **OpenAI Codex CLI**, and **Google Gemini CLI** are
+  auto-detected the same way (`agent_kind`: `claude-desktop`, `codex-cli`,
+  `gemini-cli`).
+- Force a specific adapter: `hh run --adapter claude-code -- claude` (or
+  `claude-desktop` / `codex-cli` / `gemini-cli`).
 - If the adapter can't locate a transcript (no `~/.claude/projects` dir), it
   **degrades gracefully**: you still get the full terminal and file-change
   recording, just without the structured breakdown. Nothing about the session
@@ -103,8 +111,8 @@ internal turns as structured events.
   `none`) appear in `hh list --json` and `hh inspect`, so you can tell at a
   glance whether structured events were captured.
 
-Other agents record as `generic` (PTY + file changes, no structured events).
-More adapters are planned for v0.2.
+Any other agent records as `generic` (PTY + file changes, no structured
+events).
 
 ## Recording MCP traffic with `hh mcp-proxy`
 
@@ -166,22 +174,23 @@ created `0700`; blob files are written `0600`.
 - Exit codes are a contract: `0` ok · `1` error · `2` usage · `3` session
   not found · `4` redaction/policy block (`hh scan` with findings).
 
-## JSON and on-disk schema (pre-1.0)
+## JSON and on-disk schema
 
-Two public, documented interfaces ship with this beta:
+Two public, documented interfaces:
 
 - **JSON** — `hh list --json` and `hh inspect --json` emit stable, documented
-  JSON. Every object carries a `schema` integer (currently `1`); consumers
+  JSON. Every object carries a `schema` integer (currently `2`); consumers
   should gate on it. See [`docs/json.md`](docs/json.md).
-- **SQLite** — `hh.db` is a public, documented interface (DR-2): a content-
-  addressed zstd-compressed blob store keyed by BLAKE3, with refcounted
-  garbage collection. You can query it directly.
+- **SQLite** — `hh.db` is directly queryable (DR-2): a content-addressed
+  zstd-compressed blob store keyed by BLAKE3, with refcounted garbage
+  collection. Migrations are forward-only and automatic; the SQL schema may
+  still change across releases, so **`--json` and `hh export` bundles are the
+  supported programmatic interface**, not raw SQL.
 
-Both schemas are **public but pre-1.0**: within the `0.1.x-beta` series they
-may change additively *or* breaking-ly. Additive changes bump the `schema`
-integer; breaking changes ship as a new `schema` value with both shapes
-documented. **Pin a beta version in CI** rather than tracking `latest` until
-1.0.
+Full stability guarantees — what's frozen, what's additive-only, and the
+deprecation policy for anything else — are in [`STABILITY.md`](STABILITY.md).
+Until this project reaches `1.0.0`, **pin a beta version in CI** rather than
+tracking `latest`.
 
 ## Installation
 
@@ -214,19 +223,22 @@ binary). See [`ARCHITECTURE.md`](ARCHITECTURE.md) and the
 
 ## Status & limitations
 
-This is the **v0.1.0-beta.1** release. `hh run`, `hh mcp-proxy`, `hh replay`,
-`hh inspect`, `hh list`, and `hh delete` are all implemented and tested on
-Linux and macOS.
+This is the **v0.1.0-beta.1** release, heading toward `1.0.0`. Every command
+in the table above is implemented and tested on Linux and macOS; see
+[`STABILITY.md`](STABILITY.md) for what's frozen ahead of `1.0.0`.
 
 Known limitations:
 
 - **Windows PTY is best-effort.** CI builds on Windows but does not run the
   test suite there; PTY recording on Windows is not validated.
-- **Single structured adapter.** Only Claude Code is auto-detected; other
-  agents record as `generic`. More adapters are planned for v0.2.
+- **Four structured adapters.** Claude Code, Claude Desktop, Codex CLI, and
+  Gemini CLI are auto-detected; other agents record as `generic` (PTY + file
+  changes, no structured events).
 - **Replay is faithful playback, not deterministic re-execution** (SRS §1.4).
   The agent is not re-invoked during replay.
-- **Pre-1.0 schemas** (see above).
+- **Pre-1.0 versioning** (see [`STABILITY.md`](STABILITY.md)): the crate
+  version, MSRV, and hh-core API can still move faster than the 1.0 policy
+  allows until `1.0.0` ships.
 
 ## License
 

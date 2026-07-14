@@ -1,0 +1,19 @@
+---
+source: hh/tests/cli_conformance.rs
+expression: "String::from_utf8_lossy(&out.stdout)"
+---
+Record an agent session inside a PTY (SRS FR-1)
+
+Usage: hh run [OPTIONS] -- <COMMAND>...
+
+Arguments:
+  <COMMAND>...  The command to run and its arguments, after `--`
+
+Options:
+      --record-input       Record user keystrokes (off by default; keystrokes may contain secrets — SRS NFR-4)
+      --adapter <ADAPTER>  Force an adapter rather than auto-detecting (`claude-code`, `claude-desktop`, `codex-cli`, `gemini-cli`)
+  -h, --help               Print help
+
+Example:
+  hh run -- claude
+  hh run --record-input -- python3 my_agent.py

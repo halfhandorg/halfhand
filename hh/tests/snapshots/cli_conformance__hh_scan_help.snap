@@ -1,0 +1,28 @@
+---
+source: hh/tests/cli_conformance.rs
+expression: "String::from_utf8_lossy(&out.stdout)"
+---
+Scan recorded sessions for secrets (docs/redaction.md).
+
+Reports what was detected (type, step, location, correlation tag) — never the secret itself. Exits 4 when findings exist, so CI can gate on a clean scan; 0 when clean.
+
+Usage: hh scan [OPTIONS] [SESSION]
+
+Arguments:
+  [SESSION]
+          Session short id, full id, or `last`. Defaults to `last` (or use --all)
+
+Options:
+      --all
+          Scan every recorded session
+
+      --json
+          Emit machine-readable JSON instead of a table
+
+  -h, --help
+          Print help (see a summary with '-h')
+
+Example:
+  hh scan last
+  hh scan a1b2c3 --json
+  hh scan --all

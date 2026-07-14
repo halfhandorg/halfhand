@@ -13,6 +13,7 @@ pub mod adapter;
 pub mod blob;
 pub mod bundle;
 pub mod config;
+pub mod deprecation;
 pub mod error;
 pub mod event;
 pub mod migrations;
@@ -32,10 +33,12 @@ pub use config::{
     parse_bytes, Config, Paths, RecordConfig, RedactionConfig, RedactionRule, ReplayConfig,
     StorageConfig, Theme,
 };
+pub use deprecation::warn_deprecated;
 pub use error::{BlobError, BundleError, ConfigError, Error, ResolveError, Result, StorageError};
 pub use event::{
     truncate_summary, AdapterStatus, AgentKind, ChangeKind, Event, EventDetail, EventIndexRow,
     EventKind, EventRow, FileChange, NewSession, RawEventRow, SessionRow, SessionStatus,
+    JSON_SCHEMA_VERSION,
 };
 pub use redact::{Detectors, Finding, SecretKind};
 // `Uuid` is part of the public surface already (`now_v7` returns it,

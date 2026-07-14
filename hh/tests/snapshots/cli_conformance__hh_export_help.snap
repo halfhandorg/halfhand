@@ -1,0 +1,35 @@
+---
+source: hh/tests/cli_conformance.rs
+expression: "String::from_utf8_lossy(&out.stdout)"
+---
+Export a session as a JSON bundle, a portable `.hh` archive, or a self-contained HTML page.
+
+Exports are ALWAYS redacted by default — nothing leaves the machine unredacted by accident. Opting out (--no-redact) requires an interactive confirmation.
+
+Usage: hh export [OPTIONS] [SESSION]
+
+Arguments:
+  [SESSION]
+          Session short id, full id, or `last`. Defaults to `last`
+
+Options:
+  -o, --out <OUT>
+          Write to this file instead of stdout
+
+      --html
+          Export a self-contained HTML page instead of the JSON bundle
+
+      --bundle
+          Export a portable `.hh` archive (manifest + events + referenced blobs, zstd-compressed) instead of the plain JSON bundle. Import it elsewhere with `hh import`
+
+      --no-redact
+          Skip redaction (requires interactive confirmation; refused when stdin is not a TTY, so a script can never exfiltrate raw sessions)
+
+  -h, --help
+          Print help (see a summary with '-h')
+
+Example:
+  hh export last --out session.json
+  hh export last --bundle -o session.hh
+  hh export a1b2c3 --html --out session.html
+  hh export last | jq .session

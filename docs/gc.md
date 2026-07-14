@@ -41,11 +41,11 @@ $ hh gc --no-vacuum
 
 ## `--json`
 
-`hh gc --json` emits a stable object (carrying `schema:1`):
+`hh gc --json` emits a stable object (carrying `schema:2`):
 
 ```jsonc
 {
-  "schema": 1,
+  "schema": 2,
   "orphan_files_removed": 3,
   "orphan_bytes_reclaimed": 1572864,
   "orphan_rows_removed": 2,

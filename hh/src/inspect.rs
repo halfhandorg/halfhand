@@ -28,8 +28,10 @@ use std::fmt::Write as _;
 /// JSON schema version emitted by every `hh` JSON object — both the session
 /// objects in `hh list --json` and the event/step objects in `hh inspect
 /// --json` (FR-4 / FR-5.1). Consumers should gate on this before reading
-/// fields; see `docs/json.md`.
-pub(crate) const SCHEMA_VERSION: u64 = 1;
+/// fields; see `docs/json.md`. Aliases [`hh_core::JSON_SCHEMA_VERSION`], the
+/// single counter shared by every JSON-emitting command (including
+/// `hh-core::bundle`, which cannot depend on this binary crate).
+pub(crate) const SCHEMA_VERSION: u64 = hh_core::JSON_SCHEMA_VERSION;
 
 /// Internal bookkeeping fields stripped from `body` before any human or JSON
 /// rendering (FR-1.5's `correlate_key` is resolved to `events.correlates`
@@ -1263,11 +1265,11 @@ mod tests {
         write_session_ndjson(&fx.store, &fx.session, &mut buf).unwrap();
         let ndjson = String::from_utf8(buf).expect("NDJSON is UTF-8");
         insta::assert_snapshot!(ndjson);
-        // Sanity: every line is a JSON object carrying schema:1, in order.
+        // Sanity: every line is a JSON object carrying schema:2, in order.
         for line in ndjson.lines() {
             let v: serde_json::Value =
                 serde_json::from_str(line).expect("each NDJSON line is valid JSON");
-            assert_eq!(v["schema"], 1, "every event object carries schema:1");
+            assert_eq!(v["schema"], 2, "every event object carries schema:2");
             assert!(v["kind"].is_string(), "every event object has a kind");
         }
     }

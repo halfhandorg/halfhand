@@ -407,7 +407,7 @@ mod tests {
             count: 1,
         }];
         let v = scan_json(&[(session("a1b2c3"), findings)], 1);
-        assert_eq!(v["schema"], 1);
+        assert_eq!(v["schema"], 2);
         assert_eq!(v["total_findings"], 1);
         assert_eq!(v["sessions"][0]["short_id"], "a1b2c3");
         let f = &v["sessions"][0]["findings"][0];

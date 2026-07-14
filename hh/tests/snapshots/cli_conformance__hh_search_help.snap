@@ -1,0 +1,42 @@
+---
+source: hh/tests/cli_conformance.rs
+expression: "String::from_utf8_lossy(&out.stdout)"
+---
+Search recorded sessions for text matches (FTS5 full-text search).
+
+Searches event summaries and message bodies across all sessions. Results show the session, step, event kind, and a highlighted snippet. Supports FTS5 query syntax: words, phrases in quotes, prefix with `*`, AND/OR/NOT operators.
+
+Usage: hh search [OPTIONS] <QUERY>
+
+Arguments:
+  <QUERY>
+          The FTS5 search query (words, phrases, prefix with `*`, AND/OR/NOT)
+
+Options:
+      --agent <AGENT>
+          Filter by agent kind (claude-code, claude-desktop, codex-cli, gemini-cli, generic, mcp-only)
+
+      --kind <KIND>
+          Filter by event kind (user_message, agent_message, tool_call, etc.)
+
+      --since <SINCE>
+          Only sessions started after this unix-ms timestamp
+
+      --path <PATH>
+          Only sessions whose cwd contains this path fragment
+
+      --limit <LIMIT>
+          Maximum results (default 50)
+          
+          [default: 50]
+
+      --json
+          Emit JSON instead of a table
+
+  -h, --help
+          Print help (see a summary with '-h')
+
+Example:
+  hh search "error"
+  hh search "create file" --kind tool_call
+  hh search "api key" --agent claude-code --json
