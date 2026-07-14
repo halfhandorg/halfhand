@@ -3,6 +3,10 @@
 //! tinted, punctuation dimmed. Numbers/booleans/null are left in the base
 //! style — a deliberate simplification (see [`tokenize`]) rather than a full
 //! JSON lexer, which would be excess machinery for a read-only viewer.
+//!
+//! String values also pass through [`strip_control_sequences`], which drops
+//! ANSI/control bytes before they become `Span` content — see that
+//! function's docs for why.
 
 use super::theme::Theme;
 use ratatui::style::Style;
@@ -122,9 +126,79 @@ fn flush(buf: &mut String, current: &mut Vec<Span<'static>>) {
 /// runs over the pretty-printer's own output and must never panic.
 fn decode_string_literal(raw: &str) -> String {
     match serde_json::from_str::<String>(raw) {
-        Ok(decoded) => format!("\"{decoded}\""),
+        Ok(decoded) => format!("\"{}\"", strip_control_sequences(&decoded)),
         Err(_) => raw.to_string(),
     }
+}
+
+/// Strip ANSI escape sequences and other C0 control bytes that would
+/// corrupt the real terminal if written raw. Captured tool output (e.g. a
+/// Claude Code `Bash` result) is stored byte-for-byte, ANSI codes included,
+/// for fidelity — but ratatui writes `Span` content straight to the
+/// terminal via crossterm's `Print`, so an embedded `ESC[...`/`ESC]...`
+/// sequence is interpreted by the real terminal instead of being treated as
+/// inert glyphs, scattering the pane across the screen (cursor jumps,
+/// color resets, etc). `\n` and `\t` pass through untouched; every other
+/// control byte is dropped. Must never panic — this runs over untrusted,
+/// externally-produced transcript content.
+#[must_use]
+pub(crate) fn strip_control_sequences(s: &str) -> String {
+    #[derive(Clone, Copy, PartialEq)]
+    enum State {
+        Normal,
+        Esc,
+        Csi,
+        Osc,
+        OscEsc,
+    }
+    let mut out = String::with_capacity(s.len());
+    let mut state = State::Normal;
+    for c in s.chars() {
+        state = match state {
+            State::Normal => match c {
+                '\u{1b}' => State::Esc,
+                '\n' | '\t' => {
+                    out.push(c);
+                    State::Normal
+                }
+                c if (c as u32) < 0x20 || c as u32 == 0x7f => State::Normal,
+                _ => {
+                    out.push(c);
+                    State::Normal
+                }
+            },
+            // `ESC [` opens a CSI sequence, `ESC ]` an OSC one; any other
+            // byte is a one-char escape that ends right here.
+            State::Esc => match c {
+                '[' => State::Csi,
+                ']' => State::Osc,
+                _ => State::Normal,
+            },
+            // Skip parameter/intermediate bytes; the final byte
+            // (0x40..=0x7E, e.g. `m`) closes the sequence.
+            State::Csi => {
+                if ('\u{40}'..='\u{7e}').contains(&c) {
+                    State::Normal
+                } else {
+                    State::Csi
+                }
+            }
+            // OSC (e.g. hyperlinks, window title) ends at BEL or ESC \ (ST).
+            State::Osc => match c {
+                '\u{07}' => State::Normal,
+                '\u{1b}' => State::OscEsc,
+                _ => State::Osc,
+            },
+            State::OscEsc => {
+                if c == '\\' {
+                    State::Normal
+                } else {
+                    State::Osc
+                }
+            }
+        };
+    }
+    out
 }
 
 /// Push a (possibly multi-line, once decoded) string literal into the
@@ -223,5 +297,33 @@ mod tests {
             text.contains("col1\tcol2\nrow2col1"),
             "expected an actual line break splitting the two rows: {text:?}"
         );
+    }
+
+    /// Regression test: a claude-code `Bash` tool result commonly carries
+    /// the underlying command's raw ANSI color/cursor codes (e.g. `git
+    /// diff --color`, colored test output). Left in `Span` content, those
+    /// escape sequences get printed straight to the real terminal by
+    /// crossterm and are interpreted as cursor moves/resets, scattering the
+    /// detail pane across the screen. They must be stripped, not just left
+    /// as inert-looking text.
+    #[test]
+    fn strips_ansi_escapes_from_string_values() {
+        let v = serde_json::json!({
+            "content": "\u{1b}[32m✓ ok\u{1b}[0m\nplain \u{1b}]8;;https://example.com\u{1b}\\link\u{1b}]8;;\u{1b}\\ text"
+        });
+        let theme = Theme::resolve(true);
+        let lines = pretty_lines(&v, theme);
+        let text = plain(&lines);
+        assert!(!text.contains('\u{1b}'), "raw ESC byte leaked: {text:?}");
+        assert!(text.contains("✓ ok"));
+        assert!(text.contains("plain "));
+        assert!(text.contains("link"));
+        assert!(text.contains(" text"));
+    }
+
+    #[test]
+    fn strip_control_sequences_preserves_newlines_and_tabs() {
+        let out = strip_control_sequences("a\tb\nc\u{1b}[31md\u{1b}[0me");
+        assert_eq!(out, "a\tb\ncde");
     }
 }
