@@ -7,6 +7,7 @@
 include!(concat!(env!("OUT_DIR"), "/hh_version.rs"));
 
 mod cli;
+mod completions;
 mod export;
 mod import;
 mod inspect;
@@ -87,6 +88,7 @@ fn run(cli: Cli) -> anyhow::Result<ExitCode> {
         Command::Export(args) => export::export_command(&args),
         Command::Import(args) => import::import_command(&args),
         Command::Search(args) => search::search_command(&args),
+        Command::Completions(args) => Ok(completions::completions_command(&args)),
     }
 }
 

@@ -1,0 +1,55 @@
+name: docs
+
+# Build the mdbook site and publish it to GitHub Pages (gh-pages branch).
+#
+# Triggers:
+#   - release published  -> the "official" site for the released version
+#   - push to main       -> live preview of in-progress docs
+#
+# Site URL: https://halfhandorg.github.io/halfhand/  (project-page path, so
+# docs/book.toml sets site-url = "/halfhand/").
+#
+# mdbook's source root is `docs/` itself (book.toml `src = "."`), so the
+# existing docs/*.md and docs/adr/*.md are rendered in place — no moves.
+
+on:
+  release:
+    types: [published]
+  push:
+    branches: [main]
+    paths:
+      - "docs/**"
+      - "STABILITY.md"
+      - "SECURITY.md"
+      - ".github/workflows/docs.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: write # peaceiris/actions-gh-pages pushes to the gh-pages branch
+
+# Allow only one concurrent deploy; cancel in-progress, don't queue.
+concurrency:
+  group: docs-pages
+  cancel-in-progress: true
+
+jobs:
+  build-deploy:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install mdbook
+        uses: peaceiris/actions-mdbook@v2
+        with:
+          mdbook-version: "0.4.40"
+
+      - name: Build the book
+        run: mdbook build docs
+
+      - name: Deploy to GitHub Pages
+        uses: peaceiris/actions-gh-pages@v4
+        with:
+          github_token: ${{ secrets.GITHUB_TOKEN }}
+          publish_dir: docs/book
+          # Keep the deploy branch clean; this is a generated artifact tree.
+          force_orphan: true

@@ -10,7 +10,7 @@ fuzz target seconds="300":
 
 # Fuzz all five targets sequentially, `seconds` each (default 300s = 5 min).
 fuzz-all seconds="300":
-    for t in claude_jsonl mcp_frame config_toml blob_decompress redact_detect; do \
+    for t in claude_jsonl codex_jsonl gemini_jsonl mcp_frame import_bundle config_toml blob_decompress redact_detect; do \
         echo "=== $t ==="; \
         cargo +nightly fuzz run $t -- -max_total_time={{seconds}} || exit 1; \
     done
@@ -65,6 +65,25 @@ bench-save-baseline baseline-dir="bench-baseline":
         cp "$$est" "{{baseline-dir}}/$$rel/estimates.json"; \
     done && \
     echo "Saved baseline to {{baseline-dir}}"
+
+# Generate release assets (shell completions + `hh.1` man page) into <dir>.
+# Same command cargo-dist's extra-artifacts step runs on the build host. The
+# generator lives in the `hh-dist` crate so `cargo install halfhand` still
+# installs only the `hh` binary.
+dist-assets dir="target/dist-assets":
+    cargo run -p hh-dist -- {{dir}}
+
+# Regenerate cargo-dist's release workflow (.github/workflows/release.yml)
+# from dist-workspace.toml. Requires `cargo install cargo-dist --locked
+# --version 0.31.0`. Run after editing dist-workspace.toml and commit the
+# generated workflow (see CONTRIBUTING.md "Cutting a release").
+dist-generate:
+    cargo dist generate
+
+# Dry-run the release plan for a tag without building anything. Requires
+# cargo-dist (see dist-generate). Example: just dist-plan v1.0.0
+dist-plan tag="v1.0.0":
+    cargo dist plan --tag {{tag}}
 
 # `hh list` cold-start manual check (Area 4: <50 ms on a warm cache). NOT
 # CI-gated — wall clock is too noisy across CI runners; this is a developer-

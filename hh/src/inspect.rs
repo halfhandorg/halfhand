@@ -449,7 +449,7 @@ fn pretty_json(value: &serde_json::Value, color: bool) -> String {
 
 /// Decode every JSON string literal in already-pretty-printed `text`, turning
 /// `\n`/`\t`/etc. back into real control characters (mirrors the replay
-/// detail pane's [`super::replay::json`] decoding — see FR-4.2). String
+/// detail pane's `replay::json` decoding — see FR-4.2). String
 /// boundaries are found with an escape-aware scan over the still-escaped
 /// source before decoding, so a literal `"` or `\` inside decoded content
 /// can't be mistaken for a delimiter. Falls back to the untouched literal on

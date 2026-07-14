@@ -23,7 +23,7 @@ pub fn badge_label(kind: EventKind) -> &'static str {
 
 /// The accent color for a kind's badge (FR-3.2: "distinct colors"). `None`
 /// for the two non-badge categories (terminal/lifecycle), which render
-/// dimmed instead — see [`crate::replay::theme::Theme::dim`].
+/// dimmed instead.
 #[must_use]
 pub fn badge_color(kind: EventKind) -> Option<Color> {
     match kind {

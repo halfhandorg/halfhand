@@ -1,10 +1,9 @@
 //! CLI definition (clap derive) for `hh` (FR-6.2).
 //!
 //! Every subcommand carries a one-line usage example in its `after_help`, so
-//! `hh <sub> --help` shows an example (FR-6.2). Subcommand bodies are not
-//! implemented in this skeleton — the dispatch in [`crate::main`] returns a
-//! structured "not implemented" error for each, except `--version` and
-//! `--help`, which clap handles directly.
+//! `hh <sub> --help` shows an example (FR-6.2). Subcommand dispatch lives in
+//! the binary's `main.rs` (`crate::run`); `--version` and `--help` are handled
+//! directly by clap.
 
 use clap::{Args, Parser, Subcommand};
 
@@ -99,7 +98,7 @@ pub enum Command {
     /// Irreversibly redact secrets from a recorded session in place.
     ///
     /// Rewrites events and affected blobs, replacing each secret with
-    /// {{REDACTED:<type>:<hash8>}}; originals are securely deleted and the
+    /// `{{REDACTED:<type>:<hash8>}}`; originals are securely deleted and the
     /// database is compacted so no plaintext copy survives. See
     /// docs/redaction.md for the guarantees and their limits.
     #[command(after_help = "Example:\n  hh redact a1b2c3\n  hh redact last --yes")]
@@ -135,9 +134,25 @@ pub enum Command {
         after_help = "Example:\n  hh search \"error\"\n  hh search \"create file\" --kind tool_call\n  hh search \"api key\" --agent claude-code --json"
     )]
     Search(SearchArgs),
+
+    /// Print a shell completion script for `hh` (FR-6.2 ergonomics).
+    ///
+    /// Writes the completion script for the given shell to stdout. Install it
+    /// per your shell's conventions (see docs/completions.md). The script is
+    /// plain text and pipe-safe.
+    #[command(
+        after_help = "Example:\n  hh completions bash > /etc/bash_completion.d/hh\n  hh completions zsh > ~/.zsh/_hh\n  hh completions fish > ~/.config/fish/completions/hh.fish\n  hh completions powershell | Out-String | Invoke-Expression"
+    )]
+    Completions(CompletionsArgs),
 }
 
-/// Arguments for `hh scan`.
+/// Arguments for `hh completions`.
+#[derive(Args, Debug)]
+pub struct CompletionsArgs {
+    /// Target shell. One of: bash, zsh, fish, powershell, elvish.
+    #[arg(value_enum)]
+    pub shell: clap_complete::Shell,
+}
 #[derive(Args, Debug)]
 pub struct ScanArgs {
     /// Session short id, full id, or `last`. Defaults to `last` (or use --all).

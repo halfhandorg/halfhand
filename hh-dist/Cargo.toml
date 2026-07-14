@@ -1,0 +1,30 @@
+[package]
+name = "hh-dist"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+authors.workspace = true
+repository.workspace = true
+description = "Release-asset generator for Halfhand (man pages + shell completions). Not published."
+publish = false
+
+[lints]
+workspace = true
+
+[[bin]]
+name = "hh-gen-assets"
+path = "src/main.rs"
+
+[dependencies]
+# Justification: reuse the single source of truth for the CLI (`Cli`) so
+# generated completions/man pages never drift from the real `hh` binary.
+halfhand = { workspace = true }
+# Justification: clap `Command`/`CommandFactory` to drive generation.
+clap = { version = "4", features = ["derive"] }
+# Justification (FR-6.2): emit shell completion scripts.
+clap_complete = "4"
+# Justification (FR-6.2): emit the `hh.1` man page.
+clap_mangen = "0.2"
+# Justification: error context (CLAUDE.md NFR-5).
+anyhow = "1"

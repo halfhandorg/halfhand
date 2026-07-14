@@ -1,0 +1,25 @@
+---
+source: hh/tests/cli_conformance.rs
+expression: "String::from_utf8_lossy(&out.stdout)"
+---
+Print a shell completion script for `hh` (FR-6.2 ergonomics).
+
+Writes the completion script for the given shell to stdout. Install it per your shell's conventions (see docs/completions.md). The script is plain text and pipe-safe.
+
+Usage: hh completions <SHELL>
+
+Arguments:
+  <SHELL>
+          Target shell. One of: bash, zsh, fish, powershell, elvish
+          
+          [possible values: bash, elvish, fish, powershell, zsh]
+
+Options:
+  -h, --help
+          Print help (see a summary with '-h')
+
+Example:
+  hh completions bash > /etc/bash_completion.d/hh
+  hh completions zsh > ~/.zsh/_hh
+  hh completions fish > ~/.config/fish/completions/hh.fish
+  hh completions powershell | Out-String | Invoke-Expression

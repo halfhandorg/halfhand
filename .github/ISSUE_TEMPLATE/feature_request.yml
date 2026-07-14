@@ -1,0 +1,43 @@
+name: Feature request
+description: Suggest a new Halfhand capability or improvement.
+title: "feat: "
+labels: ["enhancement"]
+body:
+  - type: textarea
+    id: problem
+    attributes:
+      label: The problem
+      description: "What are you trying to do that Halfhand doesn't let you do today?"
+    validations:
+      required: true
+
+  - type: textarea
+    id: proposal
+    attributes:
+      label: Proposed solution
+      description: "What would you like `hh` to do instead? A command/flag shape helps."
+    validations:
+      required: true
+
+  - type: textarea
+    id: alternatives
+    attributes:
+      label: Alternatives considered
+      description: "Workarounds you've tried, or other tools that do something similar."
+    validations:
+      required: false
+
+  - type: dropdown
+    id: scope
+    attributes:
+      label: This would change a 1.0-stable interface
+      description: |
+        Halfhand's CLI flags, `--json` schema, DB schema, exit codes, and env
+        vars are stable as of 1.0 (additive-only; see STABILITY.md). If your
+        request changes any of these, it needs a deprecation path.
+      options:
+        - "No — purely additive / new surface"
+        - "Yes — changes an existing flag/JSON/DB/exit-code/env"
+        - "Not sure"
+    validations:
+      required: true
