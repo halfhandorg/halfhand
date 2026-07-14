@@ -48,6 +48,10 @@ similar = "2.7"
 # `IterMut` unsound; fixed upstream, we never use `iter_mut` but take the fix
 # anyway since it's a free version bump).
 lru = "0.18"
+# Justification (FR-6.2 / CLI ergonomics): `hh completions <shell>` emits
+# shell completion scripts at runtime. Dual Apache-2.0/MIT, offline (no
+# network), so it stays compatible with NFR-2's no-network-crate check.
+clap_complete = "4"
 
 [dev-dependencies]
 # Justification: integration tests create throwaway data dirs (CLAUDE.md:

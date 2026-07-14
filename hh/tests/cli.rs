@@ -94,6 +94,8 @@ fn help_lists_every_subcommand_and_examples() {
         "redact",
         "export",
         "import",
+        "search",
+        "completions",
     ] {
         assert!(stdout.contains(sub), "missing `{sub}` in --help: {stdout}");
     }
@@ -119,6 +121,8 @@ fn every_subcommand_help_has_an_example() {
         "redact",
         "export",
         "import",
+        "search",
+        "completions",
     ] {
         let out = hh().args([sub, "--help"]).output().unwrap();
         assert!(out.status.success(), "`hh {sub} --help` failed");
@@ -128,6 +132,64 @@ fn every_subcommand_help_has_an_example() {
             "`hh {sub} --help` has no example: {stdout}"
         );
     }
+}
+
+/// `hh completions <shell>` emits a real, shell-specific completion script and
+/// exits 0 (FR-6.2). Output is plain text — pipe-safe, no TTY needed.
+#[test]
+fn completions_emit_shell_scripts() {
+    // bash: defines the `_hh` completion function.
+    let out = hh().args(["completions", "bash"]).output().unwrap();
+    assert!(out.status.success(), "hh completions bash failed");
+    let bash = String::from_utf8_lossy(&out.stdout);
+    assert!(
+        bash.contains("_hh()"),
+        "bash completion missing `_hh()`: {bash}"
+    );
+    assert!(
+        bash.contains("COMPREPLY"),
+        "bash completion missing COMPREPLY: {bash}"
+    );
+
+    // fish: uses `complete -c hh`.
+    let out = hh().args(["completions", "fish"]).output().unwrap();
+    assert!(out.status.success(), "hh completions fish failed");
+    let fish = String::from_utf8_lossy(&out.stdout);
+    assert!(
+        fish.contains("complete -c hh"),
+        "fish completion missing `complete -c hh`: {fish}"
+    );
+
+    // zsh: `#compdef` line.
+    let out = hh().args(["completions", "zsh"]).output().unwrap();
+    assert!(out.status.success(), "hh completions zsh failed");
+    let zsh = String::from_utf8_lossy(&out.stdout);
+    assert!(
+        zsh.contains("#compdef"),
+        "zsh completion missing `#compdef`: {zsh}"
+    );
+
+    // powershell: `Register-ArgumentCompleter`.
+    let out = hh().args(["completions", "powershell"]).output().unwrap();
+    assert!(out.status.success(), "hh completions powershell failed");
+    let ps = String::from_utf8_lossy(&out.stdout);
+    assert!(
+        ps.contains("Register-ArgumentCompleter"),
+        "powershell completion missing Register-ArgumentCompleter: {ps}"
+    );
+}
+
+/// `hh completions` with an unknown shell is a usage error (clap exit code 2),
+/// not a panic — the parser must reject malformed input gracefully.
+#[test]
+fn completions_reject_unknown_shell() {
+    let out = hh().args(["completions", "tcsh"]).output().unwrap();
+    assert!(
+        !out.status.success(),
+        "expected nonzero exit for unknown shell"
+    );
+    let code = out.status.code().unwrap_or(0);
+    assert_eq!(code, 2, "expected usage-error exit code 2, got {code}");
 }
 
 /// `hh inspect last` with no sessions recorded gives an actionable error with

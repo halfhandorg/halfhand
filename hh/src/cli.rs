@@ -135,9 +135,25 @@ pub enum Command {
         after_help = "Example:\n  hh search \"error\"\n  hh search \"create file\" --kind tool_call\n  hh search \"api key\" --agent claude-code --json"
     )]
     Search(SearchArgs),
+
+    /// Print a shell completion script for `hh` (FR-6.2 ergonomics).
+    ///
+    /// Writes the completion script for the given shell to stdout. Install it
+    /// per your shell's conventions (see docs/completions.md). The script is
+    /// plain text and pipe-safe.
+    #[command(
+        after_help = "Example:\n  hh completions bash > /etc/bash_completion.d/hh\n  hh completions zsh > ~/.zsh/_hh\n  hh completions fish > ~/.config/fish/completions/hh.fish\n  hh completions powershell | Out-String | Invoke-Expression"
+    )]
+    Completions(CompletionsArgs),
 }
 
-/// Arguments for `hh scan`.
+/// Arguments for `hh completions`.
+#[derive(Args, Debug)]
+pub struct CompletionsArgs {
+    /// Target shell. One of: bash, zsh, fish, powershell, elvish.
+    #[arg(value_enum)]
+    pub shell: clap_complete::Shell,
+}
 #[derive(Args, Debug)]
 pub struct ScanArgs {
     /// Session short id, full id, or `last`. Defaults to `last` (or use --all).

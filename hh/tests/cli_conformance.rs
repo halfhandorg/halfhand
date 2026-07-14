@@ -31,6 +31,7 @@ const SUBCOMMANDS: &[&str] = &[
     "export",
     "import",
     "search",
+    "completions",
 ];
 
 /// An empty config-home directory shared by every [`hh()`] call in this test

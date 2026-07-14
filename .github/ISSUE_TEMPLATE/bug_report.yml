@@ -1,0 +1,85 @@
+name: Bug report
+description: Report something `hh` does wrong or crashes on.
+title: "bug: "
+labels: ["bug"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for taking the time to file a bug. Halfhand recordings can
+        contain secrets — **do not paste raw session output, prompts, or
+        `hh inspect`/`hh export` content** unless you have scanned and
+        redacted it (`hh scan`, `hh redact`). A redacted `hh inspect --json`
+        excerpt is usually enough.
+
+  - type: input
+    id: version
+    attributes:
+      label: "`hh --version` output"
+      description: "Run `hh --version` and paste the full line (it includes the git sha)."
+      placeholder: "halfhand 1.0.0 (a1b2c3d)"
+    validations:
+      required: true
+
+  - type: textarea
+    id: stats
+    attributes:
+      label: "`hh stats` output"
+      description: |
+        Run `hh stats` and paste the output. This gives us session/event counts
+        and disk usage without exposing any session content. If `hh stats`
+        itself fails, say so and paste the error.
+      render: shell
+    validations:
+      required: true
+
+  - type: dropdown
+    id: os
+    attributes:
+      label: OS
+      options:
+        - Linux
+        - macOS
+        - Windows
+        - Other
+    validations:
+      required: true
+
+  - type: input
+    id: adapter
+    attributes:
+      label: Agent / adapter (if any)
+      description: "e.g. claude-code, codex-cli, gemini-cli, claude-desktop, or `generic`."
+      placeholder: "claude-code"
+    validations:
+      required: false
+
+  - type: textarea
+    id: repro
+    attributes:
+      label: Steps to reproduce
+      description: |
+        The exact commands you ran. Use a throwaway data dir if you can:
+        `HH_DATA_DIR=./tmp-hh hh run -- <cmd>`. Redact any secrets first.
+      placeholder: |
+        HH_DATA_DIR=./tmp-hh hh run -- claude
+        hh inspect last
+    validations:
+      required: true
+
+  - type: textarea
+    id: expected
+    attributes:
+      label: Expected vs. actual
+      description: "What you expected, and what happened instead (exit code, error message)."
+    validations:
+      required: true
+
+  - type: textarea
+    id: logs
+    attributes:
+      label: Relevant output (redacted)
+      description: "Paste only redacted output. No raw secrets, prompts, or file contents."
+      render: shell
+    validations:
+      required: false

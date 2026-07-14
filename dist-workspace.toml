@@ -1,0 +1,101 @@
+# cargo-dist release configuration (https://axo.dev/cargo-dist/)
+#
+# This file is the source of truth for Halfhand releases. The GitHub Actions
+# workflow that performs releases (`.github/workflows/release.yml`) is *generated*
+# from this config by `cargo dist generate` — re-run that command after editing
+# here (see CONTRIBUTING.md "Cutting a release"). Do not hand-edit the generated
+# workflow.
+#
+# What this config produces on a `v*` tag push:
+#   - per-target release binaries (mac/linux gnu+musl, windows msvc) with the
+#     git sha embedded via HH_BUILD_SHA (NFR-8; see .github/dist-build-setup.yml)
+#   - SHA-256 checksums + a unified installer (shell + powershell)
+#   - GitHub artifact attestations (keyless Sigstore provenance — no signing
+#     keys to manage; verify with `gh attestation verify`)
+#   - generated completion scripts + the `hh.1` man page as release assets
+#     (produced by the `hh-dist` crate via the extra-artifacts step below)
+#   - a Homebrew formula pushed to halfhand-org/homebrew-tap
+#
+# Windows targets are built and shipped, but Halfhand's runtime support on
+# Windows is best-effort / build-only per SRS §2.2; the release notes say so.
+
+[workspace]
+# The cargo workspace lives at the repo root.
+members = ["cargo:."]
+
+# Config for 'dist'
+[dist]
+# The preferred dist version to use in CI (Cargo.toml SemVer syntax). Pin so
+# release behavior is reproducible; bump deliberately.
+cargo-dist-version = "0.31.0"
+# CI backend (only "github" is supported).
+ci = ["github"]
+# Where releases are hosted.
+hosting = "github"
+# Build a GitHub Release on tag push (default true; stated for clarity).
+create-release = true
+# Dry-run the release plan on PRs instead of building.
+pr-run-mode = "plan"
+# Trigger on `v*` tags (no namespace prefix).
+# tag-namespace is unset (default).
+
+# Distribute ONLY the `halfhand` package (the `hh` binary). This allow-list
+# (dist 0.29+) excludes the dev-only `hh-dist` asset generator and the
+# `hh-core`/`hh-record` libraries, which must never ship as standalone
+# artifacts. `cargo install halfhand` still installs exactly `hh`.
+packages = ["halfhand"]
+
+# Target platforms (Rust target-triple syntax).
+targets = [
+    "x86_64-unknown-linux-gnu",
+    "x86_64-unknown-linux-musl",
+    "aarch64-unknown-linux-gnu",
+    "aarch64-unknown-linux-musl",
+    "aarch64-apple-darwin",
+    "x86_64-apple-darwin",
+    "x86_64-pc-windows-msvc",
+    "aarch64-pc-windows-msvc",
+]
+
+# Installers to generate for each app.
+installers = ["shell", "powershell", "homebrew"]
+# Publish jobs to run in CI — push the Homebrew formula to the tap.
+publish-jobs = ["homebrew"]
+# GitHub repo to publish the Homebrew formula to (must already exist).
+tap = "halfhand-org/homebrew-tap"
+# Don't publish a prerelease formula for beta tags; the tap targets stable
+# releases. Beta binaries still ship on the GitHub Release.
+publish-prereleases = false
+
+# Keyless Sigstore provenance via GitHub artifact attestations. No signing
+# keys or long-lived secrets; verify with:
+#   gh attestation verify ./hh --repo halfhandorg/halfhand
+github-attestations = true
+
+# Where the shell/powershell installers place the `hh` binary. Use a dedicated
+# dir under $HOME rather than CARGO_HOME so a `cargo install halfhand` upgrade
+# and the installer don't clobber each other's binaries.
+install-path = "~/.halfhand/bin"
+
+# Do not bundle the axo updater; Halfhand updates via `cargo install` / brew
+# upgrade / re-running the installer.
+install-updater = false
+
+# Build setup: inject HH_BUILD_SHA=$GITHUB_SHA into every build job's env so
+# `hh/build.rs` embeds the exact released sha into `hh --version` (NFR-8),
+# including cross-compiled targets where .git is not visible.
+github-build-setup = ".github/dist-build-setup.yml"
+
+# Generated completion scripts + man page, produced on the build host by the
+# `hh-dist` crate (architecture-independent, so one set ships as top-level
+# release assets for every target). `cargo run -p hh-dist` builds the generator
+# for the host triple and runs it, regardless of the release target.
+[[dist.extra-artifacts]]
+artifacts = [
+    "target/dist-assets/completions/hh.bash",
+    "target/dist-assets/completions/_hh",
+    "target/dist-assets/completions/hh.fish",
+    "target/dist-assets/completions/_hh.ps1",
+    "target/dist-assets/man/hh.1",
+]
+build = ["cargo", "run", "-p", "hh-dist", "--", "target/dist-assets"]

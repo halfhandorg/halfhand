@@ -1,0 +1,18 @@
+# cargo-dist build setup: extra GitHub Actions steps inserted before the
+# `dist build` step in every build job (configured via `github-build-setup`
+# in dist-workspace.toml).
+#
+# NFR-8: every release binary must embed the exact git sha it was built from
+# in `hh --version`. `hh/build.rs` reads `HH_BUILD_SHA` and falls back to
+# `git rev-parse` when unset. Inside cargo-dist's build jobs (and especially
+# in cross-compile containers) `.git` may not be visible, so we set
+# `HH_BUILD_SHA` to the workflow's commit sha explicitly. Exporting it to
+# `$GITHUB_ENV` makes it available to the subsequent `dist build` step and to
+# any `cargo`/`cross` invocation it spawns.
+#
+# This file is a YAML *list of steps* (the `steps:` value), merged into the
+# build job by cargo-dist's generated workflow.
+steps:
+  - name: Set HH_BUILD_SHA for sha-embedding (NFR-8)
+    shell: bash
+    run: echo "HH_BUILD_SHA=${GITHUB_SHA}" >> "$GITHUB_ENV"

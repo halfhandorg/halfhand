@@ -1,6 +1,6 @@
 [workspace]
 resolver = "2"
-members = ["hh-core", "hh-record", "hh"]
+members = ["hh-core", "hh-record", "hh", "hh-dist"]
 
 [workspace.package]
 version = "0.1.0-beta.1"
@@ -17,6 +17,10 @@ repository = "https://github.com/halfhandorg/halfhand"
 [workspace.dependencies]
 hh-core = { path = "hh-core", version = "0.1.0-beta.1" }
 hh-record = { path = "hh-record", version = "0.1.0-beta.1" }
+# The `halfhand` library target (in the `hh` package) is a workspace dep so
+# `hh-dist` can reuse `cli::Cli` for asset generation and cargo-deny's
+# `bans.wildcards` check is satisfied (pinned path + version).
+halfhand = { path = "hh", version = "0.1.0-beta.1" }
 
 [workspace.lints.clippy]
 pedantic = { level = "warn", priority = -1 }
