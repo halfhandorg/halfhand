@@ -83,8 +83,9 @@ install-updater = false
 
 # Build setup: inject HH_BUILD_SHA=$GITHUB_SHA into every build job's env so
 # `hh/build.rs` embeds the exact released sha into `hh --version` (NFR-8),
-# including cross-compiled targets where .git is not visible.
-github-build-setup = ".github/dist-build-setup.yml"
+# including cross-compiled targets where .git is not visible. cargo-dist
+# resolves this path relative to `.github/workflows/`, hence the `../`.
+github-build-setup = "../dist-build-setup.yml"
 
 # Generated completion scripts + man page, produced on the build host by the
 # `hh-dist` crate (architecture-independent, so one set ships as top-level
