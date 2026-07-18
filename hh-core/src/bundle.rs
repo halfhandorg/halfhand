@@ -442,7 +442,8 @@ fn build_tar(manifest: &[u8], events: &[u8], blobs: &BTreeMap<String, Vec<u8>>) 
 /// The `session` block for `manifest.json`. Mirrors the shape of `hh list
 /// --json`'s per-session object (`session_to_json` in the `hh` binary) so
 /// the two stay recognizable as the same "session" concept, without hh-core
-/// depending on the binary crate.
+/// depending on the binary crate. Includes `adapter_degrade_reason`
+/// (SRS BUG-1.1) so a bundle round-trip preserves the degrade code.
 fn session_to_bundle_json(row: &SessionRow) -> serde_json::Value {
     let duration_ms = row.ended_at.map(|end| (end - row.started_at).max(0));
     serde_json::json!({
@@ -452,6 +453,7 @@ fn session_to_bundle_json(row: &SessionRow) -> serde_json::Value {
         "status": row.status.to_string(),
         "agent_kind": row.agent_kind.to_string(),
         "adapter_status": row.adapter_status.to_string(),
+        "adapter_degrade_reason": row.adapter_degrade_reason,
         "started_at": row.started_at,
         "ended_at": row.ended_at,
         "exit_code": row.exit_code,
@@ -879,5 +881,53 @@ mod tests {
         // The original session is untouched.
         let original_still_ok = store.get_session(&sid).unwrap();
         assert_eq!(original_still_ok.imported_from, None);
+    }
+
+    /// A bundle round-trip preserves the `adapter_degrade_reason` code
+    /// (SRS BUG-1.1): a degraded session exported then imported into a
+    /// fresh store must still carry its degrade code, so `hh inspect --json`
+    /// on the imported session reports the same diagnosis. Without this,
+    /// a bundle archived from a degraded session would lose its
+    /// machine-readable diagnosis on restore.
+    #[test]
+    fn bundle_round_trip_preserves_adapter_degrade_reason() {
+        let (_tmp, store, sid) = fixture();
+        // Mark the source session degraded with a reason code (simulating
+        // what the recorder's `finalize` does on an adapter failure).
+        store
+            .set_session_adapter_meta(
+                &sid,
+                None,
+                None,
+                AdapterStatus::Degraded,
+                Some("jsonl_not_found"),
+            )
+            .unwrap();
+        let bytes = export(&store, &sid, "v", None).unwrap();
+        let bundle = parse(&bytes).unwrap();
+        // The bundle's session block carries the degrade code.
+        assert_eq!(
+            bundle.session["adapter_degrade_reason"], "jsonl_not_found",
+            "bundle session block must carry the degrade code"
+        );
+        // Import into a fresh store.
+        let target_tmp = TempDir::new().unwrap();
+        let target = Store::open(
+            &target_tmp.path().join("hh.db"),
+            &target_tmp.path().join("blobs"),
+        )
+        .unwrap();
+        let created = target.import(&bundle).unwrap();
+        let imported = target.get_session(&created.id).unwrap();
+        assert_eq!(
+            imported.adapter_status,
+            AdapterStatus::Degraded,
+            "imported session preserves degraded status"
+        );
+        assert_eq!(
+            imported.adapter_degrade_reason.as_deref(),
+            Some("jsonl_not_found"),
+            "imported session preserves the degrade reason code (BUG-1.1)"
+        );
     }
 }

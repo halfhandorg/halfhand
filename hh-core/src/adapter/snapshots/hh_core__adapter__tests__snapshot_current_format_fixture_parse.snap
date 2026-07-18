@@ -1,0 +1,80 @@
+---
+source: hh-core/src/adapter/mod.rs
+expression: "serde_json::to_string_pretty(&serde_json::json!({\n    \"events\": all_events\n})).unwrap()"
+---
+{
+  "events": [
+    {
+      "blob_hash": null,
+      "blob_size": null,
+      "body_json": {
+        "text": "Explain the borrow checker error in src/auth.rs"
+      },
+      "correlates": null,
+      "kind": "user_message",
+      "session_id": "test-session-id",
+      "step": null,
+      "summary": "Explain the borrow checker error in src/auth.rs",
+      "ts_ms": 0
+    },
+    {
+      "blob_hash": null,
+      "blob_size": null,
+      "body_json": {
+        "text": "The user has a borrow checker error. Let me read the file first."
+      },
+      "correlates": null,
+      "kind": "thinking",
+      "session_id": "test-session-id",
+      "step": null,
+      "summary": "The user has a borrow checker error. Let me read the file first.",
+      "ts_ms": 0
+    },
+    {
+      "blob_hash": null,
+      "blob_size": null,
+      "body_json": {
+        "correlate_key": "toolu_01ABCDEF",
+        "input": {
+          "file_path": "src/auth.rs"
+        },
+        "name": "Read"
+      },
+      "correlates": null,
+      "kind": "tool_call",
+      "session_id": "test-session-id",
+      "step": null,
+      "summary": "tool_call: Read",
+      "ts_ms": 0
+    },
+    {
+      "blob_hash": null,
+      "blob_size": null,
+      "body_json": {
+        "content": "fn authenticate(token: &str) -> Result<User, AuthError> {\n    let user = validate(token)?;\n    let perms = check_permissions(&user)?;\n    Ok(user)\n}",
+        "correlate_key": "toolu_01ABCDEF",
+        "is_error": false,
+        "tool_use_id": "toolu_01ABCDEF"
+      },
+      "correlates": null,
+      "kind": "tool_result",
+      "session_id": "test-session-id",
+      "step": null,
+      "summary": "tool_result: fn authenticate(token: &str) -> Result<User, AuthError> {     let user = validate(token)?;     let perms =…",
+      "ts_ms": 0
+    },
+    {
+      "blob_hash": null,
+      "blob_size": null,
+      "body_json": {
+        "text": "The issue is that `user` is moved into `check_permissions`, so it can't be returned on the next line. Fix: borrow with `&user` in the call."
+      },
+      "correlates": null,
+      "kind": "agent_message",
+      "session_id": "test-session-id",
+      "step": null,
+      "summary": "The issue is that `user` is moved into `check_permissions`, so it can't be returned on the next line. Fix: borrow with …",
+      "ts_ms": 0
+    }
+  ]
+}

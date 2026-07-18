@@ -708,14 +708,20 @@ fn finalize(
     }
     // FR-3.4: assign 1-based step ordinals now that every event is durable.
     store.assign_steps(session_id)?;
-    // FR-1.5: persist the adapter's model/usage/final status (Active/Degraded),
-    // if a structured adapter ran.
+    // FR-1.5 / BUG-1.1: persist the adapter's model/usage/final status
+    // (Active/Degraded) and — when degraded — the machine-readable degrade
+    // reason code, atomically with the status. The code comes from the
+    // structured `AdapterError` the adapter reported (BUG-1.4); a panicked
+    // tailer thread has `error: None` and the column is left NULL (a
+    // future `hh doctor` surfaces "degraded, no code" as a diagnostic).
     if let Some(o) = adapter_outcome {
+        let reason_code = o.error.as_ref().map(hh_core::AdapterError::code);
         store.set_session_adapter_meta(
             session_id,
             o.model.as_deref(),
             o.usage_json.as_ref(),
             o.status,
+            reason_code,
         )?;
     }
     let ended_at = now_unix_ms();

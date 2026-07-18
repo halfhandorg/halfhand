@@ -1,0 +1,22 @@
+---
+source: hh-core/src/adapter/mod.rs
+expression: snap_gemini(&pr)
+---
+{
+  "events": [
+    {
+      "blob_hash": null,
+      "blob_size": null,
+      "body_json": {
+        "text": "Hi! How can I help?"
+      },
+      "correlates": null,
+      "kind": "agent_message",
+      "session_id": "test-session-id",
+      "step": null,
+      "summary": "Hi! How can I help?",
+      "ts_ms": 1500
+    }
+  ],
+  "is_assistant_message": true
+}

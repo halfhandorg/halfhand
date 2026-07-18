@@ -11,18 +11,28 @@
 //! STABILITY.md's policy instead.
 
 /// The highest migration version applied by a fresh [`crate::store::Store::open`].
-pub const LATEST_VERSION: i64 = 4;
+pub const LATEST_VERSION: i64 = 5;
 
 /// The ordered migration set: `(version, DDL)`. Applied in ascending order;
 /// each is run only when the DB's recorded `schema_migrations.version` is below
 /// it. Migration 0001 carries the `PRAGMA` statements that must run outside a
 /// transaction, so each migration is executed with `execute_batch` (no
 /// surrounding transaction), then its version is recorded.
+///
+/// Migration 0005 has a Rust-side companion: `Store::open` adds the
+/// `adapter_degrade_reason` column via `PRAGMA table_info` check (SQLite has
+/// no `ALTER TABLE ADD COLUMN IF NOT EXISTS`), then runs this DDL. Both halves
+/// are idempotent (DR-4): re-opening a v1.1.0 DB no-ops the column check and
+/// the `DROP TABLE IF EXISTS` / `CREATE ... IF NOT EXISTS` statements.
 pub const MIGRATIONS: &[(i64, &str)] = &[
     (1, include_str!("migrations/0001_initial.sql")),
     (2, include_str!("migrations/0002_events_heal_index.sql")),
     (3, include_str!("migrations/0003_imported_from.sql")),
     (4, include_str!("migrations/0004_events_fts.sql")),
+    (
+        5,
+        include_str!("migrations/0005_v1_1_0_degrade_and_fts.sql"),
+    ),
 ];
 
 /// Migration 0001: the v0.1.0-beta.1 schema, verbatim from SRS §4.1.

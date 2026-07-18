@@ -41,6 +41,21 @@
 //! (slug, projects dir, candidate files, selected file, records read, records
 //! converted, first conversion failure) is emitted to stderr when the `HH_DEBUG`
 //! env var is set — run `HH_DEBUG=1 hh run …` to capture it.
+//!
+//! ## Structured degrade reasons (v1.1.0 BUG-1)
+//!
+//! As of v1.1.0, every adapter failure is routed through [`AdapterError`]
+//! (see [`adapter::error`]), which carries both a machine-readable
+//! [`code`](AdapterError::code) (persisted to
+//! `sessions.adapter_degrade_reason`) and a human-readable message. The
+//! [`AdapterOutcome::degrade_reason`] string is still set for the
+//! recorder's stderr warning, but `AdapterOutcome` now also carries an
+//! optional [`AdapterError`] so the writer task can persist the code
+//! atomically with `adapter_status = 'degraded'`. See SRS BUG-1.1/BUG-1.4.
+
+pub mod error;
+
+pub use error::AdapterError;
 
 use crate::blob::BlobStore;
 use crate::event::{truncate_summary, AdapterStatus, AgentKind, Event, EventKind};
@@ -57,8 +72,12 @@ use std::time::{Duration, Instant};
 const SPILLOVER_BYTES: usize = 256 * 1024;
 /// Tail poll interval when the transcript is at EOF but the session continues.
 const TAIL_POLL: Duration = Duration::from_millis(50);
-/// Poll interval while waiting for the transcript file to appear.
-const APPEAR_POLL: Duration = Duration::from_millis(200);
+/// Poll interval while waiting for the transcript file to appear
+/// (BUG-1.3: 250 ms intervals within a 5 s discovery window; the tailer
+/// polls until the stop flag is set, so the 5 s window is a lower bound
+/// on patience, not an upper bound — a slow-starting agent that writes its
+/// transcript after 5 s is still picked up).
+const APPEAR_POLL: Duration = Duration::from_millis(250);
 
 /// Context handed to an adapter when it is spawned.
 #[derive(Clone)]
@@ -123,6 +142,15 @@ pub struct AdapterOutcome {
     /// restored), instead of from the tailer thread mid-session — so the warning
     /// is not buried under the agent's alternate-screen TUI (FR-1.5).
     pub degrade_reason: Option<String>,
+    /// When `status` is [`AdapterStatus::Degraded`], the structured error
+    /// (SRS BUG-1.4) whose [`AdapterError::code`] the writer task persists to
+    /// `sessions.adapter_degrade_reason`. `None` when the degrade was
+    /// synthesized by the recorder (e.g. a panicked tailer thread) rather than
+    /// reported by the adapter; in that case `degrade_reason` is still set so
+    /// the stderr warning is actionable, and `adapter_degrade_reason` is left
+    /// NULL (a future `hh doctor` can surface "degraded, no code" as a
+    /// diagnostic).
+    pub error: Option<AdapterError>,
 }
 
 /// An agent adapter: tail a structured event stream and yield [`Event`]s.
@@ -265,15 +293,19 @@ impl Adapter for ClaudeAdapter {
 #[allow(clippy::needless_pass_by_value)] // ctx/tx are owned for the thread's lifetime; taking them by value keeps the tailer self-contained (mirrors runner::run_reader).
 fn run_claude_tailer(ctx: AdapterContext, tx: mpsc::Sender<Event>) -> AdapterOutcome {
     let Some(projects) = ctx.projects_dir.clone().or_else(claude_projects_dir) else {
-        return degraded(
+        return degraded_with_error(
+            AdapterError::JsonlNotFound,
             "no ~/.claude/projects directory found (HOME unset?); run `hh doctor` to diagnose",
         );
     };
     if !projects.is_dir() {
-        return degraded(format!(
-            "projects directory does not exist: {}; run `hh doctor` to diagnose",
-            projects.display()
-        ));
+        return degraded_with_error(
+            AdapterError::JsonlNotFound,
+            format!(
+                "projects directory does not exist: {}; run `hh doctor` to diagnose",
+                projects.display()
+            ),
+        );
     }
     let slug = slugify(&ctx.cwd);
     let slug_dir = projects.join(&slug);
@@ -299,7 +331,21 @@ fn run_claude_tailer(ctx: AdapterContext, tx: mpsc::Sender<Event>) -> AdapterOut
             diag.cwd_mismatches.len(),
             diag.directories.len()
         ));
-        return degraded(locate_failure_reason(&diag));
+        // BUG-1.3: ambiguity (candidates appeared but none matched cwd) is
+        // distinct from "nothing appeared at all". Both surface as
+        // `jsonl_not_found` to the DB (the user-visible distinction is the
+        // human-readable reason string), except a pure ambiguity case with
+        // candidates that were all rejected for a different cwd maps to
+        // `discovery_ambiguous`.
+        let code = if !diag.new_candidates.is_empty()
+            && !diag.cwd_mismatches.is_empty()
+            && diag.directories.is_empty()
+        {
+            AdapterError::DiscoveryAmbiguous
+        } else {
+            AdapterError::JsonlNotFound
+        };
+        return degraded_with_error(code, locate_failure_reason(&diag));
     };
     debug(&format!(
         "claude adapter: selected transcript {} (cwd matched)",
@@ -308,11 +354,16 @@ fn run_claude_tailer(ctx: AdapterContext, tx: mpsc::Sender<Event>) -> AdapterOut
     let mut acc = OutcomeAcc::default();
     let stats = tail_file(&file, &projects, &ctx, &tx, &start, &mut acc);
     if !stats.read_ok {
-        return degraded(format!(
-            "found a transcript at {} but could not read it (open/read failed); \
-             run `hh doctor` to check file permissions",
-            file.display(),
-        ));
+        return degraded_with_error(
+            AdapterError::PermissionDenied {
+                path: file.display().to_string(),
+            },
+            format!(
+                "found a transcript at {} but could not read it (open/read failed); \
+                 run `hh doctor` to check file permissions",
+                file.display(),
+            ),
+        );
     }
     debug(&format!(
         "claude adapter: tail done: lines_seen={}, records_parsed={}, events_produced={}, first_parse_error={:?}",
@@ -322,29 +373,49 @@ fn run_claude_tailer(ctx: AdapterContext, tx: mpsc::Sender<Event>) -> AdapterOut
         // Found and read a transcript, but no user/assistant records converted
         // to events. Distinct from "could not locate" — the file existed but
         // yielded nothing. Most common cause: a format drift the parser no
-        // longer recognizes, so surface the first parse failure (if any) and the
-        // line count to make this a one-line diagnosis instead of a silent
-        // "active, 0 steps".
+        // longer recognizes (jsonl_schema_drift), or every line failed JSON
+        // parsing (jsonl_parse_error). The first parse error (if any) tells
+        // which; a total absence of parse errors with 0 events points at
+        // schema drift (the JSON parsed but no recognized records).
+        let code = if let Some((line, msg)) = stats.first_parse_error.as_ref() {
+            AdapterError::JsonlParseError {
+                line: *line,
+                msg: msg.clone(),
+            }
+        } else {
+            AdapterError::JsonlSchemaDrift {
+                field: "type".into(),
+            }
+        };
         let first_err = stats
             .first_parse_error
+            .as_ref()
             .map(|(n, msg)| format!("; first parse error at line {n}: {msg}"))
             .unwrap_or_default();
-        return degraded(format!(
-            "jsonl found ({}) but 0 records parsed (read {} line(s){first_err}); \
-             run `hh doctor` to check the Claude Code transcript format",
-            file.display(),
-            stats.lines_seen,
-        ));
+        return degraded_with_error(
+            code,
+            format!(
+                "jsonl found ({}) but 0 records parsed (read {} line(s){first_err}); \
+                 run `hh doctor` to check the Claude Code transcript format",
+                file.display(),
+                stats.lines_seen,
+            ),
+        );
     }
     acc.finish(AdapterStatus::Active)
 }
 
-/// Build a [`Degraded`](AdapterStatus::Degraded) outcome carrying a one-line
-/// reason for the recorder to print after the child exits.
-fn degraded(reason: impl Into<String>) -> AdapterOutcome {
+/// Build a [`Degraded`](AdapterStatus::Degraded) outcome carrying both a
+/// human-readable reason (for the stderr warning) and a structured
+/// [`AdapterError`] whose [`AdapterError::code`] the writer task persists to
+/// `sessions.adapter_degrade_reason` (SRS BUG-1.1, BUG-1.4). The reason
+/// string defaults to the error's `Display` impl but can be overridden for a
+/// more specific one-line diagnosis (e.g. naming the file path).
+fn degraded_with_error(err: AdapterError, reason: impl Into<String>) -> AdapterOutcome {
     AdapterOutcome {
         status: AdapterStatus::Degraded,
         degrade_reason: Some(reason.into()),
+        error: Some(err),
         ..Default::default()
     }
 }
@@ -478,6 +549,7 @@ impl OutcomeAcc {
             usage_json: self.usage_json,
             status,
             degrade_reason: None,
+            error: None,
         }
     }
 }
@@ -501,6 +573,10 @@ impl OutcomeAcc {
 ///   appears and that cwd equals (or is under) the session cwd. Early Claude
 ///   records (`agent-setting`/`mode`/`file-history-snapshot`) carry no `cwd`, so
 ///   a freshly-created file is polled until its first cwd-bearing record lands.
+/// - **Ambiguity (BUG-1.3)**: if multiple candidates match cwd, prefer the one
+///   with the newest mtime (largest delta from session start) and log a WARN
+///   so the ambiguity is visible. Previously the first match in directory
+///   iteration order won, which was non-deterministic across platforms.
 ///
 /// Returns `None` if nothing qualifies before the stop flag is set (the recorder
 /// then surfaces a degraded outcome with an actionable reason).
@@ -520,6 +596,10 @@ fn locate_transcript(
         if stop.load(Ordering::Acquire) {
             return None;
         }
+        // Collect all candidates that match cwd in this poll cycle. BUG-1.3:
+        // if >1 match, pick the newest by mtime and log a WARN rather than
+        // silently taking the first in directory-iteration order.
+        let mut matches: Vec<(PathBuf, i64)> = Vec::new();
         // Primary: a NEW transcript in the expected slug dir whose cwd matches.
         if slug_dir.is_dir() {
             for f in new_jsonl_in(&slug_dir, &preexisting) {
@@ -528,7 +608,10 @@ fn locate_transcript(
                 }
                 diag.new_candidates.insert(f.clone());
                 match first_record_cwd_state(&f, cwd) {
-                    CwdState::Matches => return Some(f),
+                    CwdState::Matches => {
+                        let mtime = file_mtime_ms(&f);
+                        matches.push((f, mtime));
+                    }
                     CwdState::Different => {
                         diag.cwd_mismatches.push(f.clone());
                         rejected.insert(f);
@@ -548,9 +631,16 @@ fn locate_transcript(
             if rejected.contains(&f) {
                 continue;
             }
+            // Skip candidates already collected from the slug dir pass.
+            if matches.iter().any(|(p, _)| p == &f) {
+                continue;
+            }
             diag.new_candidates.insert(f.clone());
             match first_record_cwd_state(&f, cwd) {
-                CwdState::Matches => return Some(f),
+                CwdState::Matches => {
+                    let mtime = file_mtime_ms(&f);
+                    matches.push((f, mtime));
+                }
                 CwdState::Different => {
                     diag.cwd_mismatches.push(f.clone());
                     rejected.insert(f);
@@ -561,6 +651,19 @@ fn locate_transcript(
                 }
                 CwdState::None => {}
             }
+        }
+        if !matches.is_empty() {
+            // BUG-1.3: pick the newest by mtime. Sort descending and take first.
+            matches.sort_by_key(|(_, m)| std::cmp::Reverse(*m));
+            if matches.len() > 1 {
+                warn(&format!(
+                    "claude adapter: {} candidate transcript(s) matched cwd; \
+                     selecting the newest: {}",
+                    matches.len(),
+                    matches[0].0.display()
+                ));
+            }
+            return Some(matches[0].0.clone());
         }
         std::thread::sleep(APPEAR_POLL);
     }
@@ -966,44 +1069,70 @@ pub fn codex_sessions_dir() -> Option<PathBuf> {
 #[allow(clippy::needless_pass_by_value)] // ctx/tx are owned for the thread's lifetime
 fn run_codex_tailer(ctx: AdapterContext, tx: mpsc::Sender<Event>) -> AdapterOutcome {
     let Some(sessions) = ctx.projects_dir.clone().or_else(codex_sessions_dir) else {
-        return degraded(
+        return degraded_with_error(
+            AdapterError::JsonlNotFound,
             "no ~/.codex/sessions directory found (HOME unset?); run `hh doctor` to diagnose",
         );
     };
     if !sessions.is_dir() {
-        return degraded(format!(
-            "sessions directory does not exist: {}; run `hh doctor` to diagnose",
-            sessions.display()
-        ));
+        return degraded_with_error(
+            AdapterError::JsonlNotFound,
+            format!(
+                "sessions directory does not exist: {}; run `hh doctor` to diagnose",
+                sessions.display()
+            ),
+        );
     }
     let start = Instant::now();
     let Some(file) = locate_codex_transcript(&sessions, &ctx.cwd, &ctx.stop) else {
-        return degraded(format!(
-            "no codex rollout transcript appeared under {} matching cwd {} before the session ended",
-            sessions.display(),
-            ctx.cwd.display(),
-        ));
+        return degraded_with_error(
+            AdapterError::JsonlNotFound,
+            format!(
+                "no codex rollout transcript appeared under {} matching cwd {} before the session ended",
+                sessions.display(),
+                ctx.cwd.display(),
+            ),
+        );
     };
     let mut acc = OutcomeAcc::default();
     let stats = tail_codex_file(&file, &ctx, &tx, &start, &mut acc);
     if !stats.read_ok {
-        return degraded(format!(
-            "found a codex transcript at {} but could not read it; \
-             run `hh doctor` to check file permissions",
-            file.display(),
-        ));
+        return degraded_with_error(
+            AdapterError::PermissionDenied {
+                path: file.display().to_string(),
+            },
+            format!(
+                "found a codex transcript at {} but could not read it; \
+                 run `hh doctor` to check file permissions",
+                file.display(),
+            ),
+        );
     }
     if stats.events_produced == 0 {
+        let code = if let Some((line, msg)) = stats.first_parse_error.as_ref() {
+            AdapterError::JsonlParseError {
+                line: *line,
+                msg: msg.clone(),
+            }
+        } else {
+            AdapterError::JsonlSchemaDrift {
+                field: "type".into(),
+            }
+        };
         let first_err = stats
             .first_parse_error
+            .as_ref()
             .map(|(n, msg)| format!("; first parse error at line {n}: {msg}"))
             .unwrap_or_default();
-        return degraded(format!(
-            "codex transcript found ({}) but 0 records parsed (read {} line(s){first_err}); \
-             run `hh doctor` to check the Codex CLI transcript format",
-            file.display(),
-            stats.lines_seen,
-        ));
+        return degraded_with_error(
+            code,
+            format!(
+                "codex transcript found ({}) but 0 records parsed (read {} line(s){first_err}); \
+                 run `hh doctor` to check the Codex CLI transcript format",
+                file.display(),
+                stats.lines_seen,
+            ),
+        );
     }
     acc.finish(AdapterStatus::Active)
 }
@@ -1557,44 +1686,70 @@ pub fn gemini_tmp_dir() -> Option<PathBuf> {
 #[allow(clippy::needless_pass_by_value)] // ctx/tx are owned for the thread's lifetime
 fn run_gemini_tailer(ctx: AdapterContext, tx: mpsc::Sender<Event>) -> AdapterOutcome {
     let Some(tmp) = ctx.projects_dir.clone().or_else(gemini_tmp_dir) else {
-        return degraded(
+        return degraded_with_error(
+            AdapterError::JsonlNotFound,
             "no ~/.gemini/tmp directory found (HOME unset?); run `hh doctor` to diagnose",
         );
     };
     if !tmp.is_dir() {
-        return degraded(format!(
-            "gemini tmp directory does not exist: {}; run `hh doctor` to diagnose",
-            tmp.display()
-        ));
+        return degraded_with_error(
+            AdapterError::JsonlNotFound,
+            format!(
+                "gemini tmp directory does not exist: {}; run `hh doctor` to diagnose",
+                tmp.display()
+            ),
+        );
     }
     let start = Instant::now();
     let Some(file) = locate_gemini_transcript(&tmp, &ctx.cwd, &ctx.stop) else {
-        return degraded(format!(
-            "no gemini session transcript appeared under {} matching cwd {} before the session ended",
-            tmp.display(),
-            ctx.cwd.display(),
-        ));
+        return degraded_with_error(
+            AdapterError::JsonlNotFound,
+            format!(
+                "no gemini session transcript appeared under {} matching cwd {} before the session ended",
+                tmp.display(),
+                ctx.cwd.display(),
+            ),
+        );
     };
     let mut acc = OutcomeAcc::default();
     let stats = tail_gemini_file(&file, &ctx, &tx, &start, &mut acc);
     if !stats.read_ok {
-        return degraded(format!(
-            "found a gemini transcript at {} but could not read it; \
-             run `hh doctor` to check file permissions",
-            file.display(),
-        ));
+        return degraded_with_error(
+            AdapterError::PermissionDenied {
+                path: file.display().to_string(),
+            },
+            format!(
+                "found a gemini transcript at {} but could not read it; \
+                 run `hh doctor` to check file permissions",
+                file.display(),
+            ),
+        );
     }
     if stats.events_produced == 0 {
+        let code = if let Some((line, msg)) = stats.first_parse_error.as_ref() {
+            AdapterError::JsonlParseError {
+                line: *line,
+                msg: msg.clone(),
+            }
+        } else {
+            AdapterError::JsonlSchemaDrift {
+                field: "type".into(),
+            }
+        };
         let first_err = stats
             .first_parse_error
+            .as_ref()
             .map(|(n, msg)| format!("; first parse error at line {n}: {msg}"))
             .unwrap_or_default();
-        return degraded(format!(
-            "gemini transcript found ({}) but 0 records parsed (read {} line(s){first_err}); \
-             run `hh doctor` to check the Gemini CLI transcript format",
-            file.display(),
-            stats.lines_seen,
-        ));
+        return degraded_with_error(
+            code,
+            format!(
+                "gemini transcript found ({}) but 0 records parsed (read {} line(s){first_err}); \
+                 run `hh doctor` to check the Gemini CLI transcript format",
+                file.display(),
+                stats.lines_seen,
+            ),
+        );
     }
     acc.finish(AdapterStatus::Active)
 }
@@ -2224,17 +2379,20 @@ pub fn newest_jsonl_for_cwd(cwd: &Path) -> Option<PathBuf> {
     newest_in_dir(&slug_dir, 0)
 }
 
-/// Encode `cwd` as a Claude slug: every `/` (and `\`, `.`) becomes `-`. This is
-/// inferred from a sample transcript (the SRS is absent); it is a *hint only* —
-/// the tailer falls back to a cwd-based scan when the slug dir misses.
+/// Encode `cwd` as a Claude slug: every path separator (`/`, `\`) and `.`
+/// becomes `-`, and any other non-alphanumeric ASCII character is also
+/// replaced with `-` (BUG-1.3: "strip non-ASCII and special characters
+/// consistently with Claude Code's own slug algorithm"). Non-ASCII
+/// characters (e.g. Unicode paths) are replaced with `-` too — Claude's
+/// slug is ASCII-only. This is inferred from real Claude transcript
+/// directory names (e.g. `-home-saadman-halfhand`); it is a *hint only* —
+/// the tailer falls back to a cwd-based scan when the slug dir misses, so
+/// a slug mismatch degrades to a slower discovery, not a failure.
 #[must_use]
 pub(crate) fn slugify(cwd: &Path) -> String {
     cwd.to_string_lossy()
         .chars()
-        .map(|c| match c {
-            '/' | '\\' | '.' => '-',
-            other => other,
-        })
+        .map(|c| if c.is_ascii_alphanumeric() { c } else { '-' })
         .collect()
 }
 
@@ -2260,6 +2418,24 @@ fn debug(msg: &str) {
     if std::env::var_os("HH_DEBUG").is_some() {
         eprintln!("hh: debug: {msg}");
     }
+}
+
+/// A WARN-level log line (BUG-1.3: ambiguity is logged at WARN so it is
+/// visible without `HH_DEBUG`). Always prints to stderr — a discovery
+/// ambiguity is a real-world condition the user should see (two concurrent
+/// sessions in the same project dir), not a debug-level detail.
+fn warn(msg: &str) {
+    eprintln!("hh: warn: {msg}");
+}
+
+/// A file's mtime as unix-ms, or 0 if unreadable. Used by
+/// [`locate_transcript`] to pick the newest of multiple cwd-matching
+/// candidates (BUG-1.3).
+fn file_mtime_ms(path: &Path) -> i64 {
+    std::fs::metadata(path)
+        .ok()
+        .and_then(|m| m.modified().ok())
+        .map_or(0, system_time_to_unix_ms)
 }
 
 /// Fuzz-only entry points into the otherwise-private Claude/Codex/Gemini JSONL
@@ -2504,7 +2680,15 @@ mod tests {
             slugify(Path::new("/home/saadman/switch/.claude/worktrees/x")),
             "-home-saadman-switch--claude-worktrees-x"
         );
-        assert_eq!(slugify(Path::new("C:\\Users\\me")), "C:-Users-me");
+        // BUG-1.3: non-alphanumeric chars (including `:` in Windows paths,
+        // spaces, and non-ASCII) are replaced with `-`, matching Claude's
+        // slug algorithm.
+        assert_eq!(slugify(Path::new("C:\\Users\\me")), "C--Users-me");
+        assert_eq!(
+            slugify(Path::new("/home/user/my project")),
+            "-home-user-my-project"
+        );
+        assert_eq!(slugify(Path::new("/home/user/café")), "-home-user-caf-");
     }
 
     #[test]
@@ -2675,6 +2859,104 @@ mod tests {
             ],
             "new-format fixture must parse the same events as the original"
         );
+    }
+
+    /// The committed `tests/fixtures/claude-code/current-format.jsonl` fixture
+    /// (sanitized from a real recent Claude Code session) must parse
+    /// end-to-end through the tailer: locate by cwd, parse the new
+    /// top-level fields (`mode`, `permissionMode`, `version`, `gitBranch`,
+    /// `userType`, `entrypoint`, `fileHistorySnapshot`) without errors, and
+    /// yield the expected event sequence (user → tool_call → tool_result →
+    /// agent_message). The `thinking` block produces a `Thinking` event too,
+    /// so the full sequence is 5 events. Regression guard for BUG-1.2
+    /// (multi-generation tolerance: unknown top-level fields ignored).
+    #[test]
+    fn tailer_parses_committed_current_format_fixture() {
+        let fixture = include_str!("../../tests/fixtures/claude-code/current-format.jsonl");
+        let home = tempfile::TempDir::new().unwrap();
+        let cwd = Path::new("/home/user/proj");
+        let (handle, stop, slug_dir) = spawn_with(home.path(), cwd);
+        write_transcript(&slug_dir, "01J9X8KQ1A2B3C4D5E6F7G8H9J.jsonl", fixture);
+        std::thread::sleep(Duration::from_millis(300));
+        stop.store(true, Ordering::Release);
+        let events = drain(&handle.events);
+        let kinds: Vec<_> = events.iter().map(|e| e.kind).collect();
+        assert_eq!(
+            kinds,
+            vec![
+                EventKind::UserMessage,
+                EventKind::Thinking,
+                EventKind::ToolCall,
+                EventKind::ToolResult,
+                EventKind::AgentMessage,
+            ],
+            "current-format fixture must parse the expected event sequence"
+        );
+        // The agent message carries the borrow-checker explanation text.
+        let agent_msg = events
+            .iter()
+            .find(|e| e.kind == EventKind::AgentMessage)
+            .expect("agent message event");
+        let text = agent_msg
+            .body_json
+            .as_ref()
+            .and_then(|v| v.get("text"))
+            .and_then(serde_json::Value::as_str)
+            .expect("agent message body text");
+        assert!(
+            text.contains("borrow"),
+            "agent message must mention the borrow checker: {text}"
+        );
+        // The tool_call carries the Read tool name and file_path input.
+        let tool_call = events
+            .iter()
+            .find(|e| e.kind == EventKind::ToolCall)
+            .expect("tool_call event");
+        assert_eq!(
+            tool_call
+                .body_json
+                .as_ref()
+                .and_then(|v| v.get("name"))
+                .and_then(serde_json::Value::as_str),
+            Some("Read"),
+            "tool_call name must be Read"
+        );
+        // The outcome is Active (the fixture parsed successfully).
+        let outcome = handle.outcome.join().expect("tailer thread");
+        assert_eq!(outcome.status, AdapterStatus::Active);
+        assert_eq!(outcome.model.as_deref(), Some("claude-sonnet-4-5"));
+    }
+
+    /// Snapshot the parsed events from the committed current-format fixture
+    /// (BUG-1.2: multi-generation tolerance). The snapshot locks the exact
+    /// event sequence, summaries, and body shapes the adapter produces, so a
+    /// future parser regression that drops or mutates an event is caught.
+    #[test]
+    fn snapshot_current_format_fixture_parse() {
+        let fixture = include_str!("../../tests/fixtures/claude-code/current-format.jsonl");
+        // Parse each line through the pure parser (no tailer thread) for a
+        // deterministic snapshot — the tailer's timestamps are wall-clock
+        // relative and would make the snapshot drift.
+        let tmp = tempfile::TempDir::new().unwrap();
+        let blobs = BlobStore::new(tmp.path().join("blobs"));
+        let mut all_events: Vec<serde_json::Value> = Vec::new();
+        for line in fixture.lines() {
+            let line = line.trim();
+            if line.is_empty() {
+                continue;
+            }
+            let Ok(v) = serde_json::from_str::<serde_json::Value>(line) else {
+                continue;
+            };
+            let pr = parse_record(&v, SID, 0, &blobs);
+            for ev in &pr.events {
+                all_events.push(serde_json::to_value(ev).unwrap_or_default());
+            }
+        }
+        insta::assert_snapshot!(serde_json::to_string_pretty(
+            &serde_json::json!({ "events": all_events })
+        )
+        .unwrap());
     }
 
     #[test]
@@ -2891,6 +3173,49 @@ mod tests {
         );
         let outcome = handle.outcome.join().expect("tailer thread");
         assert_eq!(outcome.status, AdapterStatus::Degraded);
+    }
+
+    /// BUG-1.3: when multiple NEW transcripts match cwd in the same poll
+    /// cycle, the adapter picks the one with the newest mtime (largest delta
+    /// from session start) rather than the first in directory-iteration
+    /// order (which is non-deterministic across platforms). Both candidates
+    /// are written *after* spawn (so both are "new since start"); the newer
+    /// one carries a distinguishing content so we can verify which was
+    /// selected.
+    #[test]
+    fn tailer_picks_newest_when_multiple_candidates_match_cwd() {
+        let home = tempfile::TempDir::new().unwrap();
+        let cwd = Path::new("/tmp/ambiguous");
+        let (handle, stop, slug_dir) = spawn_with(home.path(), cwd);
+        // Write two NEW transcripts that both match cwd. The "newer" one is
+        // written second (so its mtime is ≥ the first's) and carries
+        // "newer-wins" content; the "older" carries "older-loses".
+        write_transcript(
+            &slug_dir,
+            "older.jsonl",
+            "{\"type\":\"user\",\"isSidechain\":false,\"isMeta\":false,\"message\":{\"role\":\"user\",\"content\":\"older-loses\"},\"timestamp\":\"2026-07-02T06:14:40.699Z\",\"cwd\":\"/tmp/ambiguous\",\"sessionId\":\"s\"}\n",
+        );
+        // A small sleep ensures the second file's mtime is strictly newer.
+        std::thread::sleep(Duration::from_millis(20));
+        write_transcript(
+            &slug_dir,
+            "newer.jsonl",
+            "{\"type\":\"user\",\"isSidechain\":false,\"isMeta\":false,\"message\":{\"role\":\"user\",\"content\":\"newer-wins\"},\"timestamp\":\"2026-07-02T06:14:40.699Z\",\"cwd\":\"/tmp/ambiguous\",\"sessionId\":\"s\"}\n",
+        );
+        std::thread::sleep(Duration::from_millis(300));
+        stop.store(true, Ordering::Release);
+        let events = drain(&handle.events);
+        assert_eq!(events.len(), 1, "exactly one transcript should be selected");
+        let text = events[0]
+            .body_json
+            .as_ref()
+            .and_then(|v| v.get("text"))
+            .and_then(serde_json::Value::as_str)
+            .expect("event text");
+        assert_eq!(
+            text, "newer-wins",
+            "the newer transcript must be selected when multiple match cwd"
+        );
     }
 
     /// A candidate path that is a directory (the same-stem-dir issue: Claude

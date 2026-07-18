@@ -889,10 +889,14 @@ fn step_json_value(
 }
 
 /// The `session` reference embedded in every inspect JSON object.
+/// Includes `adapter_degrade_reason` (SRS v1.1.0 BUG-1.1) so `hh inspect
+/// --json` on a degraded session shows the machine-readable code.
 pub(crate) fn session_ref(session: &SessionRow) -> serde_json::Value {
     serde_json::json!({
         "id": session.id,
         "short_id": session.short_id,
+        "adapter_status": session.adapter_status.to_string(),
+        "adapter_degrade_reason": session.adapter_degrade_reason,
     })
 }
 
@@ -1273,6 +1277,57 @@ mod tests {
             assert_eq!(v["schema"], 2, "every event object carries schema:2");
             assert!(v["kind"].is_string(), "every event object has a kind");
         }
+    }
+
+    /// `hh inspect --json` on a degraded session MUST include
+    /// `"adapter_degrade_reason": "jsonl_parse_error"` in the `session`
+    /// object of every event's NDJSON line (SRS BUG-1 acceptance criterion,
+    /// ENH-2.3). This is the load-bearing assertion for BUG-1: a degraded
+    /// session self-documents its degrade code in the JSON output, not just
+    /// in a one-line stderr warning.
+    #[test]
+    fn degraded_session_json_includes_degrade_reason() {
+        let fx = Fixture::build();
+        // Mark the session degraded with a reason code, simulating what the
+        // recorder's `finalize` does when the adapter reports an
+        // `AdapterError::JsonlParseError`.
+        fx.store
+            .set_session_adapter_meta(
+                &fx.session.id,
+                None,
+                None,
+                hh_core::AdapterStatus::Degraded,
+                Some("jsonl_parse_error"),
+            )
+            .unwrap();
+        // Re-read the session row so `session_ref` picks up the degrade code.
+        let degraded = fx.store.get_session(&fx.session.id).unwrap();
+        assert_eq!(degraded.adapter_status, hh_core::AdapterStatus::Degraded);
+        assert_eq!(
+            degraded.adapter_degrade_reason.as_deref(),
+            Some("jsonl_parse_error"),
+        );
+        let mut buf = Vec::new();
+        write_session_ndjson(&fx.store, &degraded, &mut buf).unwrap();
+        let ndjson = String::from_utf8(buf).expect("NDJSON is UTF-8");
+        // Every line's `session.adapter_degrade_reason` must be the code.
+        for line in ndjson.lines() {
+            let v: serde_json::Value =
+                serde_json::from_str(line).expect("each NDJSON line is valid JSON");
+            assert_eq!(
+                v["session"]["adapter_degrade_reason"], "jsonl_parse_error",
+                "every event's session ref must carry the degrade code"
+            );
+            assert_eq!(
+                v["session"]["adapter_status"], "degraded",
+                "every event's session ref must carry the degraded status"
+            );
+        }
+        // Snapshot the first line so the exact JSON shape (including the
+        // new fields) is locked — a future change that drops or renames
+        // `adapter_degrade_reason` is caught.
+        let first = ndjson.lines().next().expect("at least one event");
+        insta::assert_snapshot!("degraded_session_ndjson_first_line", first);
     }
 
     #[test]

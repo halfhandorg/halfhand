@@ -1,0 +1,22 @@
+---
+source: hh-core/src/adapter/mod.rs
+expression: snap_codex(&pr)
+---
+{
+  "events": [
+    {
+      "blob_hash": null,
+      "blob_size": null,
+      "body_json": {
+        "text": "Here is the solution"
+      },
+      "correlates": null,
+      "kind": "agent_message",
+      "session_id": "test-session-id",
+      "step": null,
+      "summary": "Here is the solution",
+      "ts_ms": 1500
+    }
+  ],
+  "is_assistant_message": true
+}
