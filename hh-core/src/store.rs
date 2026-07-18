@@ -238,56 +238,207 @@ pub struct SearchFilters {
     pub limit: u32,
 }
 
-/// Extract searchable text from an event's `body_json` for FTS5 indexing.
-/// Returns a flat text string suitable for full-text search.
-fn extract_fts_text(body_json: Option<&serde_json::Value>) -> String {
-    let Some(body) = body_json else {
-        return String::new();
-    };
-    match body {
+/// The SQLite scalar function `hh_body_to_text(body_json TEXT) → TEXT`
+/// (SRS §5.1, DR-3). Extracts indexable plain text from an event's
+/// `body_json`: message content, tool names, tool inputs, tool outputs,
+/// and file paths. Registered at connection-open time in [`Store::open`]
+/// (and on the writer thread) so migration 0005's triggers and backfill
+/// can reference it.
+///
+/// Contract:
+/// - `NULL` in → `NULL` out (the function returns `NULL` rather than `''`
+///   so FTS5's `contentless` insert does not create an empty-doc row when
+///   the body is absent; this matches the backfill's `SELECT
+///   hh_body_to_text(body_json)` over a NULL `body_json`).
+/// - Never panics on malformed JSON: returns `NULL` (the trigger then
+///   inserts a NULL `body_text`, which FTS5 treats as an empty document —
+///   no index corruption). This satisfies the v1.1.0 addendum's "never
+///   panic on malformed input" for external-input parsers.
+/// - Pure: deterministic output for a fixed input string.
+///
+/// The extraction walks the parsed JSON tree and collects:
+/// - `text` fields (user/agent/thinking messages)
+/// - `name` + `input` fields (tool calls; `input` flattened to its
+///   stringifiable leaves, with `command`/`file_path` picked out as the
+///   load-bearing fields for `Bash`/`Read` tools)
+/// - `content` fields (tool results; array-of-text-blocks joined)
+/// - `reason`/`message` fields (error events)
+/// - `path` fields (file changes)
+/// - Any other string leaves as a fallback (so future body shapes still
+///   index *something* rather than being silently unsearchable).
+#[must_use]
+pub fn hh_body_to_text(body_json: Option<&serde_json::Value>) -> Option<String> {
+    let body = body_json?;
+    let text = hh_body_to_text_core(body);
+    if text.is_empty() {
+        None
+    } else {
+        Some(text)
+    }
+}
+
+/// Core extractor shared by [`hh_body_to_text`] (the SQL function path) and
+/// the FTS5 triggers (migration 0005). Walks `value` and
+/// concatenates every string leaf into one space-separated text blob,
+/// prefixing known structural fields (`name`, `command`, `file_path`,
+/// `path`) so the most-searchable terms lead. Never panics: a non-object
+/// `value` (array, string, number, bool, null) degrades to its string form
+/// or empty.
+fn hh_body_to_text_core(value: &serde_json::Value) -> String {
+    let mut out = String::new();
+    walk_body(value, &mut out);
+    out.trim().to_string()
+}
+
+/// Recursively walk `value` appending indexable text to `out`. Handles the
+/// Halfhand body shapes (text events, tool calls, tool results, file
+/// changes, error events, overflow envelopes) plus a generic fallback that
+/// stringifies any string leaf — so unknown future body shapes still index.
+fn walk_body(value: &serde_json::Value, out: &mut String) {
+    match value {
         serde_json::Value::Object(obj) => {
-            // Text events: extract `text` field
-            if let Some(text) = obj.get("text").and_then(|v| v.as_str()) {
-                return text.to_string();
-            }
-            // Tool calls: extract `name` + `input`
-            if let Some(name) = obj.get("name").and_then(|v| v.as_str()) {
-                let mut text = format!("tool_call: {name}");
-                if let Some(input) = obj.get("input") {
-                    if let Some(input_str) = input.as_str() {
-                        text.push_str(" input: ");
-                        text.push_str(input_str);
-                    } else if let Some(input_obj) = input.as_object() {
-                        if let Some(cmd) = input_obj.get("command").and_then(|v| v.as_str()) {
-                            text.push_str(" command: ");
-                            text.push_str(cmd);
-                        }
-                    }
-                }
-                return text;
-            }
-            // Tool results: extract `content`
-            if let Some(content) = obj.get("content").and_then(|v| v.as_str()) {
-                return content.to_string();
-            }
-            // Error events: extract `reason`
-            if let Some(reason) = obj.get("reason").and_then(|v| v.as_str()) {
-                return reason.to_string();
-            }
-            // Overflow envelopes: no searchable text
+            // Overflow envelopes: the real payload is in the blob, not inline;
+            // no text to index here (the blob's content is scanned by
+            // `hh scan`, not FTS).
             if obj
                 .get("overflow")
                 .and_then(serde_json::Value::as_bool)
                 .unwrap_or(false)
             {
-                return String::new();
+                return;
             }
-            // Fallback: pretty-print the JSON (capped)
-            serde_json::to_string(body).unwrap_or_default()
+            // Known structural fields first (load-bearing for search), then
+            // any remaining string leaves. Order: name, command, file_path,
+            // path, text, content, reason, message, then the rest.
+            for key in ["name", "command", "file_path", "path", "text"] {
+                if let Some(v) = obj.get(key).and_then(serde_json::Value::as_str) {
+                    if !v.is_empty() {
+                        out.push_str(v);
+                        out.push(' ');
+                    }
+                }
+            }
+            // `content` may be a string or an array of {text: ...} blocks.
+            if let Some(content) = obj.get("content") {
+                match content {
+                    serde_json::Value::String(s) => {
+                        if !s.is_empty() {
+                            out.push_str(s);
+                            out.push(' ');
+                        }
+                    }
+                    serde_json::Value::Array(arr) => {
+                        for block in arr {
+                            if let Some(t) = block.get("text").and_then(serde_json::Value::as_str) {
+                                if !t.is_empty() {
+                                    out.push_str(t);
+                                    out.push(' ');
+                                }
+                            }
+                        }
+                    }
+                    _ => {}
+                }
+            }
+            for key in ["reason", "message"] {
+                if let Some(v) = obj.get(key).and_then(serde_json::Value::as_str) {
+                    if !v.is_empty() {
+                        out.push_str(v);
+                        out.push(' ');
+                    }
+                }
+            }
+            // Fallback: walk every remaining value (input objects, nested
+            // arrays, etc.) and stringify string leaves. Skips the keys
+            // already handled above to avoid double-printing.
+            for (k, v) in obj {
+                if matches!(
+                    k.as_str(),
+                    "name"
+                        | "command"
+                        | "file_path"
+                        | "path"
+                        | "text"
+                        | "content"
+                        | "reason"
+                        | "message"
+                        | "overflow"
+                ) {
+                    continue;
+                }
+                walk_body(v, out);
+            }
         }
-        serde_json::Value::String(s) => s.clone(),
-        _ => String::new(),
+        serde_json::Value::Array(arr) => {
+            for v in arr {
+                walk_body(v, out);
+            }
+        }
+        serde_json::Value::String(s) if !s.is_empty() => {
+            out.push_str(s);
+            out.push(' ');
+        }
+        // Numbers/booleans/null/empty-string: not useful for full-text search.
+        _ => {}
     }
+}
+
+/// Register the `hh_body_to_text` SQLite scalar function on `conn`
+/// (SRS §5.1, DR-3). Must be called before any statement that references it
+/// (migration 0005's triggers + backfill, and the runtime insert/update
+/// triggers). The function parses `body_json` as JSON and returns the
+/// extracted text; on malformed JSON or NULL input it returns NULL (never
+/// panics — satisfying the v1.1.0 addendum's external-input contract).
+fn register_hh_body_to_text(conn: &Connection) -> Result<()> {
+    // `create_scalar_function`'s closure receives a `&Context` and returns
+    // `Result<T: ToSql>`. We return `Option<String>`: `None` → SQL NULL,
+    // `Some(s)` → TEXT. NULL in → NULL out (DR-3); malformed JSON → NULL
+    // (never panics). A non-TEXT argument (number, blob) is coerced to its
+    // string form and parsed as JSON (which will usually fail → NULL),
+    // matching SQLite's loose typing.
+    conn.create_scalar_function(
+        "hh_body_to_text",
+        1,
+        rusqlite::functions::FunctionFlags::SQLITE_DETERMINISTIC
+            | rusqlite::functions::FunctionFlags::SQLITE_UTF8,
+        |ctx| {
+            use rusqlite::types::ValueRef;
+            // NULL argument → NULL result (DR-3). `ctx.get_raw` returns the
+            // raw SQLite value without copying; we pattern on its type.
+            let raw = ctx.get_raw(0);
+            let text = match raw {
+                ValueRef::Null => return Ok(None),
+                ValueRef::Text(bytes) => std::str::from_utf8(bytes).unwrap_or("").to_string(),
+                ValueRef::Blob(bytes) => String::from_utf8_lossy(bytes).into_owned(),
+                ValueRef::Integer(n) => n.to_string(),
+                ValueRef::Real(n) => n.to_string(),
+            };
+            if text.is_empty() {
+                return Ok(None);
+            }
+            // Parse as JSON; malformed → NULL (never panic, never error).
+            let parsed: Option<serde_json::Value> = serde_json::from_str(&text).ok();
+            Ok(parsed.as_ref().and_then(|v| hh_body_to_text(Some(v))))
+        },
+    )?;
+    Ok(())
+}
+
+/// Idempotently add the `adapter_degrade_reason TEXT` column to `sessions`
+/// (SRS §5.1, BUG-1.1). SQLite lacks `ALTER TABLE ADD COLUMN IF NOT EXISTS`,
+/// so we check `PRAGMA table_info(sessions)` first. Safe to call on every
+/// `Store::open` (DR-4): a no-op once the column exists.
+fn add_adapter_degrade_reason_column(conn: &Connection) -> Result<()> {
+    let mut stmt = conn.prepare("PRAGMA table_info(sessions)")?;
+    let names: Vec<String> = stmt
+        .query_map([], |r| r.get::<_, String>(1))?
+        .filter_map(std::result::Result::ok)
+        .collect();
+    if names.iter().any(|n| n == "adapter_degrade_reason") {
+        return Ok(());
+    }
+    conn.execute_batch("ALTER TABLE sessions ADD COLUMN adapter_degrade_reason TEXT")?;
+    Ok(())
 }
 
 /// One event row as read by [`Store::scan_session`] (summary + inline body +
@@ -349,7 +500,25 @@ impl Store {
         // mid-session power-loss window to the last autocheckpoint. Set on the
         // writer connection too (see `writer_run`).
         conn.execute("PRAGMA synchronous = NORMAL", [])?;
+        // Register the `hh_body_to_text` SQLite scalar function (DR-3) before
+        // running migrations: migration 0005's triggers and backfill reference
+        // it, so it must exist on the connection by the time those DDL
+        // statements execute. Re-registered on every connection that opens the
+        // DB (the function lives per-connection, not in the schema). See
+        // [`hh_body_to_text`] for the extraction contract.
+        register_hh_body_to_text(&conn)?;
         run_migrations(&conn)?;
+        // BUG-1.1 / DR-4: add `sessions.adapter_degrade_reason` idempotently.
+        // SQLite has no `ALTER TABLE ADD COLUMN IF NOT EXISTS`, so we check
+        // `PRAGMA table_info` first. This runs *after* migrations so the
+        // `sessions` table exists (migration 0001 creates it); on a fresh DB
+        // migration 0005's DDL (which does not reference this column) runs
+        // first, then this adds the column. On a v1.0.x DB upgrading to
+        // v1.1.0, the column is added here. On a v1.1.0 DB this is a no-op
+        // (DR-4 idempotency). Kept in Rust rather than in the SQL migration
+        // because the `PRAGMA table_info` check is the idempotency mechanism
+        // SQLite lacks in pure DDL.
+        add_adapter_degrade_reason_column(&conn)?;
         let store = Self {
             conn,
             blobs: BlobStore::new(blobs_dir.to_path_buf()),
@@ -567,16 +736,22 @@ impl Store {
     }
 
     /// Update a session's adapter-reported metadata at finalize (FR-1.5): model
-    /// name, token-usage JSON, and final adapter status. `model` and
+    /// name, token-usage JSON, final adapter status, and (when degraded) the
+    /// machine-readable degrade reason code (BUG-1.1). `model` and
     /// `usage_json` use `COALESCE` so passing `None` (the adapter saw no
     /// assistant records) does not clobber a value an earlier update set;
     /// `adapter_status` is always overwritten with the outcome's status.
+    /// `degrade_reason` is `Some(code)` only when `status == Degraded` and
+    /// the adapter reported a structured [`AdapterError`]; it is written
+    /// atomically with `adapter_status` in the same UPDATE so `hh inspect
+    /// --json` never sees a degraded session with a NULL reason (BUG-1).
     pub fn set_session_adapter_meta(
         &self,
         id: &str,
         model: Option<&str>,
         usage_json: Option<&serde_json::Value>,
         status: AdapterStatus,
+        degrade_reason: Option<&str>,
     ) -> Result<()> {
         let usage: Option<String> = match usage_json {
             Some(v) => Some(serde_json::to_string(v).map_err(|e| {
@@ -584,13 +759,24 @@ impl Store {
             })?),
             None => None,
         };
+        // `degrade_reason` is only meaningful when degraded; for any other
+        // status we write NULL so a session that was degraded then recovered
+        // (currently impossible — degrade is terminal — but defensive) does
+        // not carry a stale code. COALESCE would preserve a stale value;
+        // always-overwrite matches `adapter_status`'s semantics.
+        let reason_value = if status == AdapterStatus::Degraded {
+            degrade_reason
+        } else {
+            None
+        };
         self.conn.execute(
             "UPDATE sessions SET
                 model = COALESCE(?1, model),
                 usage_json = COALESCE(?2, usage_json),
-                adapter_status = ?3
-             WHERE id = ?4",
-            params![model, usage, status.to_string(), id],
+                adapter_status = ?3,
+                adapter_degrade_reason = ?4
+             WHERE id = ?5",
+            params![model, usage, status.to_string(), reason_value, id],
         )?;
         Ok(())
     }
@@ -605,7 +791,8 @@ impl Store {
                     (SELECT COUNT(DISTINCT fc.path) FROM file_changes fc
                        JOIN events e ON e.id = fc.event_id
                        WHERE e.session_id = s.id) AS files_changed,
-                    s.imported_from
+                    s.imported_from,
+                    s.adapter_degrade_reason
              FROM sessions s
              ORDER BY s.started_at DESC
              LIMIT ?1",
@@ -729,18 +916,18 @@ impl Store {
         let event_kind = filters.event_kind.as_ref().map(EventKind::to_string);
 
         let sql = "SELECT e.id, e.session_id, s.short_id, e.step, e.kind, e.summary,
-                   snippet(events_fts, 2, '<b>', '</b>', '...', 32) AS snippet,
+                   snippet(events_fts, 1, '<b>', '</b>', '...', 32) AS snippet,
                    e.ts_ms
-            FROM events_fts
-            JOIN events e ON e.id = events_fts.rowid
-            JOIN sessions s ON s.id = e.session_id
-            WHERE events_fts MATCH ?1
-              AND (?2 IS NULL OR s.agent_kind = ?2)
-              AND (?3 IS NULL OR e.kind = ?3)
-              AND (?4 IS NULL OR s.started_at >= ?4)
-              AND (?5 IS NULL OR s.cwd LIKE '%' || ?5 || '%')
-            ORDER BY s.started_at DESC, e.ts_ms ASC
-            LIMIT ?6";
+             FROM events_fts
+             JOIN events e ON e.id = events_fts.rowid
+             JOIN sessions s ON s.id = e.session_id
+             WHERE events_fts MATCH ?1
+               AND (?2 IS NULL OR s.agent_kind = ?2)
+               AND (?3 IS NULL OR e.kind = ?3)
+               AND (?4 IS NULL OR s.started_at >= ?4)
+               AND (?5 IS NULL OR s.cwd LIKE '%' || ?5 || '%')
+             ORDER BY s.started_at DESC, e.ts_ms ASC
+             LIMIT ?6";
 
         let mut stmt = self.conn.prepare(sql).map_err(StorageError::Sqlite)?;
         let rows = stmt
@@ -809,12 +996,10 @@ impl Store {
             v
         };
         let tx = self.conn.unchecked_transaction()?;
-        // Clean up the FTS5 index for this session's events before the cascade
-        // deletes the events (FTS rows are not cascade-deleted).
-        tx.execute(
-            "DELETE FROM events_fts WHERE rowid IN (SELECT id FROM events WHERE session_id = ?1)",
-            params![id],
-        )?;
+        // FTS5 index rows are removed by the `events_fts_ad` trigger (migration
+        // 0005, external-content pattern) when the cascade deletes the `events`
+        // rows — no application-code writes to `events_fts` (CLAUDE.md v1.1.0
+        // addendum: "FTS5 stays in sync via triggers only").
         // Decrement refcounts by the per-blob reference count, GC'ing any blob
         // that reaches zero (content-addressed, so a blob still referenced by
         // another session stays on disk).
@@ -1083,20 +1268,10 @@ impl Store {
             }
             if touched {
                 events_rewritten += 1;
-                // Update the FTS5 index with the redacted summary/body.
-                // Parse the new body back to a Value for text extraction.
-                let new_body_value: Option<serde_json::Value> = new_body
-                    .as_deref()
-                    .and_then(|s| serde_json::from_str(s).ok());
-                let body_text = extract_fts_text(new_body_value.as_ref());
-                let _ = tx.execute(
-                    "UPDATE events_fts SET summary = ?1, body_text = ?2 WHERE rowid = ?3",
-                    params![
-                        new_summary.as_deref().unwrap_or(summary.as_str()),
-                        body_text,
-                        event_id
-                    ],
-                );
+                // FTS5 index is updated by the `events_fts_au` trigger (migration
+                // 0005, external-content pattern) when `summary`/`body_json`
+                // change — no application-code writes to `events_fts` (CLAUDE.md
+                // v1.1.0 addendum: "FTS5 stays in sync via triggers only").
             }
         }
 
@@ -1358,6 +1533,21 @@ impl Store {
             "UPDATE sessions SET imported_from = ?1 WHERE id = ?2",
             params![original_id, created.id],
         )?;
+        // BUG-1.1: restore the degrade reason code from the bundle so a
+        // round-trip preserves the diagnosis. The bundle's
+        // `adapter_degrade_reason` (if present) is written directly; the
+        // `adapter_status` was already set by `create_session` from
+        // `bundle_new_session`, so we only patch the reason column.
+        if let Some(reason) = bundle
+            .session
+            .get("adapter_degrade_reason")
+            .and_then(serde_json::Value::as_str)
+        {
+            self.conn.execute(
+                "UPDATE sessions SET adapter_degrade_reason = ?1 WHERE id = ?2",
+                params![reason, created.id],
+            )?;
+        }
 
         Ok(created)
     }
@@ -1438,7 +1628,8 @@ impl Store {
                         (SELECT COUNT(DISTINCT fc.path) FROM file_changes fc
                            JOIN events e ON e.id = fc.event_id
                            WHERE e.session_id = s.id) AS files_changed,
-                        s.imported_from
+                        s.imported_from,
+                        s.adapter_degrade_reason
                  FROM sessions s WHERE s.id = ?1",
                 params![id],
                 map_session_row,
@@ -1973,6 +2164,15 @@ fn writer_run(
     if let Err(e) = conn.execute("PRAGMA synchronous = NORMAL", []) {
         eprintln!("hh: warning: writer thread could not set synchronous=NORMAL: {e}");
     }
+    // Register `hh_body_to_text` on the writer connection too: the
+    // `events_fts_ai` trigger fires on the writer's INSERTs and calls this
+    // function. Without it, every event insert would fail with "no such
+    // function: hh_body_to_text" (the function is per-connection, not stored
+    // in the schema). A failure here is non-fatal but would silently break
+    // FTS indexing for the whole session, so surface it on stderr.
+    if let Err(e) = register_hh_body_to_text(&conn) {
+        eprintln!("hh: warning: writer thread could not register hh_body_to_text: {e}");
+    }
     for req in rx {
         match req {
             WriterReq::Append(mut event, reply) => {
@@ -2054,20 +2254,9 @@ fn insert_event(conn: &Connection, event: &Event) -> std::result::Result<i64, St
         ],
     )?;
     let new_id = conn.last_insert_rowid();
-    // Maintain the FTS5 index: insert a row for every new event.
-    let body_text = extract_fts_text(event.body_json.as_ref());
-    let _ = conn.execute(
-        "INSERT INTO events_fts (rowid, session_id, summary, body_text, kind, step)
-         VALUES (?1, ?2, ?3, ?4, ?5, ?6)",
-        params![
-            new_id,
-            event.session_id,
-            event.summary,
-            body_text,
-            event.kind.to_string(),
-            event.step,
-        ],
-    );
+    // FTS5 index is maintained by the `events_fts_ai` trigger (migration 0005,
+    // external-content pattern) — no application-code writes to `events_fts`
+    // (CLAUDE.md v1.1.0 addendum: "FTS5 stays in sync via triggers only").
     Ok(new_id)
 }
 
@@ -2112,20 +2301,9 @@ fn insert_event_with_file_change(
         ],
     )?;
     let event_id = tx.last_insert_rowid();
-    // Maintain the FTS5 index: insert a row for every new event.
-    let body_text = extract_fts_text(event.body_json.as_ref());
-    let _ = tx.execute(
-        "INSERT INTO events_fts (rowid, session_id, summary, body_text, kind, step)
-         VALUES (?1, ?2, ?3, ?4, ?5, ?6)",
-        params![
-            event_id,
-            event.session_id,
-            event.summary,
-            body_text,
-            event.kind.to_string(),
-            event.step,
-        ],
-    );
+    // FTS5 index is maintained by the `events_fts_ai` trigger (migration 0005,
+    // external-content pattern) — no application-code writes to `events_fts`
+    // (CLAUDE.md v1.1.0 addendum: "FTS5 stays in sync via triggers only").
     tx.execute(
         "INSERT INTO file_changes (event_id, path, change_kind, before_hash, after_hash, is_binary)
          VALUES (?1, ?2, ?3, ?4, ?5, ?6)",
@@ -2342,6 +2520,7 @@ fn map_session_row(r: &rusqlite::Row<'_>) -> rusqlite::Result<SessionRow> {
         step_count: r.get(10)?,
         files_changed: r.get(11)?,
         imported_from: r.get(12)?,
+        adapter_degrade_reason: r.get(13)?,
     })
 }
 
@@ -2625,6 +2804,87 @@ mod tests {
         }
         let rows = store.list_sessions(10).unwrap();
         assert_eq!(rows[0].step_count, 2);
+    }
+
+    /// FTS5 external-content index is populated by the `events_fts_ai`
+    /// trigger (migration 0005) — no application-code writes to `events_fts`
+    /// (CLAUDE.md v1.1.0 addendum). Verifies the trigger fires on the
+    /// writer's INSERT, that `hh_body_to_text` is registered on the writer
+    /// connection, and that a search finds the event.
+    #[test]
+    fn fts_index_populated_by_trigger_on_writer_insert() {
+        let (_tmp, store) = open_store();
+        let created = store.create_session(&new_session()).unwrap();
+        {
+            let writer = store.event_writer().unwrap();
+            writer
+                .append_event(Event {
+                    session_id: created.id.clone(),
+                    ts_ms: 0,
+                    kind: EventKind::AgentMessage,
+                    step: None,
+                    summary: "borrow checker explanation".into(),
+                    body_json: Some(serde_json::json!({
+                        "text": "the borrow checker prevents double mutable borrows"
+                    })),
+                    blob_hash: None,
+                    blob_size: None,
+                    correlates: None,
+                })
+                .unwrap();
+            writer.finish().unwrap();
+        }
+        // The trigger should have indexed the event.
+        let fts_count: i64 = store
+            .conn
+            .query_row("SELECT COUNT(*) FROM events_fts", [], |r| r.get(0))
+            .unwrap();
+        assert_eq!(fts_count, 1, "FTS trigger must index the event");
+        // Search for a term in the body text that is not in the summary.
+        let results = store.search("borrows", &SearchFilters::default()).unwrap();
+        assert!(
+            results.iter().any(|r| r.session_id == created.id),
+            "FTS trigger must index the event body text: {results:?}",
+        );
+    }
+
+    /// `hh_body_to_text` SQL function returns NULL on NULL/malformed input
+    /// and never panics (DR-3, v1.1.0 addendum: external-input parsers must
+    /// never panic). Verified at the SQL level since the function is
+    /// registered on the store's connection.
+    #[test]
+    fn hh_body_to_text_sql_function_contract() {
+        let (_tmp, store) = open_store();
+        // NULL in → NULL out.
+        let null_out: Option<String> = store
+            .conn
+            .query_row("SELECT hh_body_to_text(NULL)", [], |r| r.get(0))
+            .unwrap();
+        assert!(null_out.is_none(), "NULL in → NULL out");
+        // Malformed JSON → NULL (no panic, no error).
+        let malformed: Option<String> = store
+            .conn
+            .query_row("SELECT hh_body_to_text('{not valid json')", [], |r| {
+                r.get(0)
+            })
+            .unwrap();
+        assert!(malformed.is_none(), "malformed JSON → NULL");
+        // Valid JSON with a text field → the text.
+        let text: Option<String> = store
+            .conn
+            .query_row(
+                "SELECT hh_body_to_text('{\"text\":\"hello world\"}')",
+                [],
+                |r| r.get(0),
+            )
+            .unwrap();
+        assert_eq!(text.as_deref(), Some("hello world"));
+        // Empty string in → NULL out.
+        let empty: Option<String> = store
+            .conn
+            .query_row("SELECT hh_body_to_text('')", [], |r| r.get(0))
+            .unwrap();
+        assert!(empty.is_none(), "empty string → NULL");
     }
 
     #[test]
@@ -3122,6 +3382,7 @@ mod tests {
                 Some("claude-sonnet-5"),
                 Some(&serde_json::json!({"input_tokens": 42, "output_tokens": 7})),
                 AdapterStatus::Active,
+                None,
             )
             .unwrap();
         let (model, usage, status): (Option<String>, Option<String>, String) = store
@@ -3139,16 +3400,22 @@ mod tests {
         assert_eq!(status, "active");
 
         // Passing None for model/usage must not clobber (COALESCE); status is
-        // always overwritten.
+        // always overwritten. Degrade with a reason code (BUG-1.1).
         store
-            .set_session_adapter_meta(&created.id, None, None, AdapterStatus::Degraded)
+            .set_session_adapter_meta(
+                &created.id,
+                None,
+                None,
+                AdapterStatus::Degraded,
+                Some("jsonl_not_found"),
+            )
             .unwrap();
-        let (model, status): (Option<String>, String) = store
+        let (model, status, reason): (Option<String>, String, Option<String>) = store
             .conn
             .query_row(
-                "SELECT model, adapter_status FROM sessions WHERE id = ?1",
+                "SELECT model, adapter_status, adapter_degrade_reason FROM sessions WHERE id = ?1",
                 params![&created.id],
-                |r| Ok((r.get(0)?, r.get(1)?)),
+                |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?)),
             )
             .unwrap();
         assert_eq!(
@@ -3157,6 +3424,33 @@ mod tests {
             "model survives a None update"
         );
         assert_eq!(status, "degraded", "status is always overwritten");
+        assert_eq!(
+            reason.as_deref(),
+            Some("jsonl_not_found"),
+            "degrade reason code persisted atomically with status"
+        );
+
+        // Recovering from degraded to active clears the reason (defensive —
+        // degrade is currently terminal, but the column must not carry a
+        // stale code if a future adapter can recover).
+        store
+            .set_session_adapter_meta(
+                &created.id,
+                None,
+                None,
+                AdapterStatus::Active,
+                Some("jsonl_not_found"),
+            )
+            .unwrap();
+        let reason: Option<String> = store
+            .conn
+            .query_row(
+                "SELECT adapter_degrade_reason FROM sessions WHERE id = ?1",
+                params![&created.id],
+                |r| r.get(0),
+            )
+            .unwrap();
+        assert!(reason.is_none(), "non-degraded status clears the reason");
     }
 
     #[test]

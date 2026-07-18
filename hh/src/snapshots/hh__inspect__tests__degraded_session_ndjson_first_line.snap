@@ -1,0 +1,5 @@
+---
+source: hh/src/inspect.rs
+expression: first
+---
+{"body":{"text":"please list the files"},"correlates":null,"file_change":null,"id":1,"kind":"user_message","schema":2,"session":{"adapter_degrade_reason":"jsonl_parse_error","adapter_status":"degraded","id":"018e2c5a-4a00-7000-8000-000000a1b2c3","short_id":"a1b2c3"},"step":1,"summary":"list the files","ts_ms":0}

@@ -1,0 +1,41 @@
+---
+source: hh-core/src/adapter/mod.rs
+expression: snap(&pr)
+---
+{
+  "events": [
+    {
+      "blob_hash": null,
+      "blob_size": null,
+      "body_json": {
+        "content": "total 0",
+        "correlate_key": "call_abc123",
+        "is_error": false,
+        "tool_use_id": "call_abc123"
+      },
+      "correlates": null,
+      "kind": "tool_result",
+      "session_id": "test-session-id",
+      "step": null,
+      "summary": "tool_result: total 0",
+      "ts_ms": 2800
+    },
+    {
+      "blob_hash": null,
+      "blob_size": null,
+      "body_json": {
+        "content": "Error: file not found",
+        "correlate_key": "call_def456",
+        "is_error": true,
+        "tool_use_id": "call_def456"
+      },
+      "correlates": null,
+      "kind": "tool_result",
+      "session_id": "test-session-id",
+      "step": null,
+      "summary": "tool_result (error): Error: file not found",
+      "ts_ms": 2800
+    }
+  ],
+  "is_assistant_message": false
+}

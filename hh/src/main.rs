@@ -1078,6 +1078,7 @@ fn session_to_json(r: &hh_core::SessionRow) -> serde_json::Value {
         "status": r.status.to_string(),
         "agent_kind": r.agent_kind.to_string(),
         "adapter_status": r.adapter_status.to_string(),
+        "adapter_degrade_reason": r.adapter_degrade_reason,
         "started_at": r.started_at,
         "ended_at": r.ended_at,
         "exit_code": r.exit_code,
@@ -1222,6 +1223,37 @@ mod tests {
         let r2 = vis_offset(lines[3], "✓");
         assert_eq!(hdr, r1, "header STATUS column must align with row status");
         assert_eq!(hdr, r2, "header STATUS column must align with degraded row");
+    }
+
+    /// `hh list --json` includes `adapter_degrade_reason` on every session
+    /// object (SRS BUG-1 acceptance, ENH-2.3). A degraded session with a
+    /// reason code must surface it in the JSON; an active session must
+    /// report `null`. Locks the field's presence and value for both states.
+    #[test]
+    fn session_to_json_includes_degrade_reason() {
+        // Active session: degrade reason is null.
+        let active = row("a1b2c3", SessionStatus::Ok, AdapterStatus::Active, 42);
+        let active_json = session_to_json(&active);
+        assert_eq!(
+            active_json["adapter_status"], "active",
+            "active session reports active"
+        );
+        assert!(
+            active_json["adapter_degrade_reason"].is_null(),
+            "active session has null degrade reason"
+        );
+        // Degraded session: degrade reason is the machine-readable code.
+        let mut degraded = row("d4e5f6", SessionStatus::Ok, AdapterStatus::Degraded, 0);
+        degraded.adapter_degrade_reason = Some("jsonl_parse_error".into());
+        let degraded_json = session_to_json(&degraded);
+        assert_eq!(
+            degraded_json["adapter_status"], "degraded",
+            "degraded session reports degraded"
+        );
+        assert_eq!(
+            degraded_json["adapter_degrade_reason"], "jsonl_parse_error",
+            "degraded session carries the machine-readable code"
+        );
     }
 
     /// `hh doctor` renders one `✓`/`✗ name — detail` line per check, color=false

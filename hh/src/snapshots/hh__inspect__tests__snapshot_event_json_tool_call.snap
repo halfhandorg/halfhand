@@ -15,6 +15,8 @@ expression: pretty
   "kind": "tool_call",
   "schema": 2,
   "session": {
+    "adapter_degrade_reason": null,
+    "adapter_status": "active",
     "id": "018e2c5a-4a00-7000-8000-000000a1b2c3",
     "short_id": "a1b2c3"
   },

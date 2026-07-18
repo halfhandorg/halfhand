@@ -63,6 +63,7 @@ One object per recorded session, newest-first.
 | `status` | string | yes | One of `recording`, `ok`, `error`, `interrupted`. |
 | `agent_kind` | string | yes | One of `claude-code`, `claude-desktop`, `codex-cli`, `gemini-cli`, `generic`, `mcp-only`. New values are additive (added in `schema:2`: `claude-desktop`, `codex-cli`, `gemini-cli` — see [Diff from schema 1](#diff-from-schema-1)); consumers must ignore a value they don't recognize rather than error. |
 | `adapter_status` | string | yes | One of `none`, `active`, `degraded`. `active` while a structured adapter tailed events; `degraded` if the adapter failed but PTY/FS recording continued; `none` for a generic PTY-only session. |
+| `adapter_degrade_reason` | string \| null | yes | When `adapter_status` is `degraded`, a machine-readable code explaining why (`jsonl_not_found`, `jsonl_parse_error`, `jsonl_schema_drift`, `discovery_ambiguous`, `permission_denied`, `io_error`). `null` for `active`/`none` sessions and for degraded sessions whose tailer panicked (no structured error). See SRS BUG-1.1. Added additively in v1.1.0. |
 | `started_at` | integer | yes | Session start, unix-ms UTC. |
 | `ended_at` | integer \| null | yes | Session end, unix-ms UTC. `null` while recording or if the session was interrupted before finalizing. |
 | `exit_code` | integer \| null | yes | The wrapped process's exit code, if finalized. `null` while recording or interrupted. |
@@ -83,7 +84,7 @@ step object's `events` array (`hh inspect --json --step N`).
 | Field | Type | Always present? | Description |
 |---|---|---|---|
 | `schema` | integer | yes | `2`. |
-| `session` | object | yes | `{ "id": <full uuid>, "short_id": <6 hex> }`. |
+| `session` | object | yes | `{ "id": <full uuid>, "short_id": <6 hex>, "adapter_status": <string>, "adapter_degrade_reason": <string\|null> }`. The `adapter_status`/`adapter_degrade_reason` fields (v1.1.0, SRS BUG-1.1) let a consumer detect a degraded session from any event's NDJSON line without a separate `hh list` call. |
 | `id` | integer | yes | The `events.id` row id (rowid PK). Stable within a session; used by `correlates`. |
 | `ts_ms` | integer | yes | Milliseconds since the session's `started_at`. |
 | `kind` | string | yes | One of `lifecycle`, `user_message`, `agent_message`, `thinking`, `tool_call`, `tool_result`, `mcp_request`, `mcp_response`, `mcp_notification`, `file_change`, `terminal_output`, `error`. |

@@ -346,6 +346,13 @@ pub struct SessionRow {
     /// or `None` for a locally-recorded session (SRS v1.0.0 addendum: additive
     /// column, migration 0003).
     pub imported_from: Option<String>,
+    /// The machine-readable degrade reason code (SRS v1.1.0 BUG-1.1), set
+    /// when `adapter_status == Degraded` and the adapter reported a
+    /// structured [`AdapterError`](crate::adapter::AdapterError). `None` for
+    /// active/none sessions, and for degraded sessions whose tailer panicked
+    /// (no structured error — a `hh doctor` diagnostic, not a stale code).
+    /// See SRS BUG-1.1 for the code table.
+    pub adapter_degrade_reason: Option<String>,
 }
 
 impl Default for SessionRow {
@@ -370,6 +377,7 @@ impl Default for SessionRow {
             step_count: 0,
             files_changed: 0,
             imported_from: None,
+            adapter_degrade_reason: None,
         }
     }
 }

@@ -11,7 +11,73 @@ in CI rather than tracking `latest` until 1.0.
 
 ## [Unreleased]
 
-_Nothing yet._
+### Added — v1.1.0 Stage 2 (migration 0005 + adapter degrade infrastructure, BUG-1)
+
+- **`sessions.adapter_degrade_reason`** column (migration 0005, SRS §5.1,
+  BUG-1.1): a machine-readable degrade code (`jsonl_not_found`,
+  `jsonl_parse_error`, `jsonl_schema_drift`, `discovery_ambiguous`,
+  `permission_denied`, `io_error`) persisted atomically with
+  `adapter_status = 'degraded'`. `hh list --json` and `hh inspect --json`
+  now include `adapter_degrade_reason` on every session object. The column
+  is additive (nullable, default NULL) and the migration is idempotent
+  (DR-4): re-opening a v1.1.0 DB is a schema no-op.
+- **`AdapterError`** type (`hh_core::adapter::AdapterError`, BUG-1.4): all
+  adapter failures (Claude Code, Codex CLI, Gemini CLI) now route through
+  this structured enum, carrying both a stable `code()` (persisted to the
+  DB) and a human-readable `Display` message (printed to stderr after the
+  child exits). The writer task persists the code atomically with the
+  degraded status. `#[non_exhaustive]` + `Clone` so the recorder can carry
+  it on `RunOutcome`.
+- **FTS5 trigger-based sync** (migration 0005, ENH-4 / CLAUDE.md v1.1.0
+  addendum): the FTS5 search index is now kept in sync by SQLite triggers
+  (`events_fts_ai`/`_ad`/`_au`) only — application code no longer writes to
+  `events_fts`. The `hh_body_to_text` SQLite scalar function (registered
+  at connection open, DR-3) extracts indexable text from `body_json`
+  (message content, tool names/inputs/outputs, file paths) for the
+  triggers. NULL/malformed input → NULL (never panics).
+- **`tests/fixtures/claude-code/current-format.jsonl`**: a sanitized
+  fixture sampled from a real recent Claude Code session, exercising the
+  new top-level fields (`mode`, `permissionMode`, `version`, `gitBranch`,
+  `userType`, `entrypoint`, `fileHistorySnapshot`). Snapshot + end-to-end
+  tailer tests lock the parser's multi-generation tolerance (BUG-1.2).
+- **Property test** `hh-core/tests/migration_idempotency.rs` (DR-5):
+  re-opens a v1.1.0 DB N times, asserts no error and schema invariant.
+
+### Changed — v1.1.0 Stage 2
+
+- **Claude Code adapter** discovery hardening (BUG-1.3):
+  - Poll interval: 200 ms → 250 ms. The tailer still polls until the stop
+    flag is set (no fixed window), so the 5 s "discovery window" is a lower
+    bound on patience, not an upper bound.
+  - **Ambiguity handling**: when multiple NEW transcripts match cwd in the
+    same poll cycle, the adapter now picks the one with the newest mtime
+    (largest delta from session start) and logs a WARN to stderr. Previously
+    the first match in directory-iteration order won, which was
+    non-deterministic across platforms.
+  - **Slug hardening**: `slugify` now replaces every non-alphanumeric ASCII
+    character (not just `/`, `\`, `.`) with `-`, and non-ASCII characters
+    too — matching Claude Code's own slug algorithm. A slug mismatch still
+    degrades to the cwd-based fallback scan, not a failure.
+- **`Store::set_session_adapter_meta`** signature: new
+  `degrade_reason: Option<&str>` parameter (the machine-readable code).
+  Callers updated (`hh-record::runner::finalize`). The JSON output shape
+  is additive (`adapter_degrade_reason` added; existing fields unchanged).
+
+### SRS deviations (flagged)
+
+- **Migration numbering**: the SRS calls this "migration 0002" but the
+  codebase's sequential migration numbering puts it at 0005 (after 0001
+  initial, 0002 heal index, 0003 imported_from, 0004 events_fts). The
+  content matches SRS §5.1; only the version number differs.
+- **FTS5 table type**: the SRS specifies `content=events,
+  content_rowid=id` (external-content). The `events` table has no
+  `body_text` column (it has `body_json`), so external-content fails on
+  any read (`snippet()`, `SELECT COUNT(*)`, `'delete'` lookups) with
+  "no such column: T.body_text". We use a **standalone** FTS5 table (no
+  `content=`) with triggers instead — supports `snippet()`, avoids the
+  column mismatch, and still satisfies "FTS5 stays in sync via triggers
+  only" (CLAUDE.md v1.1.0 addendum). Trade-off: ~2x storage for the
+  indexed text (acceptable for a local-first tool).
 
 ## [1.0.0] — 2026-07-14
 
