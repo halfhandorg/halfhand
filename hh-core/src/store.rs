@@ -735,17 +735,40 @@ impl Store {
         Ok(())
     }
 
-    /// Update a session's adapter-reported metadata at finalize (FR-1.5): model
-    /// name, token-usage JSON, final adapter status, and (when degraded) the
-    /// machine-readable degrade reason code (BUG-1.1). `model` and
+    /// Update a session's adapter-reported metadata at finalize (FR-1.5):
+    /// model name, token-usage JSON, and final adapter status. `model` and
     /// `usage_json` use `COALESCE` so passing `None` (the adapter saw no
     /// assistant records) does not clobber a value an earlier update set;
     /// `adapter_status` is always overwritten with the outcome's status.
-    /// `degrade_reason` is `Some(code)` only when `status == Degraded` and
-    /// the adapter reported a structured [`AdapterError`]; it is written
-    /// atomically with `adapter_status` in the same UPDATE so `hh inspect
-    /// --json` never sees a degraded session with a NULL reason (BUG-1).
+    ///
+    /// This is the v1.0.0 signature, preserved unchanged for backward
+    /// compatibility (cargo-semver-checks: method parameter count is part
+    /// of the semver contract). It does **not** touch
+    /// `adapter_degrade_reason` — use [`Self::set_session_adapter_meta_with_reason`]
+    /// to persist the degrade code (BUG-1.1) atomically with the status.
     pub fn set_session_adapter_meta(
+        &self,
+        id: &str,
+        model: Option<&str>,
+        usage_json: Option<&serde_json::Value>,
+        status: AdapterStatus,
+    ) -> Result<()> {
+        self.set_session_adapter_meta_with_reason(id, model, usage_json, status, None)
+    }
+
+    /// Like [`Self::set_session_adapter_meta`] but also persists the
+    /// machine-readable degrade reason code (BUG-1.1) atomically with
+    /// `adapter_status`. `degrade_reason` is `Some(code)` only when
+    /// `status == Degraded` and the adapter reported a structured
+    /// [`AdapterError`](crate::adapter::AdapterError); it is written in
+    /// the same UPDATE as `adapter_status` so `hh inspect --json` never
+    /// sees a degraded session with a NULL reason (BUG-1).
+    ///
+    /// For any status other than `Degraded`, `degrade_reason` is ignored
+    /// (NULL is written) so a session that was degraded then recovered
+    /// (currently impossible — degrade is terminal — but defensive) does
+    /// not carry a stale code.
+    pub fn set_session_adapter_meta_with_reason(
         &self,
         id: &str,
         model: Option<&str>,
@@ -3376,21 +3399,22 @@ mod tests {
     fn set_session_adapter_meta_updates_and_preserves() {
         let (_tmp, store) = open_store();
         let created = store.create_session(&new_session()).unwrap();
+        // The v1.0.0 4-param signature still works (backward compat) and
+        // does not touch `adapter_degrade_reason`.
         store
             .set_session_adapter_meta(
                 &created.id,
                 Some("claude-sonnet-5"),
                 Some(&serde_json::json!({"input_tokens": 42, "output_tokens": 7})),
                 AdapterStatus::Active,
-                None,
             )
             .unwrap();
-        let (model, usage, status): (Option<String>, Option<String>, String) = store
+        let (model, usage, status, reason): (Option<String>, Option<String>, String, Option<String>) = store
             .conn
             .query_row(
-                "SELECT model, usage_json, adapter_status FROM sessions WHERE id = ?1",
+                "SELECT model, usage_json, adapter_status, adapter_degrade_reason FROM sessions WHERE id = ?1",
                 params![&created.id],
-                |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?)),
+                |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?, r.get(3)?)),
             )
             .unwrap();
         assert_eq!(model.as_deref(), Some("claude-sonnet-5"));
@@ -3398,11 +3422,13 @@ mod tests {
         assert_eq!(usage_val["input_tokens"], 42);
         assert_eq!(usage_val["output_tokens"], 7);
         assert_eq!(status, "active");
+        assert!(reason.is_none(), "v1.0.0 signature does not set a reason");
 
-        // Passing None for model/usage must not clobber (COALESCE); status is
-        // always overwritten. Degrade with a reason code (BUG-1.1).
+        // The v1.1.0 `_with_reason` variant persists the reason atomically
+        // with the status (BUG-1.1). Passing None for model/usage must not
+        // clobber (COALESCE); status is always overwritten.
         store
-            .set_session_adapter_meta(
+            .set_session_adapter_meta_with_reason(
                 &created.id,
                 None,
                 None,
@@ -3434,7 +3460,7 @@ mod tests {
         // degrade is currently terminal, but the column must not carry a
         // stale code if a future adapter can recover).
         store
-            .set_session_adapter_meta(
+            .set_session_adapter_meta_with_reason(
                 &created.id,
                 None,
                 None,

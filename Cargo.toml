@@ -3,7 +3,7 @@ resolver = "2"
 members = ["hh-core", "hh-record", "hh", "hh-dist"]
 
 [workspace.package]
-version = "1.0.0"
+version = "1.1.0"
 edition = "2021"
 rust-version = "1.75"
 license = "Apache-2.0"
@@ -16,12 +16,12 @@ homepage = "https://halfhandorg.github.io/halfhand/"
 # crates, and so the crates are publishable with correct inter-crate version
 # constraints. Members reference these via `{ workspace = true }`.
 [workspace.dependencies]
-hh-core = { path = "hh-core", version = "1.0.0" }
-hh-record = { path = "hh-record", version = "1.0.0" }
+hh-core = { path = "hh-core", version = "1.1.0" }
+hh-record = { path = "hh-record", version = "1.1.0" }
 # The `halfhand` library target (in the `hh` package) is a workspace dep so
 # `hh-dist` can reuse `cli::Cli` for asset generation and cargo-deny's
 # `bans.wildcards` check is satisfied (pinned path + version).
-halfhand = { path = "hh", version = "1.0.0" }
+halfhand = { path = "hh", version = "1.1.0" }
 
 [workspace.lints.clippy]
 pedantic = { level = "warn", priority = -1 }

@@ -715,8 +715,8 @@ fn finalize(
     // tailer thread has `error: None` and the column is left NULL (a
     // future `hh doctor` surfaces "degraded, no code" as a diagnostic).
     if let Some(o) = adapter_outcome {
-        let reason_code = o.error.as_ref().map(hh_core::AdapterError::code);
-        store.set_session_adapter_meta(
+        let reason_code = hh_core::adapter::adapter_degrade_code(o.degrade_reason.as_deref());
+        store.set_session_adapter_meta_with_reason(
             session_id,
             o.model.as_deref(),
             o.usage_json.as_ref(),
@@ -772,16 +772,15 @@ fn adapter_outcome_from_join(result: std::thread::Result<AdapterOutcome>) -> Ada
     result.unwrap_or_else(|_| {
         // Don't print here: the agent's TUI may still own the terminal. Surface
         // the reason via `degrade_reason` so the binary prints it after the child
-        // exits and the terminal is restored (FR-1.5).
-        AdapterOutcome {
-            status: AdapterStatus::Degraded,
-            degrade_reason: Some(
-                "claude adapter thread panicked; session continues, \
-                 recording as adapter_status=degraded — run `hh doctor`"
-                    .to_string(),
-            ),
-            ..Default::default()
-        }
+        // exits and the terminal is restored (FR-1.5). `AdapterOutcome` is
+        // `#[non_exhaustive]` (additive under cargo-semver-checks), so external
+        // crates cannot construct it with a struct literal — use the public
+        // `hh_core::degraded` constructor instead. No structured `AdapterError`
+        // here (a panic has no code), so `adapter_degrade_reason` is left NULL.
+        hh_core::degraded(
+            "claude adapter thread panicked; session continues, \
+             recording as adapter_status=degraded — run `hh doctor`",
+        )
     })
 }
 

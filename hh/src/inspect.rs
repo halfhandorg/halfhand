@@ -1292,7 +1292,7 @@ mod tests {
         // recorder's `finalize` does when the adapter reports an
         // `AdapterError::JsonlParseError`.
         fx.store
-            .set_session_adapter_meta(
+            .set_session_adapter_meta_with_reason(
                 &fx.session.id,
                 None,
                 None,
