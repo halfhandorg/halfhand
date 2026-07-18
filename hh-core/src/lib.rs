@@ -30,8 +30,10 @@ pub use adapter::{
 pub use blob::{BlobStore, PutOutcome};
 pub use bundle::{Bundle, FORMAT_VERSION};
 pub use config::{
-    parse_bytes, Config, Paths, RecordConfig, RedactionConfig, RedactionRule, ReplayConfig,
-    StorageConfig, Theme,
+    legacy_config_hint, legacy_config_hint_marker_path, parse_bytes,
+    print_legacy_config_hint_if_needed, print_legacy_config_hint_if_needed_with, Config,
+    ConfigSource, Paths, RecordConfig, RedactionConfig, RedactionRule, ReplayConfig, StorageConfig,
+    Theme,
 };
 pub use deprecation::warn_deprecated;
 pub use error::{BlobError, BundleError, ConfigError, Error, ResolveError, Result, StorageError};

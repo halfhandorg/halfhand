@@ -106,12 +106,12 @@ fn open_store() -> anyhow::Result<(Store, Paths, Config)> {
     // Best-effort config load: unknown keys warn on stderr, never fail
     // (SRS §4.2). If the config file is unreadable for another reason, fall
     // back to defaults rather than blocking the run.
-    let config = Config::load(&paths0.config_path).unwrap_or_else(|e| {
+    let (config, source) = Config::load_with_source(&paths0.config_path).unwrap_or_else(|e| {
         eprintln!(
             "hh: warning: could not load {}: {e}",
             paths0.config_path.display()
         );
-        Config::default()
+        (Config::default(), hh_core::ConfigSource::Defaults)
     });
     // Warn if the user wrote halfhand.toml / hh.toml *alongside* config.toml
     // (then it is silently ignored — only config.toml is read). When
@@ -123,6 +123,12 @@ fn open_store() -> anyhow::Result<(Store, Paths, Config)> {
     let paths = Paths::resolve(&config).map_err(|e| {
         anyhow::anyhow!("could not resolve data directory\n  why: {e}\n  hint: set HH_DATA_DIR to a writable directory")
     })?;
+    // BUG-2.2: one-time legacy-config hint. The data dir the marker lives
+    // under is the *resolved* one (after env > config > platform precedence),
+    // so the marker tracks "this user has been told" per data dir, not per
+    // invocation. Printed only when stderr is a TTY and HH_NO_CONFIG_HINT is
+    // unset (see `print_legacy_config_hint_if_needed`).
+    hh_core::print_legacy_config_hint_if_needed(&source, &paths0.config_path, &paths.data_dir);
     let store = Store::open(&paths.db_path, &paths.blobs_dir).map_err(|e| {
         anyhow::anyhow!(
             "could not open store at {}\n  why: {e}\n  hint: check permissions on the data directory",

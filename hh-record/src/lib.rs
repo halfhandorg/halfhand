@@ -10,6 +10,31 @@
 //! The threads-vs-tokio decision is recorded in
 //! `docs/adr/0001-threads-vs-tokio.md`.
 
+// BUG-3.2 (SRS v1.1.0 §3): `clippy::pedantic` is enabled explicitly at the
+// crate root so the lint set is enforced regardless of workspace-lint
+// inheritance — the SRS wording requires the enablement live at the crate
+// level, not only in `[workspace.lints]`. A crate-level group `warn` would
+// override the workspace's per-lint `allow`s (clippy gives the closer scope
+// precedence), so the same set of pedantic lints the workspace allows
+// project-wide is re-allowed here with one-line justifications, matching the
+// CLAUDE.md pattern ("Enable clippy::pedantic at crate level and #[allow]
+// individual lints with a one-line justification comment").
+#![warn(clippy::pedantic)]
+// Justification: naming types `RecordError`, `RunOptions` etc. inside a crate
+// named `hh-record` reads better than the redundant `hh_record::HhRecordError`.
+#![allow(clippy::module_name_repetitions)]
+// Justification: most builders/fallible functions already return Result; tagging
+// every one with #[must_use] is noise that does not catch real bugs here.
+#![allow(clippy::must_use_candidate)]
+// Justification: full rustdoc on every public item is enforced by `missing_docs`
+// (deny); the separate "Errors"/"Panics" doc sections pedantic wants are
+// covered inline where relevant, not on every fn.
+#![allow(clippy::missing_errors_doc)]
+#![allow(clippy::missing_panics_doc)]
+// Justification: the docs reference many tech proper nouns (PTY, FSEvents,
+// inotify, JSON, MCP, SQLite, …) as plain text, not doc-links. Backticking
+// every occurrence is noise that does not improve the rendered docs.
+#![allow(clippy::doc_markdown)]
 #![deny(missing_docs)]
 
 mod agent;
