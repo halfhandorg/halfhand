@@ -141,16 +141,63 @@ pub struct AdapterOutcome {
     /// recorder prints to stderr *after the child exits* (once the terminal is
     /// restored), instead of from the tailer thread mid-session — so the warning
     /// is not buried under the agent's alternate-screen TUI (FR-1.5).
+    ///
+    /// As of v1.1.0 (BUG-1.1), the reason string carries a machine-readable
+    /// code prefix: `"<code>: <human message>"`. Use
+    /// [`adapter_degrade_code`] to extract the code and
+    /// [`adapter_degrade_message`] to extract the human-readable message.
+    /// The writer task persists the code to `sessions.adapter_degrade_reason`
+    /// atomically with `adapter_status = 'degraded'`.
     pub degrade_reason: Option<String>,
-    /// When `status` is [`AdapterStatus::Degraded`], the structured error
-    /// (SRS BUG-1.4) whose [`AdapterError::code`] the writer task persists to
-    /// `sessions.adapter_degrade_reason`. `None` when the degrade was
-    /// synthesized by the recorder (e.g. a panicked tailer thread) rather than
-    /// reported by the adapter; in that case `degrade_reason` is still set so
-    /// the stderr warning is actionable, and `adapter_degrade_reason` is left
-    /// NULL (a future `hh doctor` can surface "degraded, no code" as a
-    /// diagnostic).
-    pub error: Option<AdapterError>,
+}
+
+/// Extract the machine-readable degrade code from a
+/// [`AdapterOutcome::degrade_reason`] string (SRS BUG-1.1). The reason
+/// string is formatted as `"<code>: <human message>"` by
+/// [`degraded_with_error`]; this function returns the code part, or `None`
+/// if the string is absent or does not carry a code prefix (a degrade
+/// synthesized by the recorder, e.g. a panicked tailer thread).
+#[must_use]
+pub fn adapter_degrade_code(reason: Option<&str>) -> Option<&str> {
+    let s = reason?;
+    let colon = s.find(':')?;
+    let code = &s[..colon];
+    // Validate: the code must be one of the known AdapterError codes.
+    // This prevents a false positive on a reason that happens to contain
+    // a colon but is not a code-prefixed string.
+    match code {
+        "jsonl_not_found"
+        | "jsonl_parse_error"
+        | "jsonl_schema_drift"
+        | "discovery_ambiguous"
+        | "permission_denied"
+        | "io_error" => Some(code),
+        _ => None,
+    }
+}
+
+/// Extract the human-readable message from a
+/// [`AdapterOutcome::degrade_reason`] string. Strips the code prefix
+/// (`"<code>: "`) if present; returns the full string unchanged if no
+/// code prefix is found (a degrade synthesized by the recorder).
+#[must_use]
+pub fn adapter_degrade_message(reason: Option<&str>) -> Option<&str> {
+    let s = reason?;
+    if let Some(colon) = s.find(':') {
+        let code = &s[..colon];
+        if matches!(
+            code,
+            "jsonl_not_found"
+                | "jsonl_parse_error"
+                | "jsonl_schema_drift"
+                | "discovery_ambiguous"
+                | "permission_denied"
+                | "io_error"
+        ) {
+            return Some(s[colon + 1..].trim());
+        }
+    }
+    Some(s)
 }
 
 /// An agent adapter: tail a structured event stream and yield [`Event`]s.
@@ -294,13 +341,13 @@ impl Adapter for ClaudeAdapter {
 fn run_claude_tailer(ctx: AdapterContext, tx: mpsc::Sender<Event>) -> AdapterOutcome {
     let Some(projects) = ctx.projects_dir.clone().or_else(claude_projects_dir) else {
         return degraded_with_error(
-            AdapterError::JsonlNotFound,
+            &AdapterError::JsonlNotFound,
             "no ~/.claude/projects directory found (HOME unset?); run `hh doctor` to diagnose",
         );
     };
     if !projects.is_dir() {
         return degraded_with_error(
-            AdapterError::JsonlNotFound,
+            &AdapterError::JsonlNotFound,
             format!(
                 "projects directory does not exist: {}; run `hh doctor` to diagnose",
                 projects.display()
@@ -345,7 +392,7 @@ fn run_claude_tailer(ctx: AdapterContext, tx: mpsc::Sender<Event>) -> AdapterOut
         } else {
             AdapterError::JsonlNotFound
         };
-        return degraded_with_error(code, locate_failure_reason(&diag));
+        return degraded_with_error(&code, locate_failure_reason(&diag));
     };
     debug(&format!(
         "claude adapter: selected transcript {} (cwd matched)",
@@ -355,7 +402,7 @@ fn run_claude_tailer(ctx: AdapterContext, tx: mpsc::Sender<Event>) -> AdapterOut
     let stats = tail_file(&file, &projects, &ctx, &tx, &start, &mut acc);
     if !stats.read_ok {
         return degraded_with_error(
-            AdapterError::PermissionDenied {
+            &AdapterError::PermissionDenied {
                 path: file.display().to_string(),
             },
             format!(
@@ -393,7 +440,7 @@ fn run_claude_tailer(ctx: AdapterContext, tx: mpsc::Sender<Event>) -> AdapterOut
             .map(|(n, msg)| format!("; first parse error at line {n}: {msg}"))
             .unwrap_or_default();
         return degraded_with_error(
-            code,
+            &code,
             format!(
                 "jsonl found ({}) but 0 records parsed (read {} line(s){first_err}); \
                  run `hh doctor` to check the Claude Code transcript format",
@@ -411,11 +458,38 @@ fn run_claude_tailer(ctx: AdapterContext, tx: mpsc::Sender<Event>) -> AdapterOut
 /// `sessions.adapter_degrade_reason` (SRS BUG-1.1, BUG-1.4). The reason
 /// string defaults to the error's `Display` impl but can be overridden for a
 /// more specific one-line diagnosis (e.g. naming the file path).
-fn degraded_with_error(err: AdapterError, reason: impl Into<String>) -> AdapterOutcome {
+///
+/// Public so the recorder (`hh-record`, an external crate relative to
+/// `hh-core`) can construct a degraded outcome without naming the
+/// `AdapterOutcome` struct's private `error` field directly — the
+/// constructors are the sanctioned construction path, keeping future field
+/// additions additive under cargo-semver-checks.
+#[must_use]
+pub fn degraded_with_error(err: &AdapterError, reason: impl Into<String>) -> AdapterOutcome {
+    let reason = reason.into();
+    let code = err.code();
+    let degrade_reason = format!("{code}: {reason}");
+    AdapterOutcome {
+        status: AdapterStatus::Degraded,
+        degrade_reason: Some(degrade_reason),
+        ..Default::default()
+    }
+}
+
+/// Build a [`Degraded`](AdapterStatus::Degraded) outcome carrying only a
+/// human-readable reason — no structured [`AdapterError`]. Used by the
+/// recorder when the degrade was synthesized rather than reported by the
+/// adapter (e.g. a panicked tailer thread): `adapter_degrade_reason` is
+/// left NULL (a `hh doctor` diagnostic, not a stale code).
+///
+/// Public for the same reason as [`degraded_with_error`]: the recorder
+/// constructs this from another crate and the constructors are the
+/// sanctioned path.
+#[must_use]
+pub fn degraded(reason: impl Into<String>) -> AdapterOutcome {
     AdapterOutcome {
         status: AdapterStatus::Degraded,
         degrade_reason: Some(reason.into()),
-        error: Some(err),
         ..Default::default()
     }
 }
@@ -549,7 +623,6 @@ impl OutcomeAcc {
             usage_json: self.usage_json,
             status,
             degrade_reason: None,
-            error: None,
         }
     }
 }
@@ -1070,13 +1143,13 @@ pub fn codex_sessions_dir() -> Option<PathBuf> {
 fn run_codex_tailer(ctx: AdapterContext, tx: mpsc::Sender<Event>) -> AdapterOutcome {
     let Some(sessions) = ctx.projects_dir.clone().or_else(codex_sessions_dir) else {
         return degraded_with_error(
-            AdapterError::JsonlNotFound,
+            &AdapterError::JsonlNotFound,
             "no ~/.codex/sessions directory found (HOME unset?); run `hh doctor` to diagnose",
         );
     };
     if !sessions.is_dir() {
         return degraded_with_error(
-            AdapterError::JsonlNotFound,
+            &AdapterError::JsonlNotFound,
             format!(
                 "sessions directory does not exist: {}; run `hh doctor` to diagnose",
                 sessions.display()
@@ -1086,7 +1159,7 @@ fn run_codex_tailer(ctx: AdapterContext, tx: mpsc::Sender<Event>) -> AdapterOutc
     let start = Instant::now();
     let Some(file) = locate_codex_transcript(&sessions, &ctx.cwd, &ctx.stop) else {
         return degraded_with_error(
-            AdapterError::JsonlNotFound,
+            &AdapterError::JsonlNotFound,
             format!(
                 "no codex rollout transcript appeared under {} matching cwd {} before the session ended",
                 sessions.display(),
@@ -1098,7 +1171,7 @@ fn run_codex_tailer(ctx: AdapterContext, tx: mpsc::Sender<Event>) -> AdapterOutc
     let stats = tail_codex_file(&file, &ctx, &tx, &start, &mut acc);
     if !stats.read_ok {
         return degraded_with_error(
-            AdapterError::PermissionDenied {
+            &AdapterError::PermissionDenied {
                 path: file.display().to_string(),
             },
             format!(
@@ -1125,7 +1198,7 @@ fn run_codex_tailer(ctx: AdapterContext, tx: mpsc::Sender<Event>) -> AdapterOutc
             .map(|(n, msg)| format!("; first parse error at line {n}: {msg}"))
             .unwrap_or_default();
         return degraded_with_error(
-            code,
+            &code,
             format!(
                 "codex transcript found ({}) but 0 records parsed (read {} line(s){first_err}); \
                  run `hh doctor` to check the Codex CLI transcript format",
@@ -1687,13 +1760,13 @@ pub fn gemini_tmp_dir() -> Option<PathBuf> {
 fn run_gemini_tailer(ctx: AdapterContext, tx: mpsc::Sender<Event>) -> AdapterOutcome {
     let Some(tmp) = ctx.projects_dir.clone().or_else(gemini_tmp_dir) else {
         return degraded_with_error(
-            AdapterError::JsonlNotFound,
+            &AdapterError::JsonlNotFound,
             "no ~/.gemini/tmp directory found (HOME unset?); run `hh doctor` to diagnose",
         );
     };
     if !tmp.is_dir() {
         return degraded_with_error(
-            AdapterError::JsonlNotFound,
+            &AdapterError::JsonlNotFound,
             format!(
                 "gemini tmp directory does not exist: {}; run `hh doctor` to diagnose",
                 tmp.display()
@@ -1703,7 +1776,7 @@ fn run_gemini_tailer(ctx: AdapterContext, tx: mpsc::Sender<Event>) -> AdapterOut
     let start = Instant::now();
     let Some(file) = locate_gemini_transcript(&tmp, &ctx.cwd, &ctx.stop) else {
         return degraded_with_error(
-            AdapterError::JsonlNotFound,
+            &AdapterError::JsonlNotFound,
             format!(
                 "no gemini session transcript appeared under {} matching cwd {} before the session ended",
                 tmp.display(),
@@ -1715,7 +1788,7 @@ fn run_gemini_tailer(ctx: AdapterContext, tx: mpsc::Sender<Event>) -> AdapterOut
     let stats = tail_gemini_file(&file, &ctx, &tx, &start, &mut acc);
     if !stats.read_ok {
         return degraded_with_error(
-            AdapterError::PermissionDenied {
+            &AdapterError::PermissionDenied {
                 path: file.display().to_string(),
             },
             format!(
@@ -1742,7 +1815,7 @@ fn run_gemini_tailer(ctx: AdapterContext, tx: mpsc::Sender<Event>) -> AdapterOut
             .map(|(n, msg)| format!("; first parse error at line {n}: {msg}"))
             .unwrap_or_default();
         return degraded_with_error(
-            code,
+            &code,
             format!(
                 "gemini transcript found ({}) but 0 records parsed (read {} line(s){first_err}); \
                  run `hh doctor` to check the Gemini CLI transcript format",

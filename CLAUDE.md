@@ -6,9 +6,9 @@ treat its FR/NFR/DR numbers as the source of truth. If a task conflicts with the
 SRS, say so before writing code.
 
 ## Rust standards (non-negotiable)
-- Edition 2021, MSRV 1.75. Workspace crates: hh-core, hh-record, hh (bin).
+- Edition 2021, MSRV 1.78. Workspace crates: hh-core, hh-record, hh (bin).
 - No unwrap()/expect() outside #[cfg(test)] and the top of main(). Use ? with
-  context. this error for library error enums, anyhow::Context in the binary.
+  context. thiserror for library error enums, anyhow::Context in the binary.
 - cargo clippy --workspace --all-targets -- -D warnings must pass after every
   task. Enable clippy::pedantic at crate level and #[allow] individual lints
   with a one-line justification comment.
@@ -57,3 +57,22 @@ standards:
   in the same PR, or the feature is not done.
 - Exit codes are part of the contract: 0 ok, 1 generic error, 2 usage error,
   3 session-not-found, 4 redaction/policy block. Document and test them.
+
+# v1.1.0 addendum
+
+- SRS: halfhand-srs-v1.1.0.md is authoritative. Reference BUG-N / ENH-N IDs.
+- Adapter failures route through AdapterError and persist to
+  sessions.adapter_degrade_reason. Silent degradation is BUG-1 — don't
+  reintroduce it.
+- Config loading has three paths (config.toml, halfhand.toml, defaults). All
+  three need tests if you touch resolution. See BUG-2.
+- No thread::sleep for test synchronization. Use channels, latches, or the
+  watcher's test seams. See BUG-4.
+- No platform-skip escape hatches. #[cfg_attr(target_os = "...", ignore)]
+  needs an upstream issue link. Otherwise gate with #[cfg(unix)] and comment.
+  See BUG-5, BUG-6.
+- FTS5 stays in sync via triggers only. Never write to events_fts from
+  application code.
+- Homebrew formula updates flow through cargo-dist. No manual edits to
+  halfhandorg/homebrew-tap. See BUG-7.
+- Every Stage ends with `cargo fmt --check && cargo clippy --workspace --all-targets -- -D warnings && cargo test --workspace`

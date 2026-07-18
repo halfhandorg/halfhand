@@ -895,7 +895,7 @@ mod tests {
         // Mark the source session degraded with a reason code (simulating
         // what the recorder's `finalize` does on an adapter failure).
         store
-            .set_session_adapter_meta(
+            .set_session_adapter_meta_with_reason(
                 &sid,
                 None,
                 None,

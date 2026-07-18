@@ -24,8 +24,8 @@ pub mod timeline;
 
 // Re-export the most commonly used types at the crate root for ergonomics.
 pub use adapter::{
-    resolve_override as resolve_adapter_override, select as select_adapter, Adapter,
-    AdapterContext, AdapterError, AdapterHandle, AdapterOutcome,
+    degraded, degraded_with_error, resolve_override as resolve_adapter_override,
+    select as select_adapter, Adapter, AdapterContext, AdapterError, AdapterHandle, AdapterOutcome,
 };
 pub use blob::{BlobStore, PutOutcome};
 pub use bundle::{Bundle, FORMAT_VERSION};
