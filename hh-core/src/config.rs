@@ -7,6 +7,7 @@
 use crate::error::{ConfigError, Result};
 use serde::Deserialize;
 use std::fmt;
+use std::io::IsTerminal;
 use std::path::{Path, PathBuf};
 
 /// Byte-size parser for values like `4MiB`, `512KiB`, `100B`.
@@ -182,42 +183,188 @@ pub struct Config {
     pub redaction: RedactionConfig,
 }
 
+/// Which config file (if any) supplied a loaded [`Config`]. Returned by
+/// [`Config::load_with_source`] so callers can drive the one-time legacy
+/// filename hint (BUG-2.2) and report "which config file was found" in
+/// `hh doctor` (ENH-1.2) without re-statting the paths themselves.
+///
+/// `#[non_exhaustive]`: a future resolution path (e.g. an XDG-style dotted
+/// search) would add a variant; that stays additive under
+/// `cargo-semver-checks --release-type minor` only if downstream `match`es
+/// carry a wildcard arm, which `#[non_exhaustive]` forces.
+#[derive(Debug, Clone, PartialEq, Eq)]
+#[non_exhaustive]
+pub enum ConfigSource {
+    /// The canonical `config.toml` was found and loaded.
+    Canonical,
+    /// The canonical `config.toml` was absent and a legacy file
+    /// (`halfhand.toml` / `hh.toml`) was loaded instead. Carries the path
+    /// actually read so callers can mention it in the hint / doctor report.
+    Legacy(PathBuf),
+    /// No config file was found; built-in [`Default`] values are in effect.
+    Defaults,
+}
+
 impl Config {
     /// Load configuration from `config_path`, falling back to [`Default`] when
     /// the file does not exist. Unknown keys warn on stderr but never fail.
     ///
-    /// When `config_path` (`config.toml`) is absent but a legacy config file
-    /// (`halfhand.toml` or `hh.toml`) exists in the same directory, that file
-    /// is loaded instead — a pre-rename config still takes effect and is never
-    /// silently ignored. A single one-line deprecation hint is emitted on stderr
-    /// pointing the user at the rename.
+    /// This is the pure "give me a [`Config`]` entry point; it does **not**
+    /// emit the one-time legacy-filename hint (BUG-2.2). Callers that want the
+    /// hint (the `hh` binary, integration tests) should use
+    /// [`Config::load_with_source`] followed by
+    /// [`print_legacy_config_hint_if_needed`]; callers that just want the
+    /// values (one-shot library uses, existing unit tests) can keep using this.
     pub fn load(config_path: &Path) -> Result<Self> {
+        let (cfg, _source) = Self::load_with_source(config_path)?;
+        Ok(cfg)
+    }
+
+    /// Load configuration with the same resolution order as [`Config::load`],
+    /// additionally returning which file supplied it ([`ConfigSource`]) so the
+    /// caller can drive the one-time legacy-filename hint (BUG-2.2) and
+    /// `hh doctor`'s "which config file was found" report (ENH-1.2) without
+    /// re-statting the paths.
+    ///
+    /// Resolution order (SRS v1.1.0 §3 BUG-2.1):
+    /// 1. `config_path` (canonical `config.toml`) — tried first.
+    /// 2. The first existing legacy filename (`halfhand.toml`, then `hh.toml`)
+    ///    in the same directory — tried only when (1) is absent.
+    /// 3. Built-in [`Config::default()`] — when neither is present.
+    ///
+    /// Unknown keys emit a single-line `WARN` on stderr (BUG-2.3) but never
+    /// prevent startup. A malformed TOML file or an invalid *known* key value
+    /// is still an `Err` (silently accepting a broken `[redaction] rules`
+    /// entry would be a redaction hole — the *key* is known, the *value* is
+    /// invalid).
+    pub fn load_with_source(config_path: &Path) -> Result<(Self, ConfigSource)> {
         let mut cfg = Self::default();
-        let table = match read_or_default_config(config_path)? {
-            Some(table) => Some(table),
+        let (table, source) = match read_or_default_config(config_path)? {
+            Some(table) => (Some(table), ConfigSource::Canonical),
             None => match legacy_fallback_path(config_path) {
                 Some(legacy) => {
-                    crate::deprecation::warn_deprecated(
-                        "legacy-config-filename",
-                        &format!("the config filename `{}`", legacy.display()),
-                        &format!(
-                            "rename it to `{}` (loading `{}` for now so its settings still take effect)",
-                            config_path.display(),
-                            legacy.display(),
-                        ),
-                    );
-                    read_or_default_config(&legacy)?
+                    let table = read_or_default_config(&legacy)?.unwrap_or_default();
+                    (Some(table), ConfigSource::Legacy(legacy))
                 }
-                None => None,
+                None => (None, ConfigSource::Defaults),
             },
         };
         let Some(table) = table else {
-            return Ok(cfg);
+            return Ok((cfg, ConfigSource::Defaults));
         };
         warn_unknown_keys(&table);
         merge_table(&mut cfg, &table)?;
-        Ok(cfg)
+        Ok((cfg, source))
     }
+}
+
+/// The exact wording of the one-time legacy-config hint (BUG-2.2), split out
+/// so the test can assert on the text without scraping stderr.
+///
+/// Stable text: this is part of the user-facing contract — the SRS quotes it
+/// verbatim. Changing the wording (other than the path interpolation) is a
+/// behavior change and must go through a deprecation note.
+#[must_use]
+pub fn legacy_config_hint(legacy: &Path, canonical: &Path) -> String {
+    format!(
+        "hint: config loaded from {}; rename to {} to silence this message",
+        legacy.display(),
+        canonical.display()
+    )
+}
+
+/// Filename of the persistent "the legacy-config hint has been shown once"
+/// marker, relative to the data dir. BUG-2.2 lets the implementation choose
+/// between a `kv` table in the DB or a filesystem marker; the filesystem
+/// marker is chosen because (a) config loads **before** the store opens in the
+/// binary (see `hh/src/main.rs`), so a DB-backed marker would require either
+/// opening the store twice or restructuring the startup order; (b) it avoids
+/// adding a migration, keeping the v1.0.0 stability-era "additive schema
+/// only" promise trivially intact; (c) it is atomic-to-create and
+/// best-effort-to-read — a missing or unreadable marker just means the hint
+/// may print again, which is safe (the marker only ever suppresses).
+pub const LEGACY_CONFIG_HINT_MARKER: &str = ".config-hint-shown";
+
+/// Construct the on-disk path of the legacy-config hint marker under `data_dir`.
+/// Exposed so tests and `hh doctor --fix` (which can clear it to re-show the
+/// hint) reach for the same path the binary uses.
+#[must_use]
+pub fn legacy_config_hint_marker_path(data_dir: &Path) -> PathBuf {
+    data_dir.join(LEGACY_CONFIG_HINT_MARKER)
+}
+
+/// Print the one-time legacy-config hint to stderr (BUG-2.2) when all of the
+/// following hold, and write the suppression marker so the next invocation is
+/// silent:
+///
+/// 1. `source` is [`ConfigSource::Legacy`] (the canonical `config.toml` was
+///    absent and a legacy `halfhand.toml` / `hh.toml` was loaded).
+/// 2. `HH_NO_CONFIG_HINT=1` is **not** set in the environment.
+/// 3. stderr is a TTY (the SRS requires the hint be suppressed on non-TTY
+///    stdout/stderr so it never corrupts piped/JSON output).
+/// 4. The marker file at `legacy_config_hint_marker_path(data_dir)` does not
+///    already exist (the hint has not been shown before on this data dir).
+///
+/// Returns `true` if the hint was printed (and the marker written) this call.
+/// Every step after the decision is best-effort: a marker-write failure does
+/// not retract the hint (the user still sees it once; the worst case of a
+/// failed write is that they see it again next time, which is safe), and a
+/// marker-read failure is treated as "not shown" (so an unreadable marker
+/// errs toward informing the user rather than silently suppressing).
+///
+/// `canonical` is the canonical `config.toml` path (for the hint text); the
+/// legacy path is carried inside `source`. `data_dir` is the resolved Halfhand
+/// data directory the marker lives under.
+pub fn print_legacy_config_hint_if_needed(
+    source: &ConfigSource,
+    canonical: &Path,
+    data_dir: &Path,
+) -> bool {
+    print_legacy_config_hint_if_needed_with(
+        source,
+        canonical,
+        data_dir,
+        std::io::stderr().is_terminal(),
+    )
+}
+
+/// Same as [`print_legacy_config_hint_if_needed`] but the caller supplies the
+/// TTY decision instead of probing stderr at call time. The public function
+/// passes `std::io::stderr().is_terminal()`; this split exists so tests can
+/// exercise the TTY path deterministically (a test runner's stderr is usually
+/// piped, so the real probe would always read "not a TTY" and the hint would
+/// never fire, making the TTY-gating behavior untestable). Non-test callers
+/// should use [`print_legacy_config_hint_if_needed`].
+pub fn print_legacy_config_hint_if_needed_with(
+    source: &ConfigSource,
+    canonical: &Path,
+    data_dir: &Path,
+    is_tty: bool,
+) -> bool {
+    let ConfigSource::Legacy(legacy) = source else {
+        return false;
+    };
+    if std::env::var_os("HH_NO_CONFIG_HINT").is_some() {
+        return false;
+    }
+    if !is_tty {
+        return false;
+    }
+    let marker = legacy_config_hint_marker_path(data_dir);
+    if marker.exists() {
+        return false;
+    }
+    eprintln!("{}", legacy_config_hint(legacy, canonical));
+    // Best-effort: create the parent (the data dir may not exist yet on a
+    // first-ever run with no config) then the marker. A failure here does not
+    // retract the hint — the worst case is the hint prints again next run,
+    // which is safe and self-correcting (the next successful write suppresses
+    // it thereafter).
+    if let Some(parent) = marker.parent() {
+        let _ = std::fs::create_dir_all(parent);
+    }
+    let _ = std::fs::write(&marker, b"1\n");
+    true
 }
 
 /// Other filenames users commonly reach for, in addition to the canonical

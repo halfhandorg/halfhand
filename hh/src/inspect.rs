@@ -127,16 +127,17 @@ fn open_store_for_inspect() -> anyhow::Result<(Store, hh_core::config::Paths, hh
     use hh_core::config::{Config, Paths};
     let paths0 = Paths::resolve(&Config::default())
         .map_err(|e| anyhow::anyhow!("could not resolve data directory\n  why: {e}\n  hint: set HH_DATA_DIR to a writable directory"))?;
-    let config = Config::load(&paths0.config_path).unwrap_or_else(|e| {
+    let (config, source) = Config::load_with_source(&paths0.config_path).unwrap_or_else(|e| {
         eprintln!(
             "hh: warning: could not load {}: {e}",
             paths0.config_path.display()
         );
-        Config::default()
+        (Config::default(), hh_core::ConfigSource::Defaults)
     });
     let paths = Paths::resolve(&config).map_err(|e| {
         anyhow::anyhow!("could not resolve data directory\n  why: {e}\n  hint: set HH_DATA_DIR to a writable directory")
     })?;
+    hh_core::print_legacy_config_hint_if_needed(&source, &paths0.config_path, &paths.data_dir);
     let store = Store::open(&paths.db_path, &paths.blobs_dir).map_err(|e| {
         anyhow::anyhow!(
             "could not open store at {}\n  why: {e}\n  hint: check permissions on the data directory",
