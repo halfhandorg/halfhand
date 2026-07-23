@@ -1,0 +1,433 @@
+<!DOCTYPE HTML>
+<html lang="en" class="light" dir="ltr">
+    <head>
+        <!-- Book generated using mdBook -->
+        <meta charset="UTF-8">
+        <title>Manual QA - Halfhand</title>
+
+
+        <!-- Custom HTML head -->
+        
+        <meta name="description" content="">
+        <meta name="viewport" content="width=device-width, initial-scale=1">
+        <meta name="theme-color" content="#ffffff">
+
+        <link rel="icon" href="favicon.svg">
+        <link rel="shortcut icon" href="favicon.png">
+        <link rel="stylesheet" href="css/variables.css">
+        <link rel="stylesheet" href="css/general.css">
+        <link rel="stylesheet" href="css/chrome.css">
+        <link rel="stylesheet" href="css/print.css" media="print">
+
+        <!-- Fonts -->
+        <link rel="stylesheet" href="FontAwesome/css/font-awesome.css">
+        <link rel="stylesheet" href="fonts/fonts.css">
+
+        <!-- Highlight.js Stylesheets -->
+        <link rel="stylesheet" href="highlight.css">
+        <link rel="stylesheet" href="tomorrow-night.css">
+        <link rel="stylesheet" href="ayu-highlight.css">
+
+        <!-- Custom theme stylesheets -->
+
+    </head>
+    <body class="sidebar-visible no-js">
+    <div id="body-container">
+        <!-- Provide site root to javascript -->
+        <script>
+            var path_to_root = "";
+            var default_theme = window.matchMedia("(prefers-color-scheme: dark)").matches ? "navy" : "light";
+        </script>
+
+        <!-- Work around some values being stored in localStorage wrapped in quotes -->
+        <script>
+            try {
+                var theme = localStorage.getItem('mdbook-theme');
+                var sidebar = localStorage.getItem('mdbook-sidebar');
+
+                if (theme.startsWith('"') && theme.endsWith('"')) {
+                    localStorage.setItem('mdbook-theme', theme.slice(1, theme.length - 1));
+                }
+
+                if (sidebar.startsWith('"') && sidebar.endsWith('"')) {
+                    localStorage.setItem('mdbook-sidebar', sidebar.slice(1, sidebar.length - 1));
+                }
+            } catch (e) { }
+        </script>
+
+        <!-- Set the theme before any content is loaded, prevents flash -->
+        <script>
+            var theme;
+            try { theme = localStorage.getItem('mdbook-theme'); } catch(e) { }
+            if (theme === null || theme === undefined) { theme = default_theme; }
+            var html = document.querySelector('html');
+            html.classList.remove('light')
+            html.classList.add(theme);
+            var body = document.querySelector('body');
+            body.classList.remove('no-js')
+            body.classList.add('js');
+        </script>
+
+        <input type="checkbox" id="sidebar-toggle-anchor" class="hidden">
+
+        <!-- Hide / unhide sidebar before it is displayed -->
+        <script>
+            var body = document.querySelector('body');
+            var sidebar = null;
+            var sidebar_toggle = document.getElementById("sidebar-toggle-anchor");
+            if (document.body.clientWidth >= 1080) {
+                try { sidebar = localStorage.getItem('mdbook-sidebar'); } catch(e) { }
+                sidebar = sidebar || 'visible';
+            } else {
+                sidebar = 'hidden';
+            }
+            sidebar_toggle.checked = sidebar === 'visible';
+            body.classList.remove('sidebar-visible');
+            body.classList.add("sidebar-" + sidebar);
+        </script>
+
+        <nav id="sidebar" class="sidebar" aria-label="Table of contents">
+            <div class="sidebar-scrollbox">
+                <ol class="chapter"><li class="chapter-item expanded "><a href="index.html"><strong aria-hidden="true">1.</strong> Introduction</a></li><li class="chapter-item expanded affix "><li class="part-title">Getting started</li><li class="chapter-item expanded "><a href="quickstart.html"><strong aria-hidden="true">2.</strong> Quickstart</a></li><li class="chapter-item expanded "><a href="recording.html"><strong aria-hidden="true">3.</strong> Recording</a></li><li class="chapter-item expanded "><a href="replay-inspect.html"><strong aria-hidden="true">4.</strong> Replay & Inspect</a></li><li class="chapter-item expanded "><a href="search.html"><strong aria-hidden="true">5.</strong> Search</a></li><li class="chapter-item expanded affix "><li class="part-title">Security</li><li class="chapter-item expanded "><a href="redaction.html"><strong aria-hidden="true">6.</strong> Redaction</a></li><li class="chapter-item expanded "><a href="redaction-design.html"><strong aria-hidden="true">7.</strong> Redaction design</a></li><li class="chapter-item expanded "><a href="security.html"><strong aria-hidden="true">8.</strong> Security policy</a></li><li class="chapter-item expanded affix "><li class="part-title">Sharing & maintenance</li><li class="chapter-item expanded "><a href="export-import.html"><strong aria-hidden="true">9.</strong> Export & import</a></li><li class="chapter-item expanded "><a href="gc.html"><strong aria-hidden="true">10.</strong> Garbage collection</a></li><li class="chapter-item expanded "><a href="doctor.html"><strong aria-hidden="true">11.</strong> Doctor</a></li><li class="chapter-item expanded "><a href="stats.html"><strong aria-hidden="true">12.</strong> Stats</a></li><li class="chapter-item expanded affix "><li class="part-title">Reference</li><li class="chapter-item expanded "><a href="adapters.html"><strong aria-hidden="true">13.</strong> Adapters</a></li><li class="chapter-item expanded "><a href="mcp-proxy.html"><strong aria-hidden="true">14.</strong> MCP proxy</a></li><li class="chapter-item expanded "><a href="json.html"><strong aria-hidden="true">15.</strong> JSON reference</a></li><li class="chapter-item expanded "><a href="completions.html"><strong aria-hidden="true">16.</strong> Shell completions & man page</a></li><li class="chapter-item expanded "><a href="stability.html"><strong aria-hidden="true">17.</strong> Stability policy</a></li><li class="chapter-item expanded "><a href="performance.html"><strong aria-hidden="true">18.</strong> Performance</a></li><li class="chapter-item expanded affix "><li class="part-title">Appendices</li><li class="chapter-item expanded "><a href="faq.html"><strong aria-hidden="true">19.</strong> FAQ</a></li><li class="chapter-item expanded "><a href="1.0-definition-of-done.html"><strong aria-hidden="true">20.</strong> 1.0 definition of done</a></li><li class="chapter-item expanded "><a href="manual-qa.html" class="active"><strong aria-hidden="true">21.</strong> Manual QA</a></li><li class="chapter-item expanded "><a href="adr/0001-threads-vs-tokio.html"><strong aria-hidden="true">22.</strong> Architecture decision records</a></li><li><ol class="section"><li class="chapter-item expanded "><a href="adr/0001-threads-vs-tokio.html"><strong aria-hidden="true">22.1.</strong> ADR 0001: threads vs tokio</a></li><li class="chapter-item expanded "><a href="adr/0002-stored-step-ordinals.html"><strong aria-hidden="true">22.2.</strong> ADR 0002: stored step ordinals</a></li><li class="chapter-item expanded "><a href="adr/0003-fts-index-strategy.html"><strong aria-hidden="true">22.3.</strong> ADR 0003: FTS index strategy</a></li></ol></li></ol>
+            </div>
+            <div id="sidebar-resize-handle" class="sidebar-resize-handle">
+                <div class="sidebar-resize-indicator"></div>
+            </div>
+        </nav>
+
+        <!-- Track and set sidebar scroll position -->
+        <script>
+            var sidebarScrollbox = document.querySelector('#sidebar .sidebar-scrollbox');
+            sidebarScrollbox.addEventListener('click', function(e) {
+                if (e.target.tagName === 'A') {
+                    sessionStorage.setItem('sidebar-scroll', sidebarScrollbox.scrollTop);
+                }
+            }, { passive: true });
+            var sidebarScrollTop = sessionStorage.getItem('sidebar-scroll');
+            sessionStorage.removeItem('sidebar-scroll');
+            if (sidebarScrollTop) {
+                // preserve sidebar scroll position when navigating via links within sidebar
+                sidebarScrollbox.scrollTop = sidebarScrollTop;
+            } else {
+                // scroll sidebar to current active section when navigating via "next/previous chapter" buttons
+                var activeSection = document.querySelector('#sidebar .active');
+                if (activeSection) {
+                    activeSection.scrollIntoView({ block: 'center' });
+                }
+            }
+        </script>
+
+        <div id="page-wrapper" class="page-wrapper">
+
+            <div class="page">
+                                <div id="menu-bar-hover-placeholder"></div>
+                <div id="menu-bar" class="menu-bar sticky">
+                    <div class="left-buttons">
+                        <label id="sidebar-toggle" class="icon-button" for="sidebar-toggle-anchor" title="Toggle Table of Contents" aria-label="Toggle Table of Contents" aria-controls="sidebar">
+                            <i class="fa fa-bars"></i>
+                        </label>
+                        <button id="theme-toggle" class="icon-button" type="button" title="Change theme" aria-label="Change theme" aria-haspopup="true" aria-expanded="false" aria-controls="theme-list">
+                            <i class="fa fa-paint-brush"></i>
+                        </button>
+                        <ul id="theme-list" class="theme-popup" aria-label="Themes" role="menu">
+                            <li role="none"><button role="menuitem" class="theme" id="light">Light</button></li>
+                            <li role="none"><button role="menuitem" class="theme" id="rust">Rust</button></li>
+                            <li role="none"><button role="menuitem" class="theme" id="coal">Coal</button></li>
+                            <li role="none"><button role="menuitem" class="theme" id="navy">Navy</button></li>
+                            <li role="none"><button role="menuitem" class="theme" id="ayu">Ayu</button></li>
+                        </ul>
+                        <button id="search-toggle" class="icon-button" type="button" title="Search. (Shortkey: s)" aria-label="Toggle Searchbar" aria-expanded="false" aria-keyshortcuts="S" aria-controls="searchbar">
+                            <i class="fa fa-search"></i>
+                        </button>
+                    </div>
+
+                    <h1 class="menu-title">Halfhand</h1>
+
+                    <div class="right-buttons">
+                        <a href="print.html" title="Print this book" aria-label="Print this book">
+                            <i id="print-button" class="fa fa-print"></i>
+                        </a>
+                        <a href="https://github.com/halfhandorg/halfhand" title="Git repository" aria-label="Git repository">
+                            <i id="git-repository-button" class="fa fa-github"></i>
+                        </a>
+                        <a href="https://github.com/halfhandorg/halfhand/edit/main/docs/./manual-qa.md" title="Suggest an edit" aria-label="Suggest an edit">
+                            <i id="git-edit-button" class="fa fa-edit"></i>
+                        </a>
+
+                    </div>
+                </div>
+
+                <div id="search-wrapper" class="hidden">
+                    <form id="searchbar-outer" class="searchbar-outer">
+                        <input type="search" id="searchbar" name="searchbar" placeholder="Search this book ..." aria-controls="searchresults-outer" aria-describedby="searchresults-header">
+                    </form>
+                    <div id="searchresults-outer" class="searchresults-outer hidden">
+                        <div id="searchresults-header" class="searchresults-header"></div>
+                        <ul id="searchresults">
+                        </ul>
+                    </div>
+                </div>
+
+                <!-- Apply ARIA attributes after the sidebar and the sidebar toggle button are added to the DOM -->
+                <script>
+                    document.getElementById('sidebar-toggle').setAttribute('aria-expanded', sidebar === 'visible');
+                    document.getElementById('sidebar').setAttribute('aria-hidden', sidebar !== 'visible');
+                    Array.from(document.querySelectorAll('#sidebar a')).forEach(function(link) {
+                        link.setAttribute('tabIndex', sidebar === 'visible' ? 0 : -1);
+                    });
+                </script>
+
+                <div id="content" class="content">
+                    <main>
+                        <h1 id="manual-qa--100-release"><a class="header" href="#manual-qa--100-release">Manual QA — 1.0.0 release</a></h1>
+<blockquote>
+<p><strong>Print this page.</strong> Run every checkbox by hand on each OS before tagging
+<code>v1.0.0</code>. The tag does not go out until every box on this page is ticked and
+the result is recorded in the release announcement. The automated half of
+this gate is <a href="./1.0-definition-of-done.html"><code>docs/1.0-definition-of-done.md</code></a>;
+this page is the human half — the things CI cannot check because they need a
+real agent, a live API key, a real PTY, or a human eye on rendered output.</p>
+</blockquote>
+<p><strong>How to use:</strong> three columns below — <strong>Linux</strong>, <strong>macOS</strong>, <strong>Windows</strong>. Tick
+each OS you actually ran on. Windows is build-only / best-effort per SRS §2.2
+(the PTY layer is Unix-first), so Windows rows are marked <em>(build-only)</em> where
+the runtime path is not claimed; still run them and record what happened.</p>
+<p>Record the <code>hh --version</code> string and the OS for each run at the top:</p>
+<pre><code>hh version: ____________________   date: ____________
+Linux [ ]   macOS [ ]   Windows [ ]
+</code></pre>
+<hr />
+<h2 id="0-fresh-machine-install"><a class="header" href="#0-fresh-machine-install">0. Fresh-machine install</a></h2>
+<p>On a machine with no prior Halfhand state, for each OS:</p>
+<ul>
+<li><input disabled="" type="checkbox"/>
+<strong>Linux</strong> — <strong>macOS</strong> — <strong>Windows</strong> <em>(build-only)</em>: <code>cargo install halfhand</code>
+(or: download the release archive for this OS, verify its SHA-256, and put
+<code>hh</code> on PATH). No prior <code>~/.halfhand</code> / <code>HH_DATA_DIR</code> present.</li>
+<li><input disabled="" type="checkbox"/>
+<strong>Linux</strong> — <strong>macOS</strong> — <strong>Windows</strong>: <code>hh --version</code> prints
+<code>hh 1.0.0 (&lt;git-sha&gt;)</code> (no <code>(dirty)</code>).</li>
+<li><input disabled="" type="checkbox"/>
+<strong>Linux</strong> — <strong>macOS</strong> — <strong>Windows</strong>: <code>hh --help</code> lists every subcommand
+(<code>run</code>, <code>replay</code>, <code>inspect</code>, <code>list</code>, <code>delete</code>, <code>mcp-proxy</code>, <code>doctor</code>, <code>gc</code>,
+<code>stats</code>, <code>scan</code>, <code>redact</code>, <code>export</code>, <code>import</code>, <code>search</code>, <code>completions</code>),
+each with a one-line example.</li>
+<li><input disabled="" type="checkbox"/>
+<strong>Linux</strong> — <strong>macOS</strong> — <strong>Windows</strong>: <code>hh completions &lt;shell&gt;</code> emits a
+script to stdout and exits 0 (run for the shell you actually use).</li>
+<li><input disabled="" type="checkbox"/>
+<strong>Linux</strong> — <strong>macOS</strong> — <strong>Windows</strong>: 30-second quickstart from the README
+completes without reading any docs beyond the hero/quickstart.</li>
+<li><input disabled="" type="checkbox"/>
+<strong>Linux</strong> — <strong>macOS</strong>: no real data dir touched unexpectedly — the run
+stays under <code>HH_DATA_DIR</code> or the platform default.</li>
+<li><input disabled="" type="checkbox"/>
+<strong>Linux</strong> — <strong>macOS</strong>: <code>hh list | cat</code> is plain, pipe-safe, no ANSI;
+<code>NO_COLOR=1 hh list</code> in a TTY is the same.</li>
+</ul>
+<hr />
+<h2 id="1-real-claude-code-run-ac-1"><a class="header" href="#1-real-claude-code-run-ac-1">1. Real Claude Code run (AC-1)</a></h2>
+<p>Needs the real <code>claude</code> CLI on PATH, <code>ANTHROPIC_API_KEY</code> exported, a throwaway
+work dir, and <code>HH_DATA_DIR</code> at a temp path. Halfhand itself makes zero network
+calls (NFR-2); only the wrapped agent does. This spends real tokens.</p>
+<pre><code class="language-bash">mkdir -p /tmp/hh-qa &amp;&amp; cd /tmp/hh-qa
+export HH_DATA_DIR=/tmp/hh-qa/data
+hh run -- claude        # ask something small, e.g. "list files here", let it finish
+</code></pre>
+<ul>
+<li><input disabled="" type="checkbox"/>
+<strong>Linux</strong> — <strong>macOS</strong>: <strong>Records.</strong> <code>hh run</code> prints
+<code>✓ Recorded session &lt;short-id&gt; · … · hh replay &lt;short-id&gt;</code> and exits 0.</li>
+<li><input disabled="" type="checkbox"/>
+<strong>Linux</strong> — <strong>macOS</strong>: <strong>Detected as Claude Code.</strong> <code>hh list --json</code>
+shows <code>agent_kind: "claude-code"</code>, <code>adapter_status: "active"</code>.</li>
+<li><input disabled="" type="checkbox"/>
+<strong>Linux</strong> — <strong>macOS</strong>: <strong>Structured events.</strong> <code>hh inspect &lt;id&gt;</code> shows
+steps for the user message, tool call(s), tool result(s) — not only terminal
+output. <code>hh inspect &lt;id&gt; --json</code> is NDJSON, one object per event, <code>schema: 2</code>.</li>
+<li><input disabled="" type="checkbox"/>
+<strong>Linux</strong> — <strong>macOS</strong>: <strong>Correlation.</strong> <code>tool_result.correlates</code> points
+at the producing <code>tool_call</code>
+(<code>hh inspect &lt;id&gt; --json | jq 'select(.kind=="tool_result") | .correlates'</code>).</li>
+<li><input disabled="" type="checkbox"/>
+<strong>Linux</strong> — <strong>macOS</strong>: <strong>Faithful replay.</strong> <code>hh replay &lt;id&gt;</code> in a real
+terminal walks the timeline; assistant text, tool calls, results appear in
+order. This is <strong>faithful playback</strong> of the captured timeline, not a
+re-execution — the agent is not re-invoked, no network during replay.</li>
+<li><input disabled="" type="checkbox"/>
+<strong>Linux</strong> — <strong>macOS</strong>: <strong>Delete.</strong> <code>hh delete &lt;id&gt; --yes</code> prints
+<code>✓ Deleted</code>; <code>hh list</code> no longer shows it.</li>
+</ul>
+<hr />
+<h2 id="2-codex-cli-run-if-available"><a class="header" href="#2-codex-cli-run-if-available">2. Codex CLI run (if available)</a></h2>
+<p>Only if <code>codex</code> is installed and you have access. If Codex is not available on
+any OS, write <strong>N/A</strong> for that OS and move on — do not block the release on an
+adapter you cannot exercise.</p>
+<pre><code class="language-bash">cd /tmp/hh-qa &amp;&amp; export HH_DATA_DIR=/tmp/hh-qa/data
+hh run -- codex          # small prompt, let it finish
+</code></pre>
+<ul>
+<li><input disabled="" type="checkbox"/>
+<strong>Linux</strong> — <strong>macOS</strong>: <strong>Records.</strong> <code>✓ Recorded session &lt;id&gt;</code>, exit 0.</li>
+<li><input disabled="" type="checkbox"/>
+<strong>Linux</strong> — <strong>macOS</strong>: <strong>Detected as Codex.</strong> <code>hh list --json</code> shows
+<code>agent_kind: "codex-cli"</code>.</li>
+<li><input disabled="" type="checkbox"/>
+<strong>Linux</strong> — <strong>macOS</strong>: <strong>Structured events.</strong> <code>hh inspect &lt;id&gt; --json</code>
+emits NDJSON with <code>schema: 2</code>; tool calls/results correlate.</li>
+<li><input disabled="" type="checkbox"/>
+<strong>Linux</strong> — <strong>macOS</strong>: <strong>Replay + inspect</strong> read back correctly.</li>
+</ul>
+<p>If Codex was unavailable on every OS: record <strong>Codex: N/A this release</strong> and
+note it in the release announcement (the adapter + its fuzz target still ship;
+this is a coverage caveat, not a blocker).</p>
+<hr />
+<h2 id="3-mcp-proxy-ac-3"><a class="header" href="#3-mcp-proxy-ac-3">3. MCP proxy (AC-3)</a></h2>
+<p>Needs an MCP server you can spawn. The stdio proxy records correlated
+JSON-RPC, spills large payloads to the blob store, and round-trips latency.</p>
+<pre><code class="language-bash">cd /tmp/hh-qa &amp;&amp; export HH_DATA_DIR=/tmp/hh-qa/data
+hh mcp-proxy -- uvx &lt;some-mcp-server&gt;      # or: -- node server.js
+# from another terminal, send it an initialize + a tool call, then exit
+</code></pre>
+<ul>
+<li><input disabled="" type="checkbox"/>
+<strong>Linux</strong> — <strong>macOS</strong>: <strong>Records.</strong> A session appears in <code>hh list</code> with
+<code>agent_kind</code> reflecting the mcp-only session.</li>
+<li><input disabled="" type="checkbox"/>
+<strong>Linux</strong> — <strong>macOS</strong>: <strong>Correlated traffic.</strong> <code>hh inspect &lt;id&gt; --json</code>
+shows <code>mcp_request</code> / <code>mcp_response</code> pairs with <code>correlates</code> linking them.</li>
+<li><input disabled="" type="checkbox"/>
+<strong>Linux</strong> — <strong>macOS</strong>: <strong>Large payload spill.</strong> A request/response ≥256
+KiB is stored as a blob (body references the blob, not inline plaintext).</li>
+<li><input disabled="" type="checkbox"/>
+<strong>Linux</strong> — <strong>macOS</strong>: <strong>Latency.</strong> Round-trip <code>latency_ms</code> is present
+on response events.</li>
+</ul>
+<hr />
+<h2 id="4-redact--export--import--html-on-every-agent"><a class="header" href="#4-redact--export--import--html-on-every-agent">4. Redact → export → import → HTML, on every agent</a></h2>
+<p>The full sharing pipeline, run end-to-end on a session that <strong>contains a
+planted secret</strong> (so redaction is provably doing work). Do this for at least
+one Claude Code session and one Codex session (if Codex ran above).</p>
+<pre><code class="language-bash"># plant a secret in the work dir before/after the run so it lands in a captured
+# file change or prompt, e.g. echo "AKIA0123456789EXAMPLE" &gt; creds.txt
+SID=$(hh list --json | jq -r '.[0].short_id')
+hh scan $SID                  # expect findings, exit 4
+hh redact $SID --yes          # rewrites events + blobs in place
+hh scan $SID                  # now clean, exit 0
+hh export $SID --bundle -o /tmp/hh-qa/sess.hh
+hh export $SID --html  -o /tmp/hh-qa/sess.html
+hh export $SID        -o /tmp/hh-qa/sess.json   # redacted by default
+HH_DATA_DIR=/tmp/hh-qa/imported hh import /tmp/hh-qa/sess.hh
+</code></pre>
+<ul>
+<li><input disabled="" type="checkbox"/>
+<strong>Linux</strong> — <strong>macOS</strong>: <strong>Scan finds the secret</strong> and exits <strong>4</strong>
+(STABILITY.md (a) exit-code contract). The secret value is <strong>not</strong> printed —
+only type/step/location/correlation tag.</li>
+<li><input disabled="" type="checkbox"/>
+<strong>Linux</strong> — <strong>macOS</strong>: <strong>Redact rewrites in place.</strong> <code>hh redact --yes</code>
+replaces the secret with <code>{{REDACTED:&lt;type&gt;:&lt;hash8&gt;}}</code>; originals are securely
+deleted and the DB compacted.</li>
+<li><input disabled="" type="checkbox"/>
+<strong>Linux</strong> — <strong>macOS</strong>: <strong>Post-redact scan is clean</strong> and exits <strong>0</strong>.</li>
+<li><input disabled="" type="checkbox"/>
+<strong>Linux</strong> — <strong>macOS</strong>: <strong>Export is redacted by default</strong> — open
+<code>sess.json</code> and <code>sess.html</code> and confirm the secret is gone and the
+<code>{{REDACTED:…}}</code> token is present. (Exporting unredacted requires
+<code>--no-redact</code> + an interactive TTY confirmation; a script can never do it.)</li>
+<li><input disabled="" type="checkbox"/>
+<strong>Linux</strong> — <strong>macOS</strong>: <strong>Bundle import round-trips.</strong> <code>hh import sess.hh</code>
+into a fresh <code>HH_DATA_DIR</code> succeeds; the imported session's <code>imported_from</code>
+preserves the original id; <code>hh inspect &lt;new-id&gt; --json</code> matches the original
+(minus the id) and the secret is still redacted.</li>
+<li><input disabled="" type="checkbox"/>
+<strong>Linux</strong> — <strong>macOS</strong>: <strong>HTML replay page</strong> opens in a browser, renders
+the timeline, and contains no plaintext secret (view-source / Ctrl-F the
+planted value).</li>
+</ul>
+<hr />
+<h2 id="5-crash-safety-spot-check-ac-4"><a class="header" href="#5-crash-safety-spot-check-ac-4">5. Crash-safety spot check (AC-4)</a></h2>
+<p>Not OS-specific; run once on Linux.</p>
+<pre><code class="language-bash">cd /tmp/hh-qa &amp;&amp; export HH_DATA_DIR=/tmp/hh-qa/data
+hh run -- python3 -c 'import time; print("working"); time.sleep(30)' &amp;
+HH_PID=$!
+sleep 2; kill -KILL $HH_PID        # SIGKILL mid-recording
+hh list                             # next invocation reconciles to interrupted
+hh inspect last                     # still readable
+</code></pre>
+<ul>
+<li><input disabled="" type="checkbox"/>
+<strong>Linux</strong>: The SIGKILLed session shows <code>status: interrupted</code> (or
+equivalent) in <code>hh list</code>, and <code>hh inspect last</code> reads it back without
+erroring — no partial-write corruption, no orphaned blob crash.</li>
+</ul>
+<hr />
+<h2 id="6-sign-off"><a class="header" href="#6-sign-off">6. Sign-off</a></h2>
+<ul>
+<li><input disabled="" type="checkbox"/>
+Every checkbox above is ticked for at least <strong>Linux and macOS</strong>, with the
+per-OS columns filled (or <strong>N/A</strong> / <strong>build-only</strong> noted where called out).</li>
+<li><input disabled="" type="checkbox"/>
+Codex outcome recorded (ran on which OS, or N/A with reason).</li>
+<li><input disabled="" type="checkbox"/>
+Any deviation from this checklist is written down in the release
+announcement with a justification.</li>
+<li><input disabled="" type="checkbox"/>
+<code>docs/1.0-definition-of-done.md</code> (the automated half) is green on the
+release branch.</li>
+</ul>
+<p><strong>Only after all of the above:</strong> proceed to the tag-and-release runbook in
+<code>RELEASING.md</code>. The maintainer tags <code>v1.0.0</code>; Halfhand's automation does not
+tag itself.</p>
+
+                    </main>
+
+                    <nav class="nav-wrapper" aria-label="Page navigation">
+                        <!-- Mobile navigation buttons -->
+                            <a rel="prev" href="1.0-definition-of-done.html" class="mobile-nav-chapters previous" title="Previous chapter" aria-label="Previous chapter" aria-keyshortcuts="Left">
+                                <i class="fa fa-angle-left"></i>
+                            </a>
+
+                            <a rel="next prefetch" href="adr/0001-threads-vs-tokio.html" class="mobile-nav-chapters next" title="Next chapter" aria-label="Next chapter" aria-keyshortcuts="Right">
+                                <i class="fa fa-angle-right"></i>
+                            </a>
+
+                        <div style="clear: both"></div>
+                    </nav>
+                </div>
+            </div>
+
+            <nav class="nav-wide-wrapper" aria-label="Page navigation">
+                    <a rel="prev" href="1.0-definition-of-done.html" class="nav-chapters previous" title="Previous chapter" aria-label="Previous chapter" aria-keyshortcuts="Left">
+                        <i class="fa fa-angle-left"></i>
+                    </a>
+
+                    <a rel="next prefetch" href="adr/0001-threads-vs-tokio.html" class="nav-chapters next" title="Next chapter" aria-label="Next chapter" aria-keyshortcuts="Right">
+                        <i class="fa fa-angle-right"></i>
+                    </a>
+            </nav>
+
+        </div>
+
+
+
+
+        <script>
+            window.playground_copyable = true;
+        </script>
+
+
+        <script src="elasticlunr.min.js"></script>
+        <script src="mark.min.js"></script>
+        <script src="searcher.js"></script>
+
+        <script src="clipboard.min.js"></script>
+        <script src="highlight.js"></script>
+        <script src="book.js"></script>
+
+        <!-- Custom JS scripts -->
+
+
+    </div>
+    </body>
+</html>

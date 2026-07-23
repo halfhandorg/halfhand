@@ -1,0 +1,2415 @@
+<!DOCTYPE HTML>
+<html lang="en" class="light" dir="ltr">
+    <head>
+        <!-- Book generated using mdBook -->
+        <meta charset="UTF-8">
+        <title>Halfhand</title>
+        <meta name="robots" content="noindex">
+
+
+        <!-- Custom HTML head -->
+        
+        <meta name="description" content="">
+        <meta name="viewport" content="width=device-width, initial-scale=1">
+        <meta name="theme-color" content="#ffffff">
+
+        <link rel="icon" href="favicon.svg">
+        <link rel="shortcut icon" href="favicon.png">
+        <link rel="stylesheet" href="css/variables.css">
+        <link rel="stylesheet" href="css/general.css">
+        <link rel="stylesheet" href="css/chrome.css">
+        <link rel="stylesheet" href="css/print.css" media="print">
+
+        <!-- Fonts -->
+        <link rel="stylesheet" href="FontAwesome/css/font-awesome.css">
+        <link rel="stylesheet" href="fonts/fonts.css">
+
+        <!-- Highlight.js Stylesheets -->
+        <link rel="stylesheet" href="highlight.css">
+        <link rel="stylesheet" href="tomorrow-night.css">
+        <link rel="stylesheet" href="ayu-highlight.css">
+
+        <!-- Custom theme stylesheets -->
+
+    </head>
+    <body class="sidebar-visible no-js">
+    <div id="body-container">
+        <!-- Provide site root to javascript -->
+        <script>
+            var path_to_root = "";
+            var default_theme = window.matchMedia("(prefers-color-scheme: dark)").matches ? "navy" : "light";
+        </script>
+
+        <!-- Work around some values being stored in localStorage wrapped in quotes -->
+        <script>
+            try {
+                var theme = localStorage.getItem('mdbook-theme');
+                var sidebar = localStorage.getItem('mdbook-sidebar');
+
+                if (theme.startsWith('"') && theme.endsWith('"')) {
+                    localStorage.setItem('mdbook-theme', theme.slice(1, theme.length - 1));
+                }
+
+                if (sidebar.startsWith('"') && sidebar.endsWith('"')) {
+                    localStorage.setItem('mdbook-sidebar', sidebar.slice(1, sidebar.length - 1));
+                }
+            } catch (e) { }
+        </script>
+
+        <!-- Set the theme before any content is loaded, prevents flash -->
+        <script>
+            var theme;
+            try { theme = localStorage.getItem('mdbook-theme'); } catch(e) { }
+            if (theme === null || theme === undefined) { theme = default_theme; }
+            var html = document.querySelector('html');
+            html.classList.remove('light')
+            html.classList.add(theme);
+            var body = document.querySelector('body');
+            body.classList.remove('no-js')
+            body.classList.add('js');
+        </script>
+
+        <input type="checkbox" id="sidebar-toggle-anchor" class="hidden">
+
+        <!-- Hide / unhide sidebar before it is displayed -->
+        <script>
+            var body = document.querySelector('body');
+            var sidebar = null;
+            var sidebar_toggle = document.getElementById("sidebar-toggle-anchor");
+            if (document.body.clientWidth >= 1080) {
+                try { sidebar = localStorage.getItem('mdbook-sidebar'); } catch(e) { }
+                sidebar = sidebar || 'visible';
+            } else {
+                sidebar = 'hidden';
+            }
+            sidebar_toggle.checked = sidebar === 'visible';
+            body.classList.remove('sidebar-visible');
+            body.classList.add("sidebar-" + sidebar);
+        </script>
+
+        <nav id="sidebar" class="sidebar" aria-label="Table of contents">
+            <div class="sidebar-scrollbox">
+                <ol class="chapter"><li class="chapter-item expanded "><a href="index.html"><strong aria-hidden="true">1.</strong> Introduction</a></li><li class="chapter-item expanded affix "><li class="part-title">Getting started</li><li class="chapter-item expanded "><a href="quickstart.html"><strong aria-hidden="true">2.</strong> Quickstart</a></li><li class="chapter-item expanded "><a href="recording.html"><strong aria-hidden="true">3.</strong> Recording</a></li><li class="chapter-item expanded "><a href="replay-inspect.html"><strong aria-hidden="true">4.</strong> Replay & Inspect</a></li><li class="chapter-item expanded "><a href="search.html"><strong aria-hidden="true">5.</strong> Search</a></li><li class="chapter-item expanded affix "><li class="part-title">Security</li><li class="chapter-item expanded "><a href="redaction.html"><strong aria-hidden="true">6.</strong> Redaction</a></li><li class="chapter-item expanded "><a href="redaction-design.html"><strong aria-hidden="true">7.</strong> Redaction design</a></li><li class="chapter-item expanded "><a href="security.html"><strong aria-hidden="true">8.</strong> Security policy</a></li><li class="chapter-item expanded affix "><li class="part-title">Sharing & maintenance</li><li class="chapter-item expanded "><a href="export-import.html"><strong aria-hidden="true">9.</strong> Export & import</a></li><li class="chapter-item expanded "><a href="gc.html"><strong aria-hidden="true">10.</strong> Garbage collection</a></li><li class="chapter-item expanded "><a href="doctor.html"><strong aria-hidden="true">11.</strong> Doctor</a></li><li class="chapter-item expanded "><a href="stats.html"><strong aria-hidden="true">12.</strong> Stats</a></li><li class="chapter-item expanded affix "><li class="part-title">Reference</li><li class="chapter-item expanded "><a href="adapters.html"><strong aria-hidden="true">13.</strong> Adapters</a></li><li class="chapter-item expanded "><a href="mcp-proxy.html"><strong aria-hidden="true">14.</strong> MCP proxy</a></li><li class="chapter-item expanded "><a href="json.html"><strong aria-hidden="true">15.</strong> JSON reference</a></li><li class="chapter-item expanded "><a href="completions.html"><strong aria-hidden="true">16.</strong> Shell completions & man page</a></li><li class="chapter-item expanded "><a href="stability.html"><strong aria-hidden="true">17.</strong> Stability policy</a></li><li class="chapter-item expanded "><a href="performance.html"><strong aria-hidden="true">18.</strong> Performance</a></li><li class="chapter-item expanded affix "><li class="part-title">Appendices</li><li class="chapter-item expanded "><a href="faq.html"><strong aria-hidden="true">19.</strong> FAQ</a></li><li class="chapter-item expanded "><a href="1.0-definition-of-done.html"><strong aria-hidden="true">20.</strong> 1.0 definition of done</a></li><li class="chapter-item expanded "><a href="manual-qa.html"><strong aria-hidden="true">21.</strong> Manual QA</a></li><li class="chapter-item expanded "><a href="adr/0001-threads-vs-tokio.html"><strong aria-hidden="true">22.</strong> Architecture decision records</a></li><li><ol class="section"><li class="chapter-item expanded "><a href="adr/0001-threads-vs-tokio.html"><strong aria-hidden="true">22.1.</strong> ADR 0001: threads vs tokio</a></li><li class="chapter-item expanded "><a href="adr/0002-stored-step-ordinals.html"><strong aria-hidden="true">22.2.</strong> ADR 0002: stored step ordinals</a></li><li class="chapter-item expanded "><a href="adr/0003-fts-index-strategy.html"><strong aria-hidden="true">22.3.</strong> ADR 0003: FTS index strategy</a></li></ol></li></ol>
+            </div>
+            <div id="sidebar-resize-handle" class="sidebar-resize-handle">
+                <div class="sidebar-resize-indicator"></div>
+            </div>
+        </nav>
+
+        <!-- Track and set sidebar scroll position -->
+        <script>
+            var sidebarScrollbox = document.querySelector('#sidebar .sidebar-scrollbox');
+            sidebarScrollbox.addEventListener('click', function(e) {
+                if (e.target.tagName === 'A') {
+                    sessionStorage.setItem('sidebar-scroll', sidebarScrollbox.scrollTop);
+                }
+            }, { passive: true });
+            var sidebarScrollTop = sessionStorage.getItem('sidebar-scroll');
+            sessionStorage.removeItem('sidebar-scroll');
+            if (sidebarScrollTop) {
+                // preserve sidebar scroll position when navigating via links within sidebar
+                sidebarScrollbox.scrollTop = sidebarScrollTop;
+            } else {
+                // scroll sidebar to current active section when navigating via "next/previous chapter" buttons
+                var activeSection = document.querySelector('#sidebar .active');
+                if (activeSection) {
+                    activeSection.scrollIntoView({ block: 'center' });
+                }
+            }
+        </script>
+
+        <div id="page-wrapper" class="page-wrapper">
+
+            <div class="page">
+                                <div id="menu-bar-hover-placeholder"></div>
+                <div id="menu-bar" class="menu-bar sticky">
+                    <div class="left-buttons">
+                        <label id="sidebar-toggle" class="icon-button" for="sidebar-toggle-anchor" title="Toggle Table of Contents" aria-label="Toggle Table of Contents" aria-controls="sidebar">
+                            <i class="fa fa-bars"></i>
+                        </label>
+                        <button id="theme-toggle" class="icon-button" type="button" title="Change theme" aria-label="Change theme" aria-haspopup="true" aria-expanded="false" aria-controls="theme-list">
+                            <i class="fa fa-paint-brush"></i>
+                        </button>
+                        <ul id="theme-list" class="theme-popup" aria-label="Themes" role="menu">
+                            <li role="none"><button role="menuitem" class="theme" id="light">Light</button></li>
+                            <li role="none"><button role="menuitem" class="theme" id="rust">Rust</button></li>
+                            <li role="none"><button role="menuitem" class="theme" id="coal">Coal</button></li>
+                            <li role="none"><button role="menuitem" class="theme" id="navy">Navy</button></li>
+                            <li role="none"><button role="menuitem" class="theme" id="ayu">Ayu</button></li>
+                        </ul>
+                        <button id="search-toggle" class="icon-button" type="button" title="Search. (Shortkey: s)" aria-label="Toggle Searchbar" aria-expanded="false" aria-keyshortcuts="S" aria-controls="searchbar">
+                            <i class="fa fa-search"></i>
+                        </button>
+                    </div>
+
+                    <h1 class="menu-title">Halfhand</h1>
+
+                    <div class="right-buttons">
+                        <a href="print.html" title="Print this book" aria-label="Print this book">
+                            <i id="print-button" class="fa fa-print"></i>
+                        </a>
+                        <a href="https://github.com/halfhandorg/halfhand" title="Git repository" aria-label="Git repository">
+                            <i id="git-repository-button" class="fa fa-github"></i>
+                        </a>
+
+                    </div>
+                </div>
+
+                <div id="search-wrapper" class="hidden">
+                    <form id="searchbar-outer" class="searchbar-outer">
+                        <input type="search" id="searchbar" name="searchbar" placeholder="Search this book ..." aria-controls="searchresults-outer" aria-describedby="searchresults-header">
+                    </form>
+                    <div id="searchresults-outer" class="searchresults-outer hidden">
+                        <div id="searchresults-header" class="searchresults-header"></div>
+                        <ul id="searchresults">
+                        </ul>
+                    </div>
+                </div>
+
+                <!-- Apply ARIA attributes after the sidebar and the sidebar toggle button are added to the DOM -->
+                <script>
+                    document.getElementById('sidebar-toggle').setAttribute('aria-expanded', sidebar === 'visible');
+                    document.getElementById('sidebar').setAttribute('aria-hidden', sidebar !== 'visible');
+                    Array.from(document.querySelectorAll('#sidebar a')).forEach(function(link) {
+                        link.setAttribute('tabIndex', sidebar === 'visible' ? 0 : -1);
+                    });
+                </script>
+
+                <div id="content" class="content">
+                    <main>
+                        <h1 id="halfhand"><a class="header" href="#halfhand">Halfhand</a></h1>
+<blockquote>
+<p>A local-first CLI <strong>flight recorder</strong> for AI agents. Record a session on your
+own machine, then replay and inspect it later — no servers, no uploads, zero
+network calls from <code>hh</code> itself.</p>
+</blockquote>
+<p>Halfhand wraps any agent command in a PTY, captures terminal output and file
+changes as they happen, and — for agents it recognizes — also records the
+agent's internal turns (prompts, tool calls, tool results) as structured
+events. Everything lands in a local SQLite database you can replay, inspect,
+list, and delete. Recordings never leave your machine.</p>
+<p><img src="./assets/halfhand-cli.png" alt="Halfhand CLI" /></p>
+<p>If you just want to try it, go to the <a href="./quickstart.html">Quickstart</a>. For what
+"faithful playback" means (and where it ends), see <a href="./replay-inspect.html">Replay &amp; Inspect</a>.
+For the 1.0 stability promise — additive CLI flags, frozen <code>--json</code> schema,
+forward-only DB migrations — see the <a href="./stability.html">Stability policy</a>.</p>
+<h2 id="why-local-first"><a class="header" href="#why-local-first">Why local-first</a></h2>
+<ul>
+<li><strong>Zero network calls.</strong> <code>hh</code> links no HTTP client; nothing is uploaded. Your
+prompts, tool outputs, and diffs stay on disk.</li>
+<li><strong>You own the data.</strong> One SQLite file (<code>hh.db</code>) plus a blob store, in a data
+dir you control (<code>HH_DATA_DIR</code>). Delete it and it's gone.</li>
+<li><strong>Replay is reproducible.</strong> A recording is a faithful transcript of what the
+agent did, so you can audit, share (redacted), or debug later.</li>
+<li><strong>Secrets are a first-class concern.</strong> <code>hh scan</code> finds them, <code>hh redact</code>
+removes them in place; exports are redacted by default. See
+<a href="./redaction.html">Redaction</a>.</li>
+</ul>
+<div style="break-before: page; page-break-before: always;"></div><h1 id="quickstart"><a class="header" href="#quickstart">Quickstart</a></h1>
+<h2 id="install"><a class="header" href="#install">Install</a></h2>
+<p>Pick one. All three install the <code>hh</code> binary.</p>
+<p><strong>cargo</strong> (any OS with a Rust toolchain):</p>
+<pre><code class="language-bash">cargo install halfhand
+</code></pre>
+<p><strong>Homebrew</strong> (macOS/Linux):</p>
+<pre><code class="language-bash">brew tap halfhand-org/tap
+brew install hh
+</code></pre>
+<p><strong>Shell installer</strong> (downloads a prebuilt binary + checksum from the latest
+<a href="https://github.com/halfhandorg/halfhand/releases">GitHub release</a>):</p>
+<pre><code class="language-bash">curl --proto '=https' --tlsv1.2 -sSf https://halfhandorg.github.io/halfhand/install.sh | sh
+</code></pre>
+<blockquote>
+<p>The installer places <code>hh</code> in <code>~/.halfhand/bin</code> by default; add it to your
+<code>PATH</code> if it isn't already.</p>
+</blockquote>
+<p>Verify:</p>
+<pre><code class="language-bash">hh --version
+</code></pre>
+<h2 id="30-second-demo"><a class="header" href="#30-second-demo">30-second demo</a></h2>
+<pre><code class="language-bash">hh run -- claude                        # record a Claude Code session (or any command)
+hh replay last                          # faithfully play it back in an interactive TUI
+hh inspect last                         # non-interactive summary + step table
+hh list                                 # every recording, newest first
+</code></pre>
+<p>That's the whole loop. <code>hh delete last --yes</code> removes a recording.</p>
+<h2 id="where-your-data-lives"><a class="header" href="#where-your-data-lives">Where your data lives</a></h2>
+<p>Recordings go in your Halfhand data dir (<code>~/.local/share/halfhand/</code> on Linux,
+<code>~/Library/Application Support/halfhand/</code> on macOS by default). Point it
+elsewhere with <code>HH_DATA_DIR</code>:</p>
+<pre><code class="language-bash">HH_DATA_DIR=./hh-data hh run -- echo hello
+HH_DATA_DIR=./hh-data hh list
+</code></pre>
+<h2 id="next"><a class="header" href="#next">Next</a></h2>
+<ul>
+<li><a href="./recording.html">Recording</a> — <code>hh run</code> flags and what gets captured.</li>
+<li><a href="./replay-inspect.html">Replay &amp; Inspect</a> — the TUI and the JSON view.</li>
+<li><a href="./redaction.html">Redaction</a> — scan and remove secrets before sharing.</li>
+<li><a href="./export-import.html">Export &amp; import</a> — portable <code>.hh</code> bundles and HTML.</li>
+</ul>
+<div style="break-before: page; page-break-before: always;"></div><h1 id="recording"><a class="header" href="#recording">Recording</a></h1>
+<p><code>hh run</code> wraps a command in a PTY and records what happens.</p>
+<pre><code class="language-bash">hh run -- claude              # record a Claude Code session (auto-detected)
+hh run -- python3 my_agent.py # record any command
+hh run --adapter codex-cli -- codex   # force an adapter instead of auto-detect
+</code></pre>
+<p>Everything after <code>--</code> is the command to record.</p>
+<h2 id="what-gets-captured"><a class="header" href="#what-gets-captured">What gets captured</a></h2>
+<ul>
+<li><strong>Terminal output</strong> — ANSI/UTF-8 bytes (and binary chunks) from the PTY.</li>
+<li><strong>File changes</strong> — create/modify/delete under the working dir, with BLAKE3
+before/after hashes and zstd-compressed contents.</li>
+<li><strong>Agent turns</strong> — for recognized adapters, the agent's internal prompts,
+tool calls, tool results, and MCP traffic, as structured events.</li>
+</ul>
+<h2 id="flags"><a class="header" href="#flags">Flags</a></h2>
+<ul>
+<li><code>--adapter &lt;name&gt;</code> — force <code>claude-code</code>, <code>claude-desktop</code>, <code>codex-cli</code>, or
+<code>gemini-cli</code> instead of auto-detecting. See <a href="./adapters.html">Adapters</a>.</li>
+<li><code>--record-input</code> — also record your keystrokes. <strong>Off by default</strong> because
+keystrokes may contain secrets (SRS NFR-4). Enable only when you need to
+reproduce exact input, and scan/redact before sharing.</li>
+</ul>
+<h2 id="health-check"><a class="header" href="#health-check">Health check</a></h2>
+<p><code>hh doctor</code> is a read-only probe of the recording stack (PTY, watcher, store).
+Run it before a session you suspect is broken, or from CI:</p>
+<pre><code class="language-bash">hh doctor
+hh doctor --json | jq
+</code></pre>
+<p>See <a href="./doctor.html">Doctor</a>. If a recording is interrupted (e.g. you kill <code>hh</code>),
+the session is marked <code>interrupted</code> on the next open and is still inspectable.</p>
+<div style="break-before: page; page-break-before: always;"></div><h1 id="replay--inspect"><a class="header" href="#replay--inspect">Replay &amp; Inspect</a></h1>
+<h2 id="hh-replay--faithful-playback"><a class="header" href="#hh-replay--faithful-playback"><code>hh replay</code> — faithful playback</a></h2>
+<pre><code class="language-bash">hh replay last          # interactive TUI on the most recent session
+hh replay a1b2c3        # by id
+hh replay last --web    # write a self-contained HTML page and print its path
+</code></pre>
+<p>The TUI shows a step timeline alongside a detail pane (message text, tool
+calls and results, unified diffs for file changes). <code>--web</code> exports the same
+content as a single offline HTML file — no terminal, browser, or server
+needed; the path is printed to stdout.</p>
+<h3 id="what-faithful-means-and-where-it-ends"><a class="header" href="#what-faithful-means-and-where-it-ends">What "faithful" means (and where it ends)</a></h3>
+<p>Faithful playback is a <strong>transcript</strong>, not a re-execution. <code>hh replay</code> shows
+what the agent did and said, in order, with the exact tool inputs/outputs and
+file diffs it produced. It does <strong>not</strong> re-run the agent, re-issue tool calls,
+or reproduce side effects on your filesystem. Anything the agent did outside
+the recorded stream (e.g. a tool with effects Halfhand can't capture) won't be
+reproduced — it will only appear as the recorded tool result.</p>
+<h2 id="hh-inspect--non-interactive-detail"><a class="header" href="#hh-inspect--non-interactive-detail"><code>hh inspect</code> — non-interactive detail</a></h2>
+<pre><code class="language-bash">hh inspect last                  # summary + step table
+hh inspect a1b2c3 --step 7       # full detail of step 7
+hh inspect last --json | jq      # stable JSON (single object with --step)
+hh inspect last --diff           # concatenated unified diff of file changes
+hh inspect last --failed         # jump to the first error/failed step
+</code></pre>
+<p>The <code>--json</code> shape is documented and frozen as of 1.0 (additive-only); see
+<a href="./json.html">JSON reference</a> and the <a href="./stability.html">Stability policy</a>.</p>
+<h2 id="hh-list--every-recording"><a class="header" href="#hh-list--every-recording"><code>hh list</code> — every recording</a></h2>
+<pre><code class="language-bash">hh list                 # newest first, default 20
+hh list --limit 50
+hh list --json
+</code></pre>
+<div style="break-before: page; page-break-before: always;"></div><h1 id="hh-search--full-text-search-across-recorded-sessions"><a class="header" href="#hh-search--full-text-search-across-recorded-sessions"><code>hh search</code> — Full-text search across recorded sessions</a></h1>
+<p><code>hh search &lt;query&gt;</code> uses SQLite FTS5 to search event summaries and message bodies across all recorded sessions. Results show the session, step, event kind, and a highlighted snippet.</p>
+<h2 id="usage"><a class="header" href="#usage">Usage</a></h2>
+<pre><code class="language-bash"># Search for a word
+hh search "error"
+
+# Search for a phrase
+hh search "create file"
+
+# Filter by event kind
+hh search "error" --kind error
+
+# Filter by agent kind
+hh search "Bash" --agent claude-code
+
+# Filter by session start time (unix-ms)
+hh search "api key" --since 1700000000000
+
+# Filter by path
+hh search "config" --path /home/user/project
+
+# JSON output
+hh search "tool_call" --json | jq
+
+# Limit results
+hh search "test" --limit 10
+</code></pre>
+<h2 id="query-syntax"><a class="header" href="#query-syntax">Query Syntax</a></h2>
+<p>The search uses FTS5 query syntax:</p>
+<ul>
+<li><strong>Words</strong>: <code>error</code> — matches any event containing "error"</li>
+<li><strong>Phrases</strong>: <code>"create file"</code> — matches the exact phrase</li>
+<li><strong>Prefix</strong>: <code>creat*</code> — matches "create", "creating", "created"</li>
+<li><strong>AND/OR/NOT</strong>: <code>error AND warning</code>, <code>error OR warning</code>, <code>error NOT warning</code></li>
+<li><strong>Column search</strong>: <code>summary:error</code> — search only in summaries</li>
+<li><strong>Grouping</strong>: <code>(error OR warning) AND "file not found"</code></li>
+</ul>
+<h2 id="filters"><a class="header" href="#filters">Filters</a></h2>
+<div class="table-wrapper"><table><thead><tr><th>Flag</th><th>Description</th></tr></thead><tbody>
+<tr><td><code>--agent &lt;kind&gt;</code></td><td>Filter by agent kind (<code>claude-code</code>, <code>claude-desktop</code>, <code>codex-cli</code>, <code>gemini-cli</code>, <code>generic</code>, <code>mcp-only</code>)</td></tr>
+<tr><td><code>--kind &lt;kind&gt;</code></td><td>Filter by event kind (<code>user_message</code>, <code>agent_message</code>, <code>tool_call</code>, etc.)</td></tr>
+<tr><td><code>--since &lt;ms&gt;</code></td><td>Only sessions started after this unix-ms timestamp</td></tr>
+<tr><td><code>--path &lt;path&gt;</code></td><td>Only sessions whose cwd contains this path fragment</td></tr>
+<tr><td><code>--limit &lt;N&gt;</code></td><td>Maximum results (default 50, max 500)</td></tr>
+<tr><td><code>--json</code></td><td>Emit JSON instead of a table</td></tr>
+</tbody></table>
+</div>
+<h2 id="json-output"><a class="header" href="#json-output">JSON Output</a></h2>
+<pre><code class="language-json">[
+  {
+    "event_id": 42,
+    "session_id": "019c95c9-00ce-7aa3-b767-0ff0551a85d5",
+    "session_short_id": "a1b2c3",
+    "step": 7,
+    "kind": "tool_call",
+    "summary": "tool_call: Bash",
+    "snippet": "...&lt;b&gt;Bash&lt;/b&gt; command to list...",
+    "ts_ms": 5000
+  }
+]
+</code></pre>
+<h2 id="how-it-works"><a class="header" href="#how-it-works">How It Works</a></h2>
+<p>The FTS5 index is built incrementally at record time by the writer thread. Every event's summary and body text are indexed as the event is written. This means:</p>
+<ul>
+<li><strong>No first-search delay</strong> — the index is always up to date</li>
+<li><strong>No background jobs</strong> — indexing happens during recording</li>
+<li><strong>Correct on delete</strong> — deleting a session removes its events from the index</li>
+<li><strong>Correct on redact</strong> — redacting a session updates the index with the redacted text</li>
+</ul>
+<p>The index uses the <code>porter unicode61</code> tokenizer, which provides English stemming (so "create" matches "creating" and "created") and Unicode-aware tokenization.</p>
+<h2 id="performance"><a class="header" href="#performance">Performance</a></h2>
+<p>Search latency is typically &lt;10 ms for a 100-session, 100k-event store. The index is bounded by the total number of events, so search time scales linearly with the number of matching results, not the total event count.</p>
+<div style="break-before: page; page-break-before: always;"></div><h1 id="redaction--keeping-secrets-out-of-your-recordings"><a class="header" href="#redaction--keeping-secrets-out-of-your-recordings">Redaction — keeping secrets out of your recordings</a></h1>
+<p>Halfhand records everything an agent does: prompts, tool output, MCP
+payloads, file snapshots, terminal bytes. Real sessions therefore contain
+real secrets. The redaction pipeline gives you three tools:</p>
+<div class="table-wrapper"><table><thead><tr><th>command / config</th><th>what it does</th></tr></thead><tbody>
+<tr><td><code>hh scan &lt;session|last|--all&gt;</code></td><td>report detected secrets (never printing them); exit 4 if any</td></tr>
+<tr><td><code>hh redact &lt;session&gt;</code></td><td>irreversibly remove secrets from a recorded session in place</td></tr>
+<tr><td><code>[redaction] at_record = true</code></td><td>scrub matches <em>before they ever hit disk</em> while recording</td></tr>
+</tbody></table>
+</div>
+<p>And one guarantee that is always on: <strong><code>hh export</code> output is redacted by
+default.</strong> Sessions may be recorded raw locally, but nothing leaves the
+machine unredacted by accident. Design rationale and invariants live in
+<a href="redaction-design.html">redaction-design.md</a>.</p>
+<h2 id="threat-model"><a class="header" href="#threat-model">Threat model</a></h2>
+<p>Redaction protects against:</p>
+<ul>
+<li><strong>Accidental exfiltration</strong> — sharing an export (JSON or <code>--html</code>) that
+contains a credential the agent read, printed, or wrote during a session.</li>
+<li><strong>Retention</strong> — a token that landed in a recording weeks ago and outlived
+its rotation, sitting in <code>hh.db</code>/<code>blobs/</code> on your laptop.</li>
+</ul>
+<p>It does <strong>not</strong> protect against: an attacker with live access to your
+machine, secrets captured by tools <em>outside</em> Halfhand (shell history, the
+agent's own logs), or filesystem-level copies Halfhand cannot see
+(snapshots, backups, Time Machine).</p>
+<h2 id="what-is-caught"><a class="header" href="#what-is-caught">What is caught</a></h2>
+<p>Built-in detectors for high-signal named token types:</p>
+<ul>
+<li>AWS access key ids (<code>AKIA…</code>, <code>ASIA…</code>, and friends)</li>
+<li>GitHub tokens (<code>ghp_</code>/<code>gho_</code>/<code>ghu_</code>/<code>ghs_</code>/<code>ghr_</code>, <code>github_pat_…</code>)</li>
+<li>GitLab tokens (<code>glpat-…</code>, <code>glrt-…</code>, <code>gldt-…</code>, <code>glsoat-…</code>, <code>glcbt-…</code>)</li>
+<li>Slack tokens (<code>xoxb-</code>/<code>xoxa-</code>/<code>xoxp-</code>/<code>xoxr-</code>/<code>xoxs-</code>/<code>xoxe-</code>)</li>
+<li>PEM private-key blocks (including header-only fragments left by summary
+truncation)</li>
+<li>JWTs</li>
+<li>Generic high-entropy strings (≥ 40 chars of key-like charset above a
+conservative entropy threshold; pure-hex strings like git SHAs and blob
+hashes are deliberately exempt)</li>
+<li>Your own patterns, via config (below)</li>
+</ul>
+<p>The contract, enforced by property tests and a fuzz target: <strong>false
+positives are acceptable; a false negative on a named token type is a
+bug</strong> — <a href="../SECURITY.html">report it</a>.</p>
+<p>Each match is replaced with <code>{{REDACTED:&lt;type&gt;:&lt;hash8&gt;}}</code>. The <code>hash8</code> is
+the first 8 hex chars of the secret's BLAKE3 hash: you can trace <em>the same</em>
+secret across events and sessions (same tag everywhere) without the secret
+being stored or recoverable.</p>
+<h2 id="what-is-not-caught"><a class="header" href="#what-is-not-caught">What is NOT caught</a></h2>
+<p>Be honest with yourself about these before sharing anything:</p>
+<ul>
+<li>Secrets with no recognizable shape (a password like <code>hunter2</code>, an API key
+that is short or low-entropy) — add a <code>[redaction] rules</code> pattern if
+yours have a known prefix.</li>
+<li>Secrets split across terminal-output chunk boundaries or interleaved with
+ANSI color codes.</li>
+<li>Secrets inside binary content (binary blobs are not scanned; binary file
+capture is off by default anyway).</li>
+<li>Fragments: a <em>partial</em> token cut off by the 120-char summary limit may
+only be caught by the entropy detector.</li>
+<li>Copies outside the store: SQLite sidecars of other processes, filesystem
+snapshots, backups made before you ran <code>hh redact</code>.</li>
+</ul>
+<h2 id="scanning"><a class="header" href="#scanning">Scanning</a></h2>
+<pre><code class="language-console">$ hh scan last
+● session a1b2c3 — 3 secret occurrence(s)
+  TYPE               STEP  LOCATION   HASH8     COUNT
+  aws-access-key-id  3     body       a1b2c3d4  2
+  github-token       5     file .env  deadbeef  1
+✗ 3 secret occurrence(s) detected — `hh redact &lt;session&gt;` removes them irreversibly
+</code></pre>
+<p><code>hh scan --all</code> sweeps every session; <code>--json</code> emits a stable object (see
+<a href="json.html">json.md</a>). The exit code is part of the contract: <strong>0</strong> clean,
+<strong>4</strong> findings — wire <code>hh scan --all</code> into CI to keep a shared runner's
+store clean.</p>
+<h2 id="redacting-in-place"><a class="header" href="#redacting-in-place">Redacting in place</a></h2>
+<pre><code class="language-console">$ hh redact a1b2c3
+● Irreversibly redact secrets from session a1b2c3 (ok, 42 steps)? Originals are destroyed. [y/N] y
+✓ Redacted session a1b2c3 · 3 secret occurrence(s) removed · 5 event(s) rewritten · 2 blob(s) rewritten (2 shredded)
+  aws-access-key-id    a1b2c3d4  ×2
+  github-token         deadbeef  ×1
+</code></pre>
+<p>What happens (see the design doc for the property-tested invariants):
+events and affected blobs are rewritten; original blobs whose last
+reference was in this session are overwritten with zeros and deleted; the
+WAL is checkpointed and the database <code>VACUUM</code>ed so no plaintext copy
+survives in <code>hh.db</code>; and a <code>redaction_audit</code> lifecycle event is appended so
+the session records what was removed (types and hash8 tags only).</p>
+<p>Notes:</p>
+<ul>
+<li><strong>Irreversible.</strong> There is no undo. The prompt requires a TTY; <code>--yes</code>
+skips it for scripts.</li>
+<li>A blob <em>shared with another session</em> keeps its original content — run
+<code>hh scan --all</code> and redact the other sessions too.</li>
+<li>The zero-overwrite is best-effort: journaling/copy-on-write filesystems
+and SSD wear leveling can retain old sectors physically. It raises the
+bar; it is not forensic erasure.</li>
+</ul>
+<h2 id="exporting"><a class="header" href="#exporting">Exporting</a></h2>
+<pre><code class="language-console">$ hh export last --out session.json     # redacted, always, by default
+$ hh export last --html --out session.html
+$ hh export last | jq .session          # stdout works too
+</code></pre>
+<p>The whole bundle passes through one redaction chokepoint before a byte is
+written. To export raw, <code>--no-redact</code> requires typing <code>yes</code> at an
+interactive prompt — and is refused outright when stdin is not a TTY, so no
+script can exfiltrate a raw session by accident. There is deliberately no
+<code>--yes</code> bypass for this.</p>
+<h2 id="record-time-redaction"><a class="header" href="#record-time-redaction">Record-time redaction</a></h2>
+<pre><code class="language-toml"># ~/.config/halfhand/config.toml
+[redaction]
+at_record = true        # default: false
+entropy = true          # default: true — the high-entropy detector
+rules = [               # your own detectors; findings show as custom:&lt;name&gt;
+  { name = "acme-internal", pattern = "ACME-[0-9A-F]{16}" },
+]
+</code></pre>
+<p>With <code>at_record = true</code>, matches are replaced <em>before hitting disk</em>: event
+summaries/bodies are scrubbed on the writer task, and blob content (file
+snapshots, large payloads) is scrubbed before hashing and compression. The
+<code>hash8</code> tags still let you correlate one secret across events.</p>
+<p>Trade-offs to know about:</p>
+<ul>
+<li>What is stored is the <em>redacted</em> text — replay/inspect show tokens where
+secrets were, and a stored file snapshot no longer hash-matches the file
+on disk (diffs still work; they diff the stored snapshots).</li>
+<li>False positives are destructive here: the original is never recorded. If
+the conservative entropy detector still bites you (e.g. sessions full of
+base64 payloads), set <code>entropy = false</code> and rely on the named types +
+your own rules.</li>
+<li>It cannot help sessions recorded before it was enabled — that is what
+<code>hh redact</code> is for.</li>
+</ul>
+<p><code>rules</code> patterns use Rust <code>regex</code> syntax (linear-time; no lookaround or
+backreferences). An invalid pattern is a hard error, not a silent no-op —
+a detector you configured must never quietly fail to load.</p>
+<h2 id="ready-made-rules-for-common-services"><a class="header" href="#ready-made-rules-for-common-services">Ready-made rules for common services</a></h2>
+<p>The built-ins above cover AWS, GitHub, GitLab, Slack, PEM keys, and JWTs.
+For gaps they don't cover yet — AI platforms, payment processors, package
+registries, and database URLs with embedded credentials — see the full
+<code>config.toml</code> (with a copy-paste-safe creation script) in the
+<a href="../README.html#configuration">Configuration section of the README</a>.</p>
+<h2 id="exit-codes"><a class="header" href="#exit-codes">Exit codes</a></h2>
+<p>Part of the CLI contract (see the README): <code>0</code> ok · <code>1</code> generic error ·
+<code>2</code> usage error · <code>3</code> session not found · <strong><code>4</code> redaction/policy block</strong>
+(<code>hh scan</code> with findings).</p>
+<div style="break-before: page; page-break-before: always;"></div><h1 id="redaction-design-v02"><a class="header" href="#redaction-design-v02">Redaction design (v0.2)</a></h1>
+<p>Status: implemented. This is the design doc SRS §8 requested for the
+redaction/secret-scrubbing pipeline, written before the implementation and
+kept as the reference for its invariants. User-facing docs live in
+<a href="redaction.html">redaction.md</a>; the disclosure policy lives in
+<a href="../SECURITY.html">SECURITY.md</a>.</p>
+<h2 id="problem"><a class="header" href="#problem">Problem</a></h2>
+<p>Halfhand records everything an agent does — prompts, tool output, MCP
+payloads, file snapshots, raw terminal bytes. Real sessions therefore contain
+real secrets (SRS NFR-4 already warns about this). Two failure modes matter:</p>
+<ol>
+<li>A secret is recorded and later <em>leaves the machine</em> in an export.</li>
+<li>A secret sits in the local store longer than the user intended.</li>
+</ol>
+<p>The design goal is <strong>nothing leaves the machine unredacted by accident</strong>,
+and <strong>local removal is possible and irreversible</strong>. It is explicitly <em>not</em> a
+goal to guarantee the local store never contains secrets — recording raw
+locally is the default, matching Halfhand's local-first trust model.</p>
+<h2 id="detection-engine-hh_coreredact"><a class="header" href="#detection-engine-hh_coreredact">Detection engine (<code>hh_core::redact</code>)</a></h2>
+<p>A <code>Detectors</code> set runs pluggable detectors over any UTF-8 text. Each match
+yields a <code>Finding { kind, span, hash8 }</code>. Built-in detectors are compiled
+regexes for high-signal named token types:</p>
+<div class="table-wrapper"><table><thead><tr><th>kind</th><th>pattern sketch</th></tr></thead><tbody>
+<tr><td><code>aws-access-key-id</code></td><td><code>(AKIA|ASIA|ABIA|ACCA|A3T…)[A-Z0-9]{16}</code></td></tr>
+<tr><td><code>github-token</code></td><td><code>gh[pousr]_…</code>, <code>github_pat_…</code></td></tr>
+<tr><td><code>gitlab-token</code></td><td><code>glpat-…</code>, <code>glrt-…</code>, <code>gldt-…</code>, <code>glsoat-…</code>, <code>glcbt-…</code></td></tr>
+<tr><td><code>slack-token</code></td><td><code>xox[baprs]-…</code></td></tr>
+<tr><td><code>private-key</code></td><td><code>-----BEGIN … PRIVATE KEY-----</code> → matching <code>END</code> block</td></tr>
+<tr><td><code>jwt</code></td><td><code>eyJ…\.[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+</code> (three base64url parts)</td></tr>
+<tr><td><code>high-entropy</code></td><td>≥40-char base64/hex-charset token above a conservative Shannon-entropy threshold</td></tr>
+<tr><td><code>custom:&lt;name&gt;</code></td><td>user regexes from config <code>[redaction] rules</code></td></tr>
+</tbody></table>
+</div>
+<p>Contract (tested as such): <strong>false positives are acceptable; a false negative
+on a named token type is a bug.</strong> Property tests embed each named token type
+in random surrounding text and assert detection; a fuzz target asserts the
+engine never panics on arbitrary input.</p>
+<p>The entropy detector is deliberately conservative: it only considers
+unbroken runs of <code>[A-Za-z0-9+/=_-]</code> of length ≥ 40, requires high per-char
+Shannon entropy, and skips pure-hex strings — Halfhand's own BLAKE3 hashes
+(64 lowercase hex) appear throughout recorded data and must never be
+redacted, or blob references would break.</p>
+<h3 id="the-replacement-token"><a class="header" href="#the-replacement-token">The replacement token</a></h3>
+<p>Matches are replaced with <code>{{REDACTED:&lt;kind&gt;:&lt;hash8&gt;}}</code> where <code>hash8</code> is the
+first 8 hex chars of <code>BLAKE3(secret bytes)</code>. Properties:</p>
+<ul>
+<li><strong>One-way</strong>: 8 hex chars (32 bits) of a keyed-nothing hash of a
+high-entropy input; the secret is not recoverable from it.</li>
+<li><strong>Correlatable</strong>: the same secret yields the same <code>hash8</code> everywhere, so a
+user can trace one leaked credential across events and sessions without
+ever seeing it.</li>
+<li><strong>Fixed point</strong>: the token itself never matches any detector, so redaction
+is idempotent (<code>redact(redact(x)) == redact(x)</code>, property-tested).</li>
+</ul>
+<h3 id="json-aware-redaction"><a class="header" href="#json-aware-redaction">JSON-aware redaction</a></h3>
+<p>Event bodies and overflowed blob payloads are JSON. Redacting the <em>encoded</em>
+text would miss multi-line secrets (a PEM block is <code>\n</code>-escaped inside a JSON
+string), so structured payloads are redacted by walking the parsed value tree
+and rewriting each string scalar. Plain text (summaries, terminal output) is
+redacted as text. Non-UTF-8 blob content is skipped (documented limitation —
+binary content storage is off by default anyway).</p>
+<h2 id="enforcement-points"><a class="header" href="#enforcement-points">Enforcement points</a></h2>
+<p>There are exactly two, and they bracket the data's lifecycle:</p>
+<p><strong>1. Record-time (opt-in, <code>[redaction] at_record = true</code>).</strong> Matches are
+replaced <em>before hitting disk</em>. Two chokepoints cover every write path:
+the single-writer task redacts <code>summary</code> and <code>body_json</code> before <code>INSERT</code>,
+and <code>BlobStore::put</code> redacts UTF-8 content before compressing. The recorder
+(<code>hh run</code>, <code>hh mcp-proxy</code>) threads one shared <code>Arc&lt;Detectors&gt;</code> into both.
+Because the blob is redacted before hashing, the stored hash is the hash of
+the redacted content — content-addressing stays internally consistent, at
+the cost that a stored file snapshot no longer hash-matches the on-disk
+original. That is the point of record-time redaction and is documented.</p>
+<p><strong>2. Export-time (always on by default).</strong> <code>hh export</code> (JSON bundle or
+<code>--html</code>) serializes the entire session into one JSON tree and passes it
+through a <strong>single redaction chokepoint</strong> before any byte is written out.
+There is no code path that writes export output without passing that
+chokepoint. Opt-out requires <code>--no-redact</code> <em>plus</em> an interactive "yes"
+confirmation; with a non-TTY stdin, <code>--no-redact</code> is refused outright — a
+script cannot silently exfiltrate raw sessions.</p>
+<p>Sessions may be recorded raw locally (default); enforcement point 2
+guarantees nothing leaves the machine unredacted by accident.</p>
+<h2 id="commands"><a class="header" href="#commands">Commands</a></h2>
+<ul>
+<li><strong><code>hh scan &lt;session|last|--all&gt; [--json]</code></strong> — runs the detectors over every
+event summary, body, referenced blob, and the session's recorded command
+line. Reports <code>(type, step, location, hash8)</code> — never the secret itself.
+Exit code <strong>4</strong> when findings exist (the documented redaction/policy exit
+code), 0 when clean: CI can gate on it.</li>
+<li><strong><code>hh redact &lt;session&gt; [--yes]</code></strong> — applies redaction in place:
+<ol>
+<li>rewrites <code>events.summary</code> / <code>events.body_json</code>;</li>
+<li>rewrites affected blobs: redacted content is <code>put</code> as a new blob, every
+reference in this session (<code>events.blob_hash</code>,
+<code>file_changes.before_hash/after_hash</code>) is repointed, refcounts move
+with the references;</li>
+<li>originals that reach refcount 0 are <strong>shredded</strong> (best-effort overwrite
+with zeros + fsync, then unlink) and their rows GC'd;</li>
+<li>a redaction <strong>audit event</strong> (kind <code>lifecycle</code>,
+<code>body_json.redaction_audit = { types, hash8s, counts }</code>) is appended so
+the session self-documents what was removed;</li>
+<li>the WAL is checkpointed (<code>TRUNCATE</code>) and the DB <code>VACUUM</code>ed so plaintext
+does not survive in the WAL or freelist pages.</li>
+</ol>
+</li>
+</ul>
+<h2 id="irreversibility-invariants"><a class="header" href="#irreversibility-invariants">Irreversibility invariants</a></h2>
+<p>After <code>hh redact &lt;s&gt;</code> completes, for every secret that was only referenced
+by session <code>s</code>:</p>
+<ul>
+<li><strong>I1</strong> No detector match for it exists in any row of <code>hh.db</code> — including
+the raw DB file bytes (guaranteed by the checkpoint + VACUUM step).</li>
+<li><strong>I2</strong> No blob in the blob store decompresses to content containing it;
+the original blob file has been overwritten and removed.</li>
+<li><strong>I3</strong> Refcount books stay balanced: <code>blobs.refcount</code> equals the number of
+referencing events across all sessions, and no referenced blob was
+deleted.</li>
+<li><strong>I4</strong> The audit event exists and contains no secret material (types +
+hash8 only).</li>
+</ul>
+<p>I1–I3 are property-tested (seeded secrets of every named type across
+summary/body/blob/terminal locations; after redact, <code>hh scan</code> is empty, a
+byte-search of <code>hh.db</code> finds nothing, and every surviving blob is clean).</p>
+<p>A blob shared with <em>another</em> session keeps its original content — redaction
+is per-session, and destroying another session's data would be wrong. <code>hh scan --all</code> reveals such residues; the user docs say so explicitly.</p>
+<p>Secure deletion is <strong>best-effort</strong> and documented as such: on journaling or
+copy-on-write filesystems and SSDs with wear leveling, overwritten sectors
+may survive physically. The overwrite raises the bar; it is not a forensic
+guarantee.</p>
+<h2 id="config"><a class="header" href="#config">Config</a></h2>
+<pre><code class="language-toml">[redaction]
+at_record = false      # opt-in record-time scrubbing
+entropy = true         # the conservative high-entropy detector
+rules = [              # user-defined detectors (kind = "custom:&lt;name&gt;")
+  { name = "acme-internal", pattern = "ACME-[0-9A-F]{16}" },
+]
+</code></pre>
+<p>Unknown keys warn (SRS §4.2); an invalid <code>pattern</code> is an actionable error at
+load time, not a silent no-op.</p>
+<h2 id="compatibility"><a class="header" href="#compatibility">Compatibility</a></h2>
+<p>Everything here is additive: new config table, new subcommands, new exit
+code semantics only for the new <code>hh scan</code>, no schema migration (the audit
+event reuses <code>kind = 'lifecycle'</code> precisely so the documented <code>events.kind</code>
+value set is unchanged). Existing <code>--json</code> output is untouched; <code>hh scan --json</code> and <code>hh export</code> are new, versioned surfaces (<code>"schema": 1</code>).</p>
+<h2 id="known-limitations-documented-in-redactionmd"><a class="header" href="#known-limitations-documented-in-redactionmd">Known limitations (documented in redaction.md)</a></h2>
+<ul>
+<li>Secrets split across terminal chunks or interleaved with ANSI escapes can
+evade the text detectors.</li>
+<li>Non-UTF-8 (binary) blob content is not scanned.</li>
+<li>Record-time redaction cannot help a session recorded before it was enabled
+— that is what <code>hh redact</code> is for.</li>
+<li>SQLite <code>-wal</code>/<code>-shm</code> sidecars from <em>other</em> live processes, filesystem
+snapshots, and backups are outside Halfhand's reach.</li>
+</ul>
+<div style="break-before: page; page-break-before: always;"></div><h1 id="security-policy"><a class="header" href="#security-policy">Security Policy</a></h1>
+<p>Halfhand is a local-first flight recorder for AI agents. Its security
+posture rests on three properties:</p>
+<ol>
+<li><strong>No network</strong> — <code>hh</code> makes zero outbound network calls (SRS NFR-2),
+enforced by a CI tripwire that fails the build if an HTTP client crate
+enters the dependency graph.</li>
+<li><strong>Local permissions</strong> — the database and blob store are created
+<code>0600</code>/<code>0700</code>; keystroke recording is off by default (NFR-4).</li>
+<li><strong>Redaction</strong> — exports are redacted by default, <code>hh scan</code> detects
+recorded secrets, and <code>hh redact</code> removes them irreversibly. See
+<a href="docs/redaction.html">docs/redaction.md</a> for the threat model and
+<a href="docs/redaction-design.html">docs/redaction-design.md</a> for the invariants.</li>
+</ol>
+<h2 id="reporting-a-vulnerability"><a class="header" href="#reporting-a-vulnerability">Reporting a vulnerability</a></h2>
+<p>Please report security issues <strong>privately</strong> via
+<a href="https://github.com/halfhandorg/halfhand/security/advisories/new">GitHub Security Advisories</a>
+("Report a vulnerability" on the repository's Security tab). Do not open a
+public issue for anything you believe is exploitable.</p>
+<p>Include what you can: affected version (<code>hh --version</code>), platform, a
+reproduction or proof of concept, and your assessment of impact.</p>
+<p>What you can expect from us:</p>
+<ul>
+<li><strong>Acknowledgement within 7 days</strong>, and a triage verdict (accepted /
+needs-info / declined) within 14.</li>
+<li>A fix or documented mitigation for accepted reports in the next release,
+with severity-appropriate urgency.</li>
+<li>Credit in the release notes and advisory, unless you prefer otherwise.</li>
+<li>No legal action for good-faith research within the scope below.</li>
+</ul>
+<h2 id="scope"><a class="header" href="#scope">Scope</a></h2>
+<p>In scope:</p>
+<ul>
+<li><strong>Redaction bypasses</strong>: a <em>named token type</em> (AWS keys, GitHub/GitLab
+tokens, Slack tokens, PEM private keys, JWTs) that survives <code>hh export</code>'s
+default redaction, <code>hh redact</code>, or record-time redaction is a
+vulnerability by contract — false negatives on named types are bugs.</li>
+<li>Recovery of redacted secrets from <code>hh.db</code> or the blob store after
+<code>hh redact</code> completed successfully (excluding filesystem-level copies
+outside Halfhand's reach — snapshots, backups, wear-leveled sectors,
+which are documented best-effort limits).</li>
+<li>Panics or memory unsafety triggered by malformed external input (agent
+JSONL transcripts, MCP JSON-RPC frames, imported/opened databases,
+config files) — these parsers are fuzzed and must fail with errors only.</li>
+<li>Any outbound network activity from the <code>hh</code> binary.</li>
+<li>File-permission regressions on the data directory.</li>
+</ul>
+<p>Out of scope:</p>
+<ul>
+<li>Secrets missed by the <em>generic</em> high-entropy detector (documented
+best-effort; tune with <code>[redaction] rules</code>).</li>
+<li>Attacks requiring an attacker who already has your local user account.</li>
+<li>The behavior of wrapped agents themselves.</li>
+</ul>
+<h2 id="supported-versions"><a class="header" href="#supported-versions">Supported versions</a></h2>
+<p>Pre-1.0, only the latest released beta receives security fixes. Pin a
+version in CI and track releases.</p>
+<div style="break-before: page; page-break-before: always;"></div><h1 id="hh-export--hh-import--hh-replay---web"><a class="header" href="#hh-export--hh-import--hh-replay---web"><code>hh export</code> / <code>hh import</code> / <code>hh replay --web</code></a></h1>
+<p>Three ways to move a session off the recording machine:</p>
+<div class="table-wrapper"><table><thead><tr><th>Goal</th><th>Command</th></tr></thead><tbody>
+<tr><td>Machine-readable JSON (<code>jq</code>-friendly)</td><td><code>hh export [session]</code></td></tr>
+<tr><td>A portable archive you can <code>hh import</code> elsewhere</td><td><code>hh export [session] --bundle -o FILE</code></td></tr>
+<tr><td>A page to share/open in a browser</td><td><code>hh export [session] --html -o FILE</code>, or <code>hh replay [session] --web</code></td></tr>
+</tbody></table>
+</div>
+<p>All three are <strong>redacted by default</strong> — see <a href="redaction.html"><code>docs/redaction.md</code></a>.
+<code>--no-redact</code> requires an interactive typed confirmation and is refused on a
+non-TTY stdin; there is no bypass flag, so a script can never exfiltrate a raw
+session by accident.</p>
+<pre><code>$ hh export last --bundle -o session.hh
+✓ Exported session a1b2c3 → session.hh (bundle, redacted)
+
+$ hh import session.hh
+✓ Imported session f9e8d7 (from a1b2c3) · 12 steps · hh replay f9e8d7
+
+$ hh replay last --web
+✓ Exported session a1b2c3 → /tmp/hh-replay-a1b2c3.html (html, redacted) — open it in a browser
+</code></pre>
+<h2 id="the-bundle-format---bundle"><a class="header" href="#the-bundle-format---bundle">The bundle format (<code>--bundle</code>)</a></h2>
+<p>A <code>.hh</code> file is a single <strong>zstd-compressed tar</strong>:</p>
+<pre><code>manifest.json     format_version, hh_version, the session block, integrity hashes
+events.ndjson     one compact JSON object per event, seq-indexed
+blobs/&lt;h2&gt;/&lt;hash&gt; raw content for every blob any event or file_change references
+</code></pre>
+<p>Only the outer tar stream is compressed — blobs are stored raw inside it (no
+double compression). Building it twice from an unchanged session produces
+<strong>byte-identical bytes</strong>: tar entries are added in a fixed order (manifest,
+events, then blobs sorted ascending by hash) with fixed mtime/uid/gid/mode,
+and the manifest carries no wall-clock field.</p>
+<h3 id="manifestjson"><a class="header" href="#manifestjson"><code>manifest.json</code></a></h3>
+<pre><code class="language-jsonc">{
+  "format_version": 1,
+  "hh_version": "0.1.0-beta.1 (abc1234)",
+  "session": { /* the hh list --json session object, see docs/json.md */ },
+  "integrity": {
+    "events_blake3": "&lt;hex&gt;",       // BLAKE3 of events.ndjson's bytes
+    "event_count": 12,
+    "blobs": [ { "hash": "&lt;hex&gt;", "size": 481 }, ... ]
+  }
+}
+</code></pre>
+<p><code>hh import</code> rejects a bundle whose <code>format_version</code> is newer than the highest
+version that build of <code>hh</code> understands, with an actionable "upgrade hh"
+message. Same-or-older versions of format <code>1</code> are accepted (the only version
+that exists today).</p>
+<h3 id="eventsndjson"><a class="header" href="#eventsndjson"><code>events.ndjson</code></a></h3>
+<p>One line per event, in the session's original <code>(ts_ms, id)</code> order. DB row ids
+don't survive import, so events are addressed by position (<code>seq</code>, 0-based)
+instead, and <code>correlates</code> becomes <code>correlates_seq</code>:</p>
+<pre><code class="language-jsonc">{
+  "seq": 3,
+  "ts_ms": 1204,
+  "kind": "tool_result",
+  "step": 2,
+  "correlates_seq": 2,
+  "summary": "tool_result: ok",
+  "body": { "content": "file.txt", "is_error": false },
+  "blob_hash": null,
+  "blob_size": null,
+  "file_change": null
+}
+</code></pre>
+<p><code>body</code> is exactly as stored — unlike <code>hh inspect --json</code>'s event object, it
+is <strong>not</strong> blob-overflow-resolved, so a large payload may still carry the
+<code>{"overflow": true, "blob_hash": "...", ...}</code> envelope; the referenced blob
+is always present under <code>blobs/</code> in that case.</p>
+<h3 id="blobs"><a class="header" href="#blobs">Blobs</a></h3>
+<p>Every hash any event's <code>blob_hash</code> or <code>file_change.before_hash</code>/<code>after_hash</code>
+references is packed under <code>blobs/&lt;hash[0..2]&gt;/&lt;hash&gt;</code>, content-addressed and
+BLAKE3-verified on import. This is the one thing plain <code>hh export</code> (no
+<code>--bundle</code>) cannot carry: its JSON only ever includes hash <em>references</em> for
+file changes, never the bytes.</p>
+<h3 id="redaction-and-hash-remapping"><a class="header" href="#redaction-and-hash-remapping">Redaction and hash remapping</a></h3>
+<p>Redaction (when enabled) runs over the session block, every event, and every
+referenced blob's content — the same chokepoint plain <code>hh export</code>/<code>hh export --html</code> use. If redacting a blob's content changes its hash, every reference
+to the old hash (the event's <code>blob_hash</code>, a <code>file_change</code>'s
+<code>before_hash</code>/<code>after_hash</code>, or an embedded <code>blob_hash</code> inside an unresolved
+overflow envelope) is rewritten to the new one before the bundle is built —
+nothing in the bundle ever points at a hash that isn't in it.</p>
+<h2 id="hh-import"><a class="header" href="#hh-import"><code>hh import</code></a></h2>
+<pre><code>hh import FILE
+</code></pre>
+<p>Validates the bundle end to end before touching the store: zstd
+decompression is bounded (defense against a hostile/corrupt frame), every
+tar entry must match the allow-list above (a symlink/hardlink/unexpected
+path is refused), every blob's content is BLAKE3-verified against its
+filename, <code>events.ndjson</code>'s digest is checked against the manifest, and
+every hash any event references must be present among the bundle's blobs.
+Each failure mode reports precisely what's wrong — not one generic "corrupt
+bundle" message.</p>
+<p>On success, the session is imported under a <strong>brand-new local id</strong> — the
+bundle's <code>format_version</code> and content-addressing mean imports are always
+additive, never overwrite an existing session. The original session id is
+recorded in the new session's <code>imported_from</code> field (<code>hh list --json</code> /
+<code>hh inspect --json</code>; see <a href="json.html"><code>docs/json.md</code></a>) so you can trace where it
+came from. Blobs are written content-addressed, so importing a bundle whose
+blobs already exist locally (e.g. re-importing, or two sessions sharing a
+file snapshot) is a no-op for those blobs.</p>
+<p><code>hh import</code> does <strong>not</strong> re-run redaction — it trusts the bundle's existing
+redaction state, whatever <code>hh export</code> produced (redacted by default, or
+<code>--no-redact</code> if the exporter explicitly confirmed that).</p>
+<h3 id="exit-codes-1"><a class="header" href="#exit-codes-1">Exit codes</a></h3>
+<div class="table-wrapper"><table><thead><tr><th>Code</th><th>Meaning</th></tr></thead><tbody>
+<tr><td><code>0</code></td><td>Import succeeded.</td></tr>
+<tr><td><code>1</code></td><td>The file couldn't be read, the bundle failed validation, or the import transaction failed.</td></tr>
+<tr><td><code>2</code></td><td>Usage error (clap).</td></tr>
+</tbody></table>
+</div>
+<p>There is no dedicated "corrupt bundle" exit code in Halfhand's documented
+contract (<code>0</code>/<code>1</code>/<code>2</code>/<code>3</code>/<code>4</code>); a corrupt or invalid bundle is a generic <code>1</code>,
+by design — this is called out explicitly rather than left as an oversight.</p>
+<h2 id="the-html-replay-page---html-hh-replay---web"><a class="header" href="#the-html-replay-page---html-hh-replay---web">The HTML replay page (<code>--html</code>, <code>hh replay --web</code>)</a></h2>
+<p><code>hh export --html</code> (and its sugar, <code>hh replay --web</code>) produce a <strong>single
+self-contained HTML file</strong>: inline CSS/JS, zero network requests, no CDN, no
+telemetry, safe to open from <code>file://</code> or host anywhere.</p>
+<ul>
+<li><strong>Header</strong>: session id, status, agent kind, command, cwd, and (if
+applicable) which session it was imported from.</li>
+<li><strong>Timeline</strong>: every step-bearing event, clickable. <code>terminal_output</code> is
+elided — this mirrors the replay TUI's default and keeps the page a step
+report, not a byte-faithful terminal transcript.</li>
+<li><strong>Detail pane</strong>: plain text for text-bearing events, pretty-printed JSON
+for structured events, and a real diff view for file changes (hunks are
+precomputed server-side, so the page never implements a diff algorithm).</li>
+<li><strong>Keyboard nav</strong>: <code>j</code>/<code>k</code> (and arrow keys) move the selected step.</li>
+<li><strong>Theme</strong>: dark by default, with a toggle button for light — not tied to
+the OS <code>prefers-color-scheme</code>.</li>
+</ul>
+<h3 id="how-the-page-stays-safe"><a class="header" href="#how-the-page-stays-safe">How the page stays safe</a></h3>
+<p>Session content is untrusted input to this page (it's whatever the recorded
+agent/tool output happened to contain). The whole payload is embedded once,
+inside a single <code>&lt;script type="application/json" id="hh-data"&gt;</code> tag, with
+every <code>&lt;</code>/<code>&gt;</code>/<code>&amp;</code> replaced by its <code>\uXXXX</code> escape first — that makes a
+<code>&lt;/script&gt;</code> sequence structurally impossible to smuggle in, regardless of
+content. The page's hand-written JS reads that tag's <code>textContent</code> (never
+<code>innerHTML</code>), <code>JSON.parse</code>s it, and builds every other DOM node with
+<code>createElement</code>/<code>textContent</code>. Nothing recorded is ever assigned to
+<code>innerHTML</code>, so nothing recorded can ever be interpreted as markup — a
+<code>&lt;script&gt;</code> tag or <code>onerror=</code> attribute in a summary, a tool result, or a
+diff line renders as inert text, never as live HTML.</p>
+<h3 id="hh-replay---web"><a class="header" href="#hh-replay---web"><code>hh replay --web</code></a></h3>
+<p>Sugar for the common "just let me look at this in a browser" case:</p>
+<pre><code>hh replay [session] --web
+</code></pre>
+<p>Builds the same redacted HTML page <code>hh export --html</code> would, writes it to
+<code>$TMPDIR/hh-replay-&lt;short_id&gt;.html</code>, and prints the path. Needs no
+terminal (unlike plain <code>hh replay</code>, which opens the interactive TUI and
+requires one). Does <strong>not</strong> open a browser or start a server — v1 is
+print-the-path only; piping the path to <code>open</code>/<code>xdg-open</code> yourself is a
+one-liner if you want that.</p>
+<h2 id="see-also"><a class="header" href="#see-also">See also</a></h2>
+<ul>
+<li><a href="redaction.html"><code>docs/redaction.md</code></a> / <a href="redaction-design.html"><code>docs/redaction-design.md</code></a> — the redaction pipeline every export path shares.</li>
+<li><a href="json.html"><code>docs/json.md</code></a> — the session/event object shapes referenced above.</li>
+</ul>
+<div style="break-before: page; page-break-before: always;"></div><h1 id="hh-gc--reclaim-disk-space"><a class="header" href="#hh-gc--reclaim-disk-space"><code>hh gc</code> — reclaim disk space</a></h1>
+<p><code>hh gc</code> reclaims space the recorder can no longer reach. It prunes orphaned blob
+files and stale <code>blobs</code> rows, then <code>VACUUM</code>s the SQLite database to shrink
+<code>hh.db</code> on disk. It is the only command that compacts the store, and it is safe:
+it removes only blobs no live event references, never referenced data.</p>
+<pre><code>$ hh gc
+✓ Pruned 3 orphan blob file(s) · 1.5 MiB reclaimed · 2 stale row(s) removed
+✓ Vacuumed the database (hh.db compacted on disk)
+</code></pre>
+<h2 id="what-it-removes"><a class="header" href="#what-it-removes">What it removes</a></h2>
+<div class="table-wrapper"><table><thead><tr><th>Kind</th><th>What it is</th><th>Where it comes from</th></tr></thead><tbody>
+<tr><td>Orphan blob file</td><td>A <code>blobs/&lt;h2&gt;/&lt;hash&gt;.zst</code> whose <code>blobs</code> row is missing or has refcount <code>0</code></td><td>A crash between writing the blob and committing the referencing event, or a <code>hh delete</code> that decremented the refcount but crashed before removing the file.</td></tr>
+<tr><td>Stale <code>blobs</code> row</td><td>A row whose backing file is missing (refcount <code>&gt; 0</code>, file gone)</td><td>The file was deleted out of band; the row is removed so a future reference re-creates the blob instead of pointing at a missing file.</td></tr>
+</tbody></table>
+</div>
+<p>Blobs are content-addressed and refcounted, so <code>hh delete</code> already frees a blob
+the moment the last session that references it is deleted. <code>hh gc</code> only sweeps
+the crash/leftover cases <code>hh delete</code> does not reach — run it after a crash, or
+occasionally to reclaim space and compact the DB.</p>
+<h2 id="vacuum-and---no-vacuum"><a class="header" href="#vacuum-and---no-vacuum"><code>VACUUM</code> and <code>--no-vacuum</code></a></h2>
+<p><code>VACUUM</code> rebuilds <code>hh.db</code> into a compacted file. It needs temporary free space
+roughly equal to the current DB size and an exclusive connection (no other <code>hh</code>
+process using the data dir); <code>hh gc</code> will tell you so and suggest <code>--no-vacuum</code>
+if it cannot take that connection.</p>
+<p><code>--no-vacuum</code> skips the rebuild and only prunes — useful on a nearly-full disk
+or when you just want the quick sweep:</p>
+<pre><code>$ hh gc --no-vacuum
+✓ Pruned 3 orphan blob file(s) · 1.5 MiB reclaimed · 2 stale row(s) removed
+● Skipped vacuum (--no-vacuum; run `hh gc` without it to compact)
+</code></pre>
+<h2 id="--json"><a class="header" href="#--json"><code>--json</code></a></h2>
+<p><code>hh gc --json</code> emits a stable object (carrying <code>schema:2</code>):</p>
+<pre><code class="language-jsonc">{
+  "schema": 2,
+  "orphan_files_removed": 3,
+  "orphan_bytes_reclaimed": 1572864,
+  "orphan_rows_removed": 2,
+  "vacuumed": true
+}
+</code></pre>
+<h2 id="exit-codes-2"><a class="header" href="#exit-codes-2">Exit codes</a></h2>
+<div class="table-wrapper"><table><thead><tr><th>Code</th><th>Meaning</th></tr></thead><tbody>
+<tr><td><code>0</code></td><td>GC completed.</td></tr>
+<tr><td><code>1</code></td><td>A prune or vacuum error (e.g. another <code>hh</code> process holds the data dir — see the hint).</td></tr>
+</tbody></table>
+</div>
+<p>(These match Halfhand's exit-code contract: <code>0</code> ok, <code>1</code> generic error.)</p>
+<h2 id="notes"><a class="header" href="#notes">Notes</a></h2>
+<ul>
+<li><code>hh gc</code> never removes a blob any live event references. Shared blobs survive
+until the last session that uses them is deleted; <code>hh gc</code> is orthogonal to
+that lifecycle.</li>
+<li>Every <code>hh run</code> already checkpoints the WAL on finalize (so <code>hh.db</code> is
+copy-safe at rest after a clean session). <code>hh gc</code>'s job is compaction, not
+checkpointing — see <code>docs/performance.md</code>.</li>
+<li><code>hh gc</code> is idempotent: running it twice does nothing the second time (counts
+are <code>0</code>).</li>
+</ul>
+<div style="break-before: page; page-break-before: always;"></div><h1 id="hh-doctor--recording-stack-health-check"><a class="header" href="#hh-doctor--recording-stack-health-check"><code>hh doctor</code> — recording-stack health check</a></h1>
+<p><code>hh doctor</code> is a read-only diagnostic for the Halfhand recording stack. It runs a
+fixed set of checks and prints one <code>✓</code> / <code>✗</code> line per check, exiting nonzero if
+any check fails. It does not mutate the database (<code>PRAGMA integrity_check</code> is a
+read-only probe) and writes nothing to your data dir beyond a self-cleaning
+watcher probe file it removes immediately.</p>
+<pre><code>$ hh doctor
+✓ data dir writable — /home/me/.local/share/halfhand is writable
+✓ database integrity — PRAGMA integrity_check: ok
+✗ config resolution — config: /home/me/.config/halfhand/config.toml; ignored non-canonical file(s): /home/me/.config/halfhand/halfhand.toml — move their contents into config.toml so they take effect
+✓ claude jsonl discoverable — /home/me/.claude/projects/-home-me-work/abc.jsonl (newest record type: user)
+✓ watcher smoke test — file-change event delivered
+</code></pre>
+<p>Run it when a session finalized <code>ok</code> but recorded <code>0 steps</code> or <code>0 files changed</code>,
+or before a recording you cannot afford to lose. It targets exactly the failure
+modes behind that class of silent breakage.</p>
+<h2 id="checks"><a class="header" href="#checks">Checks</a></h2>
+<div class="table-wrapper"><table><thead><tr><th>Check</th><th>What it verifies</th><th>What a failure means</th></tr></thead><tbody>
+<tr><td><code>data dir writable</code></td><td>Halfhand can create + write + delete a file in the data dir</td><td>The recorder cannot persist sessions. Fix the dir's permissions or set <code>HH_DATA_DIR</code> to a writable directory.</td></tr>
+<tr><td><code>database integrity</code></td><td><code>PRAGMA integrity_check</code> returns <code>ok</code></td><td>The SQLite DB is corrupt; back up the data dir and re-record.</td></tr>
+<tr><td><code>config resolution</code></td><td>The canonical <code>config.toml</code> is in effect and no non-canonical file is being silently ignored</td><td>A <code>halfhand.toml</code> / <code>hh.toml</code> sits <em>alongside</em> a present <code>config.toml</code> and is ignored — its ignore globs / <code>data_dir</code> never applied. Move its contents into <code>config.toml</code>. (When <code>config.toml</code> is absent, a legacy file is loaded as a fallback instead, so this check passes.)</td></tr>
+<tr><td><code>claude jsonl discoverable</code></td><td><code>~/.claude/projects/&lt;slug&gt;/</code> has a transcript for the current cwd, and its first <code>type</code>-bearing record parses as JSON</td><td>The Claude Code adapter tailer reads these files; a missing or unparseable transcript is the direct cause of a session that records <code>0 steps</code>. Run a Claude Code session from this directory first.</td></tr>
+<tr><td><code>watcher smoke test</code></td><td><code>notify</code> delivers a file-change event on this platform</td><td>A watcher that silently never fires explains <code>0 files changed</code>.</td></tr>
+</tbody></table>
+</div>
+<h2 id="--json-1"><a class="header" href="#--json-1"><code>--json</code></a></h2>
+<p><code>hh doctor --json</code> emits a stable, documented object (carrying <code>schema:2</code>)
+with a <code>status</code> of <code>ok</code> or <code>fail</code> and a per-check array, for scripting / CI:</p>
+<pre><code class="language-jsonc">{
+  "schema": 2,
+  "status": "fail",
+  "checks": [
+    { "name": "data dir writable",        "status": "ok",   "detail": "…" },
+    { "name": "database integrity",       "status": "ok",   "detail": "PRAGMA integrity_check: ok" },
+    { "name": "config resolution",        "status": "fail", "detail": "…" },
+    { "name": "claude jsonl discoverable", "status": "ok",   "detail": "…" },
+    { "name": "watcher smoke test",        "status": "ok",   "detail": "file-change event delivered" }
+  ]
+}
+</code></pre>
+<h2 id="exit-codes-3"><a class="header" href="#exit-codes-3">Exit codes</a></h2>
+<div class="table-wrapper"><table><thead><tr><th>Code</th><th>Meaning</th></tr></thead><tbody>
+<tr><td><code>0</code></td><td>Every check passed.</td></tr>
+<tr><td><code>1</code></td><td>At least one check failed.</td></tr>
+</tbody></table>
+</div>
+<p>(These match Halfhand's exit-code contract: <code>0</code> ok, <code>1</code> generic error.)</p>
+<h2 id="notes-1"><a class="header" href="#notes-1">Notes</a></h2>
+<ul>
+<li>The Claude-Code-transcript check is read-only with respect to your data: it
+opens the newest <code>*.jsonl</code> for your cwd and parses its first record; it never
+writes to your <code>~/.claude</code> tree.</li>
+<li><code>hh doctor</code> reuses the same <code>notify</code> backend the recorder uses, so a watcher
+failure here explains a session that recorded <code>0 files changed</code>.</li>
+<li>Running <code>hh doctor</code> opens the store the same way <code>hh run</code> does (including the
+best-effort reconcile of stale <code>recording</code> sessions into <code>interrupted</code>), so it
+exercises the same config-resolution path that a real recording would.</li>
+</ul>
+<div style="break-before: page; page-break-before: always;"></div><h1 id="hh-stats--store-inventory"><a class="header" href="#hh-stats--store-inventory"><code>hh stats</code> — store inventory</a></h1>
+<p><code>hh stats</code> is a read-only summary of the Halfhand store: session and event
+counts, blob usage, on-disk footprint (the <code>hh.db</code> file plus its <code>-wal</code>/<code>-shm</code>
+sidecars and the compressed blob directory), and the largest sessions by event
+count. It mutates nothing.</p>
+<pre><code>$ hh stats
+hh stats — /home/me/.local/share/halfhand
+
+sessions  2
+events    5
+blobs     1 (1.5 KiB on disk, 14 B uncompressed)
+disk      hh.db 3.0 MiB · WAL 0 B · blobs 1.5 KiB · total 3.0 MiB
+
+largest sessions
+  a1b2c3  4 events
+  d4e5f6  1 events
+</code></pre>
+<p><code>--top N</code> controls how many largest sessions are listed (default <code>5</code>; <code>--top 0</code>
+lists none but still reports the totals).</p>
+<h2 id="reading-the-rows"><a class="header" href="#reading-the-rows">Reading the rows</a></h2>
+<ul>
+<li><strong>sessions / events</strong> — total rows in <code>sessions</code> / <code>events</code>.</li>
+<li><strong>blobs</strong> — <code>count</code> blob files, their compressed size on disk, and their
+uncompressed size (what they decode to). Compression ratios vary; the
+uncompressed figure is what the data would cost without zstd.</li>
+<li><strong>disk</strong> — <code>hh.db</code> (the SQLite file), the WAL and shared-memory sidecars, the
+blobs directory, and their sum. A freshly finalized session has a small
+(often <code>0 B</code>) WAL because <code>hh run</code> checkpoints it on finalize.</li>
+<li><strong>largest sessions</strong> — the top <code>N</code> sessions by event count, with their
+6-char short id, so you can <code>hh inspect &lt;id&gt;</code> the biggest ones.</li>
+</ul>
+<h2 id="--json-2"><a class="header" href="#--json-2"><code>--json</code></a></h2>
+<p><code>hh stats --json</code> emits a stable object (carrying <code>schema:2</code>):</p>
+<pre><code class="language-jsonc">{
+  "schema": 2,
+  "sessions": 2,
+  "events": 5,
+  "blobs": {
+    "count": 1,
+    "uncompressed_bytes": 14,
+    "on_disk_bytes": 1536
+  },
+  "disk": {
+    "db_bytes": 3145728,
+    "wal_bytes": 0,
+    "shm_bytes": 32768,
+    "blobs_dir_bytes": 1536,
+    "total_bytes": 3179904
+  },
+  "largest_sessions": [
+    { "id": "00000000-…", "short_id": "a1b2c3", "events": 4 },
+    { "id": "00000000-…", "short_id": "d4e5f6", "events": 1 }
+  ]
+}
+</code></pre>
+<p><code>disk.total_bytes</code> is <code>db_bytes + wal_bytes + shm_bytes + blobs_dir_bytes</code>.</p>
+<h2 id="exit-codes-4"><a class="header" href="#exit-codes-4">Exit codes</a></h2>
+<div class="table-wrapper"><table><thead><tr><th>Code</th><th>Meaning</th></tr></thead><tbody>
+<tr><td><code>0</code></td><td>Stats gathered.</td></tr>
+<tr><td><code>1</code></td><td>A read error (e.g. the data dir is unreadable).</td></tr>
+</tbody></table>
+</div>
+<p>(These match Halfhand's exit-code contract: <code>0</code> ok, <code>1</code> generic error.)</p>
+<h2 id="notes-2"><a class="header" href="#notes-2">Notes</a></h2>
+<ul>
+<li><code>hh stats</code> is read-only and safe to run any time, including mid-recording
+(it opens the store the same way <code>hh list</code> does, without blocking a
+concurrent <code>hh run</code>).</li>
+<li>To actually reclaim the space <code>hh stats</code> reports as reclaimable, run
+<code>hh gc</code> (see <code>docs/gc.md</code>).</li>
+</ul>
+<div style="break-before: page; page-break-before: always;"></div><h1 id="adapters"><a class="header" href="#adapters">Adapters</a></h1>
+<p>An <strong>adapter</strong> teaches Halfhand how to parse a specific agent's JSONL stream
+into structured events (prompts, tool calls, tool results). When you
+<code>hh run -- &lt;cmd&gt;</code>, Halfhand auto-detects the adapter from the command; force
+one with <code>--adapter</code>.</p>
+<h2 id="recognized-adapters"><a class="header" href="#recognized-adapters">Recognized adapters</a></h2>
+<div class="table-wrapper"><table><thead><tr><th>Adapter</th><th>Detect from</th><th>Records</th></tr></thead><tbody>
+<tr><td><code>claude-code</code></td><td><code>claude</code></td><td>Claude Code's JSONL turns</td></tr>
+<tr><td><code>claude-desktop</code></td><td>Claude Desktop</td><td>Desktop session turns</td></tr>
+<tr><td><code>codex-cli</code></td><td><code>codex</code></td><td>OpenAI Codex CLI turns</td></tr>
+<tr><td><code>gemini-cli</code></td><td><code>gemini</code></td><td>Gemini CLI turns</td></tr>
+</tbody></table>
+</div>
+<p>Any command without a matching adapter is still recorded — you get the PTY
+output and file changes, just not the parsed agent turns.</p>
+<h2 id="adding-a-new-adapter"><a class="header" href="#adding-a-new-adapter">Adding a new adapter</a></h2>
+<p>Adapters consume <strong>untrusted</strong> JSONL, so per the 1.0 stability addendum every
+adapter parser must:</p>
+<ol>
+<li>Never panic on malformed input — errors only.</li>
+<li>Have a fuzz target under <code>fuzz/</code> (e.g. <code>fuzz/fuzz_targets/&lt;name&gt;.rs</code>).</li>
+<li>Ship with a fixture corpus under <code>tests/fixtures/&lt;adapter&gt;/</code> for
+integration tests.</li>
+</ol>
+<p>See <code>CONTRIBUTING.md</code> ("Adding an adapter") for the fixture-capture guide and
+the exact files to touch (<code>hh-core</code>'s adapter module, the detection rules, the
+fuzz target, and the fixture corpus).</p>
+<div style="break-before: page; page-break-before: always;"></div><h1 id="hh-mcp-proxy--stdio-json-rpc-middleman-fr-2"><a class="header" href="#hh-mcp-proxy--stdio-json-rpc-middleman-fr-2"><code>hh mcp-proxy</code> — stdio JSON-RPC middleman (FR-2)</a></h1>
+<p><code>hh mcp-proxy -- &lt;server command&gt;</code> sits between an MCP client (which talks to
+<code>hh</code> over stdin/stdout) and an MCP server (the child process <code>hh</code> spawns). It
+forwards every newline-delimited JSON-RPC message <strong>verbatim</strong> in both
+directions, and as a side effect records each message as an Halfhand event so a
+later <code>hh replay</code>/<code>hh inspect</code> can show the model's tool traffic.</p>
+<h2 id="what-it-records"><a class="header" href="#what-it-records">What it records</a></h2>
+<div class="table-wrapper"><table><thead><tr><th>Direction</th><th>Message shape</th><th>Recorded event</th></tr></thead><tbody>
+<tr><td>client → server</td><td><code>{id, method, …}</code> (request)</td><td><code>mcp_request</code> with <code>correlate_key = id</code></td></tr>
+<tr><td>client → server</td><td><code>{method, …}</code> (notification, no <code>id</code>)</td><td><code>mcp_notification</code></td></tr>
+<tr><td>server → client</td><td><code>{id, result/error}</code> (response)</td><td><code>mcp_response</code> with <code>correlates</code> → the matching request's event id and <code>latency_ms</code> in the body</td></tr>
+<tr><td>server → client</td><td><code>{method, …}</code> (notification)</td><td><code>mcp_notification</code></td></tr>
+<tr><td>either</td><td>a JSON-array batch (MCP 2025-03-26)</td><td>one <code>mcp_notification</code> (the raw line is still forwarded verbatim; v0.1 records no per-element correlation)</td></tr>
+</tbody></table>
+</div>
+<p>Payloads whose serialized JSON is ≥ 256 KiB spill to the blob store and the
+event body becomes an overflow envelope <code>{"overflow": true, "size", "blob_hash", "encoding": "blob"}</code> — the same contract the Claude Code adapter and PTY capture
+use. Unparseable lines are forwarded but not recorded (wire correctness has
+priority over recording completeness).</p>
+<h2 id="sessions"><a class="header" href="#sessions">Sessions</a></h2>
+<ul>
+<li><strong>Standalone</strong> (no <code>HH_SESSION_ID</code>): the proxy creates a fresh <code>mcp-only</code>
+session and finalizes it with the server's exit code. The epilogue prints
+<code>✓ Recorded mcp-only session &lt;short-id&gt; · exit &lt;n&gt; · hh replay &lt;short-id&gt;</code>.</li>
+<li><strong>Attached</strong> (<code>HH_SESSION_ID</code> set, e.g. when launched by <code>hh run</code>): the proxy
+resolves that session, records MCP events into it on the parent's timeline
+(event <code>ts_ms</code> is relative to the parent's <code>started_at</code>), and <strong>leaves the
+parent's lifecycle untouched</strong> — it does not finalize. A missing id is an
+actionable error: it does not create an orphan session. The epilogue prints
+<code>✓ MCP proxy attached to session &lt;id&gt; · exit &lt;n&gt;</code>.</li>
+</ul>
+<p>Within the proxy process a single <code>EventWriter</code> behind a <code>Mutex</code> serializes
+appends (the intra-process single-writer rule). Attached mode is a separate
+process from the parent <code>hh run</code>, so cross-process SQLite/WAL concurrency
+applies — <code>busy_timeout(5s)</code> is already set.</p>
+<p><code>--session-hint &lt;name&gt;</code> is accepted (and parsed) but not yet persisted
+anywhere — there is no session-name column in the schema today, so it has no
+visible effect on a standalone session. It exists for forward compatibility;
+adding a name column is additive and can land without a flag change.</p>
+<h2 id="wiring-it-into-a-client"><a class="header" href="#wiring-it-into-a-client">Wiring it into a client</a></h2>
+<p>Wrap <code>hh mcp-proxy --</code> as a stdio transport in the client's <code>mcpServers</code>
+config. The proxy is transport-agnostic: it does not implement any MCP method
+itself, it only forwards.</p>
+<h3 id="generic-client"><a class="header" href="#generic-client">Generic client</a></h3>
+<pre><code class="language-jsonc">{
+  "mcpServers": {
+    "example": {
+      "command": "hh",
+      "args": ["mcp-proxy", "--", "python3", "/path/to/server.py"]
+    }
+  }
+}
+</code></pre>
+<h3 id="claude-code-claudejson--managed-settings"><a class="header" href="#claude-code-claudejson--managed-settings">Claude Code (<code>.claude.json</code> / managed settings)</a></h3>
+<pre><code class="language-jsonc">{
+  "mcpServers": {
+    "example": {
+      "command": "hh",
+      "args": ["mcp-proxy", "--", "python3", "/path/to/server.py"]
+    }
+  }
+}
+</code></pre>
+<h3 id="attaching-to-a-hh-run-session"><a class="header" href="#attaching-to-a-hh-run-session">Attaching to a <code>hh run</code> session</a></h3>
+<p>To correlate an MCP server's traffic with the agent session that drove it, run
+the proxy as a child of <code>hh run</code>. <code>hh run</code> exports <code>HH_SESSION_ID</code> to the
+child process tree (FR-2.2), so a nested <code>hh mcp-proxy</code> attaches automatically:</p>
+<pre><code class="language-sh">hh run -- claude   # claude spawns `hh mcp-proxy -- &lt;server&gt;` internally → attached
+</code></pre>
+<p>You can also attach manually by exporting the id of a live <code>recording</code> session:</p>
+<pre><code class="language-sh">HH_SESSION_ID=&lt;full-session-uuid&gt; hh mcp-proxy -- python3 server.py
+</code></pre>
+<div style="break-before: page; page-break-before: always;"></div><h1 id="halfhand-json-schema"><a class="header" href="#halfhand-json-schema">Halfhand JSON schema</a></h1>
+<p><code>hh</code> emits stable, documented JSON for machine consumption. There are two
+core shapes: a <strong>session object</strong> (one row in <code>hh list --json</code>) and an
+<strong>event object</strong> (the unit of <code>hh inspect --json</code>). Every object carries a
+<code>schema</code> field naming the version of this document it conforms to.</p>
+<div class="table-wrapper"><table><thead><tr><th>Command</th><th>Shape</th><th>Form</th></tr></thead><tbody>
+<tr><td><code>hh list --json</code></td><td>array of session objects</td><td>one JSON array</td></tr>
+<tr><td><code>hh inspect --json</code></td><td>event objects, one per event, in <code>(ts_ms, id)</code> order</td><td>NDJSON — one object per line</td></tr>
+<tr><td><code>hh inspect --json --step N</code></td><td>a single step object</td><td>one JSON object</td></tr>
+</tbody></table>
+</div>
+<p>The diagnostic/lifecycle commands also emit <code>schema:2</code> objects; they are
+documented on their own pages and linked from <a href="json.html#other-json-outputs">Other JSON outputs</a>.</p>
+<p>Consumers should gate on <code>schema</code> before reading any other field. Unknown
+fields — and unknown values within a documented field, such as a new
+<code>agent_kind</code> — must be ignored; we never silently rename or remove a
+documented field within a version.</p>
+<h2 id="versioning"><a class="header" href="#versioning">Versioning</a></h2>
+<p><code>schema</code> is a single integer shared by every JSON-emitting command (session
+objects, event/step objects, and the <code>doctor</code>/<code>gc</code>/<code>stats</code>/<code>scan</code>/<code>export</code>
+objects on their own pages). The current version is <strong>2</strong>, frozen for the
+1.0 series (<a href="../STABILITY.html"><code>STABILITY.md</code></a>):</p>
+<ul>
+<li><strong>Additive changes — a new field, a new enum value, a new <code>body</code> shape —
+do not bump <code>schema</code> further.</strong> They are documented here (and on the
+relevant page) as they land, and the field they extend is always present.
+This is a change from the pre-1.0 (<code>0.1.x-beta</code>) policy, under which every
+additive change bumped the integer.</li>
+<li>A change that removes or renames a field, or changes a field's type, is
+breaking and is never made within <code>schema:2</code>. It ships as a new <code>schema</code>
+value with both shapes documented side by side, gated behind a major
+version of <code>hh</code> per <code>STABILITY.md</code>.</li>
+</ul>
+<h3 id="diff-from-schema-1"><a class="header" href="#diff-from-schema-1">Diff from schema 1</a></h3>
+<p><code>schema:2</code> folds in additive drift from the <code>0.1.x-beta</code> series that never
+got its own version bump, so <code>schema:1</code> output is missing:</p>
+<ul>
+<li>Three <code>agent_kind</code> values: <code>claude-desktop</code>, <code>codex-cli</code>, <code>gemini-cli</code>
+(only <code>claude-code</code>, <code>generic</code>, <code>mcp-only</code> existed under <code>schema:1</code>).</li>
+<li>The <code>lifecycle</code> event's <code>redaction_audit</code> body shape (produced by <code>hh redact</code>; see <a href="json.html#body-by-kind"><code>body</code> by kind</a> below).</li>
+</ul>
+<p>No field was removed, renamed, or retyped — every <code>schema:1</code> consumer that
+already ignores unknown fields/values reads <code>schema:2</code> output unchanged.</p>
+<hr />
+<h2 id="session-object-hh-list---json"><a class="header" href="#session-object-hh-list---json">Session object (<code>hh list --json</code>)</a></h2>
+<p>One object per recorded session, newest-first.</p>
+<div class="table-wrapper"><table><thead><tr><th>Field</th><th>Type</th><th>Always present?</th><th>Description</th></tr></thead><tbody>
+<tr><td><code>schema</code></td><td>integer</td><td>yes</td><td><code>2</code>.</td></tr>
+<tr><td><code>id</code></td><td>string</td><td>yes</td><td>Full UUIDv7 session id.</td></tr>
+<tr><td><code>short_id</code></td><td>string</td><td>yes</td><td>6-hex-char short id (the random tail of the UUIDv7; see <code>NewSession::short_id</code>).</td></tr>
+<tr><td><code>status</code></td><td>string</td><td>yes</td><td>One of <code>recording</code>, <code>ok</code>, <code>error</code>, <code>interrupted</code>.</td></tr>
+<tr><td><code>agent_kind</code></td><td>string</td><td>yes</td><td>One of <code>claude-code</code>, <code>claude-desktop</code>, <code>codex-cli</code>, <code>gemini-cli</code>, <code>generic</code>, <code>mcp-only</code>. New values are additive (added in <code>schema:2</code>: <code>claude-desktop</code>, <code>codex-cli</code>, <code>gemini-cli</code> — see <a href="json.html#diff-from-schema-1">Diff from schema 1</a>); consumers must ignore a value they don't recognize rather than error.</td></tr>
+<tr><td><code>adapter_status</code></td><td>string</td><td>yes</td><td>One of <code>none</code>, <code>active</code>, <code>degraded</code>. <code>active</code> while a structured adapter tailed events; <code>degraded</code> if the adapter failed but PTY/FS recording continued; <code>none</code> for a generic PTY-only session.</td></tr>
+<tr><td><code>adapter_degrade_reason</code></td><td>string | null</td><td>yes</td><td>When <code>adapter_status</code> is <code>degraded</code>, a machine-readable code explaining why (<code>jsonl_not_found</code>, <code>jsonl_parse_error</code>, <code>jsonl_schema_drift</code>, <code>discovery_ambiguous</code>, <code>permission_denied</code>, <code>io_error</code>). <code>null</code> for <code>active</code>/<code>none</code> sessions and for degraded sessions whose tailer panicked (no structured error). See SRS BUG-1.1. Added additively in v1.1.0.</td></tr>
+<tr><td><code>started_at</code></td><td>integer</td><td>yes</td><td>Session start, unix-ms UTC.</td></tr>
+<tr><td><code>ended_at</code></td><td>integer | null</td><td>yes</td><td>Session end, unix-ms UTC. <code>null</code> while recording or if the session was interrupted before finalizing.</td></tr>
+<tr><td><code>exit_code</code></td><td>integer | null</td><td>yes</td><td>The wrapped process's exit code, if finalized. <code>null</code> while recording or interrupted.</td></tr>
+<tr><td><code>duration_ms</code></td><td>integer | null</td><td>yes</td><td><code>ended_at - started_at</code>, clamped non-negative. <code>null</code> when <code>ended_at</code> is <code>null</code>.</td></tr>
+<tr><td><code>steps</code></td><td>integer</td><td>yes</td><td>Count of distinct stored step ordinals (semantic events). <code>terminal_output</code> events are not steps.</td></tr>
+<tr><td><code>files_changed</code></td><td>integer</td><td>yes</td><td>Count of distinct file paths in the session's <code>file_changes</code> rows.</td></tr>
+<tr><td><code>command</code></td><td>array of strings</td><td>yes</td><td>The recorded command line as an argv vector.</td></tr>
+<tr><td><code>cwd</code></td><td>string</td><td>yes</td><td>The session's working directory.</td></tr>
+<tr><td><code>imported_from</code></td><td>string | null</td><td>yes</td><td>The original session id, if this session was created by <code>hh import</code> (see <a href="export-import.html"><code>docs/export-import.md</code></a>). <code>null</code> for a locally-recorded session. Added additively — older clients that don't read it are unaffected.</td></tr>
+</tbody></table>
+</div>
+<hr />
+<h2 id="event-object-hh-inspect---json"><a class="header" href="#event-object-hh-inspect---json">Event object (<code>hh inspect --json</code>)</a></h2>
+<p>The unit of the NDJSON stream (<code>hh inspect --json</code>) and of each entry in a
+step object's <code>events</code> array (<code>hh inspect --json --step N</code>).</p>
+<div class="table-wrapper"><table><thead><tr><th>Field</th><th>Type</th><th>Always present?</th><th>Description</th></tr></thead><tbody>
+<tr><td><code>schema</code></td><td>integer</td><td>yes</td><td><code>2</code>.</td></tr>
+<tr><td><code>session</code></td><td>object</td><td>yes</td><td><code>{ "id": &lt;full uuid&gt;, "short_id": &lt;6 hex&gt;, "adapter_status": &lt;string&gt;, "adapter_degrade_reason": &lt;string|null&gt; }</code>. The <code>adapter_status</code>/<code>adapter_degrade_reason</code> fields (v1.1.0, SRS BUG-1.1) let a consumer detect a degraded session from any event's NDJSON line without a separate <code>hh list</code> call.</td></tr>
+<tr><td><code>id</code></td><td>integer</td><td>yes</td><td>The <code>events.id</code> row id (rowid PK). Stable within a session; used by <code>correlates</code>.</td></tr>
+<tr><td><code>ts_ms</code></td><td>integer</td><td>yes</td><td>Milliseconds since the session's <code>started_at</code>.</td></tr>
+<tr><td><code>kind</code></td><td>string</td><td>yes</td><td>One of <code>lifecycle</code>, <code>user_message</code>, <code>agent_message</code>, <code>thinking</code>, <code>tool_call</code>, <code>tool_result</code>, <code>mcp_request</code>, <code>mcp_response</code>, <code>mcp_notification</code>, <code>file_change</code>, <code>terminal_output</code>, <code>error</code>.</td></tr>
+<tr><td><code>step</code></td><td>integer | null</td><td>yes</td><td>1-based step ordinal, or <code>null</code> for non-step events (<code>terminal_output</code>, and <code>lifecycle</code> markers that never received a step).</td></tr>
+<tr><td><code>correlates</code></td><td>integer | null</td><td>yes</td><td>The <code>id</code> of the event this one is paired with (a <code>tool_result</code> → its <code>tool_call</code>; an <code>mcp_response</code> → its <code>mcp_request</code>), or <code>null</code>.</td></tr>
+<tr><td><code>summary</code></td><td>string</td><td>yes</td><td>One-line summary (≤ 120 chars).</td></tr>
+<tr><td><code>body</code></td><td>object | null</td><td>yes</td><td>The kind-specific structured payload, with internal-only keys (currently <code>correlate_key</code>) stripped. <code>null</code> if the event had no body. Large bodies that overflowed inline storage are resolved here — the <code>{"overflow": true, ...}</code> envelope is replaced by the real, blob-resolved content, so consumers never see the envelope.</td></tr>
+<tr><td><code>file_change</code></td><td>object | null</td><td>yes</td><td>Present (non-null) only when <code>kind == "file_change"</code>.</td></tr>
+</tbody></table>
+</div>
+<h3 id="body-by-kind"><a class="header" href="#body-by-kind"><code>body</code> by kind</a></h3>
+<p>The <code>body</code> field is free-form JSON whose shape depends on <code>kind</code>. The shapes
+the built-in adapters emit today:</p>
+<div class="table-wrapper"><table><thead><tr><th><code>kind</code></th><th><code>body</code> shape</th></tr></thead><tbody>
+<tr><td><code>user_message</code> (text prompt)</td><td><code>{ "text": "…" }</code></td></tr>
+<tr><td><code>agent_message</code></td><td><code>{ "text": "…" }</code></td></tr>
+<tr><td><code>thinking</code></td><td><code>{ "text": "…" }</code></td></tr>
+<tr><td><code>terminal_output</code></td><td><code>{ "text": "…" }</code> (UTF-8 chunk); binary chunks are stored as a blob and <code>body</code> carries the resolved bytes' lossy-UTF-8 text.</td></tr>
+<tr><td><code>tool_call</code></td><td><code>{ "name": "Bash", "input": { … } }</code></td></tr>
+<tr><td><code>tool_result</code></td><td><code>{ "content": "…", "is_error": false }</code> (<code>is_error</code> is <code>true</code> for a failed tool call)</td></tr>
+<tr><td><code>mcp_request</code></td><td>the forwarded JSON-RPC request object, plus <code>{ "latency_ms": … }</code> on the paired response</td></tr>
+<tr><td><code>mcp_response</code></td><td>the forwarded JSON-RPC response object, plus <code>{ "latency_ms": &lt;int&gt; }</code></td></tr>
+<tr><td><code>mcp_notification</code></td><td>the forwarded JSON-RPC notification object</td></tr>
+<tr><td><code>error</code></td><td><code>{ "message": "…" }</code></td></tr>
+<tr><td><code>file_change</code></td><td><code>null</code> (the structured change is in <code>file_change</code>)</td></tr>
+<tr><td><code>lifecycle</code></td><td><code>null</code>; `{ "event": "start"</td></tr>
+</tbody></table>
+</div>
+<p>Future adapter bodies are additive: new keys may appear within <code>body</code> without
+bumping <code>schema</code>.</p>
+<h3 id="file_change-object"><a class="header" href="#file_change-object"><code>file_change</code> object</a></h3>
+<div class="table-wrapper"><table><thead><tr><th>Field</th><th>Type</th><th>Description</th></tr></thead><tbody>
+<tr><td><code>path</code></td><td>string</td><td>Path relative to the session's <code>cwd</code>.</td></tr>
+<tr><td><code>change_kind</code></td><td>string</td><td>One of <code>created</code>, <code>modified</code>, <code>deleted</code>.</td></tr>
+<tr><td><code>before_hash</code></td><td>string | null</td><td>BLAKE3 hex of the pre-change content blob, if captured. <code>null</code> for a created file, or when the pre-change content exceeded <code>max_file_size</code> and was not stored.</td></tr>
+<tr><td><code>after_hash</code></td><td>string | null</td><td>BLAKE3 hex of the post-change content blob, if captured. <code>null</code> for a deleted file.</td></tr>
+<tr><td><code>is_binary</code></td><td>boolean</td><td>Whether the file was detected as binary.</td></tr>
+</tbody></table>
+</div>
+<hr />
+<h2 id="step-object-hh-inspect---json---step-n"><a class="header" href="#step-object-hh-inspect---json---step-n">Step object (<code>hh inspect --json --step N</code>)</a></h2>
+<p>A single JSON object describing one step.</p>
+<div class="table-wrapper"><table><thead><tr><th>Field</th><th>Type</th><th>Description</th></tr></thead><tbody>
+<tr><td><code>schema</code></td><td>integer</td><td><code>2</code>.</td></tr>
+<tr><td><code>session</code></td><td>object</td><td><code>{ "id", "short_id" }</code> as in the event object.</td></tr>
+<tr><td><code>step</code></td><td>integer</td><td>The 1-based step ordinal.</td></tr>
+<tr><td><code>kind</code></td><td>string</td><td>The step's badge kind — the "opening" side of a correlated pair (a <code>tool_call</code> over its <code>tool_result</code>; an <code>mcp_request</code> over its <code>mcp_response</code>).</td></tr>
+<tr><td><code>summary</code></td><td>string</td><td>The primary event's one-line summary.</td></tr>
+<tr><td><code>ts_ms</code></td><td>integer</td><td>The earliest <code>ts_ms</code> among the step's events.</td></tr>
+<tr><td><code>events</code></td><td>array of event objects</td><td>The events sharing this step, in <code>id</code> order. Usually one entry; two for a correlated call+result or request+response pair.</td></tr>
+</tbody></table>
+</div>
+<hr />
+<h2 id="resolving-blob-content"><a class="header" href="#resolving-blob-content">Resolving blob content</a></h2>
+<p><code>body</code> is always returned already-resolved: if an event's payload overflowed
+inline storage, <code>hh inspect --json</code> fetches and decompresses the blob and
+places the real content in <code>body</code>, so consumers never handle the
+<code>{"overflow": true, ...}</code> envelope. To fetch raw file-change content
+yourself, read the blob at <code>blobs/&lt;hash[0..2]&gt;/&lt;hash&gt;.zst</code> (zstd-compressed,
+BLAKE3-keyed) using <code>before_hash</code> / <code>after_hash</code>.</p>
+<hr />
+<h2 id="other-json-outputs"><a class="header" href="#other-json-outputs">Other JSON outputs</a></h2>
+<p>These commands emit their own <code>schema:1</code> objects (not session/event objects).
+They are documented in full on their own pages:</p>
+<div class="table-wrapper"><table><thead><tr><th>Command</th><th>Shape</th><th>Docs</th></tr></thead><tbody>
+<tr><td><code>hh doctor --json</code></td><td><code>{ schema, status, checks: [{ name, status, detail }] }</code></td><td><a href="doctor.html"><code>docs/doctor.md</code></a></td></tr>
+<tr><td><code>hh gc --json</code></td><td><code>{ schema, orphan_files_removed, orphan_bytes_reclaimed, orphan_rows_removed, vacuumed }</code></td><td><a href="gc.html"><code>docs/gc.md</code></a></td></tr>
+<tr><td><code>hh stats --json</code></td><td><code>{ schema, sessions, events, blobs: {…}, disk: {…}, largest_sessions: [{ id, short_id, events }] }</code></td><td><a href="stats.html"><code>docs/stats.md</code></a></td></tr>
+<tr><td><code>hh scan --json</code></td><td><code>{ schema, total_findings, sessions: [{ id, short_id, findings: [{ type, hash8, count, event_id, step, event_kind, location }] }] }</code> — findings never contain the secret; <code>hash8</code> correlates one secret across rows</td><td><a href="redaction.html"><code>docs/redaction.md</code></a></td></tr>
+<tr><td><code>hh export</code></td><td><code>{ schema, kind: "hh-export", hh_version, session, events }</code> — <code>session</code> is the <code>hh list --json</code> session object; <code>events</code> are event objects with resolved bodies; redacted by default</td><td><a href="redaction.html"><code>docs/redaction.md</code></a></td></tr>
+<tr><td><code>hh export --bundle</code></td><td>a zstd-compressed tar (<code>manifest.json</code> + <code>events.ndjson</code> + <code>blobs/</code>), not a single JSON object — see <a href="export-import.html"><code>docs/export-import.md</code></a> for the bundle's own schema</td><td><a href="export-import.html"><code>docs/export-import.md</code></a></td></tr>
+</tbody></table>
+</div><div style="break-before: page; page-break-before: always;"></div><h1 id="shell-completions"><a class="header" href="#shell-completions">Shell completions</a></h1>
+<p><code>hh</code> can print a completion script for your shell on stdout:</p>
+<pre><code class="language-bash">hh completions bash
+hh completions zsh
+hh completions fish
+hh completions powershell
+</code></pre>
+<p><code>hh --help</code> lists <code>completions</code> with a usage example (FR-6.2). The script is
+plain text and pipe-safe — redirect it wherever your shell expects.</p>
+<h2 id="install-per-shell"><a class="header" href="#install-per-shell">Install per shell</a></h2>
+<h3 id="bash"><a class="header" href="#bash">bash</a></h3>
+<pre><code class="language-bash">hh completions bash | sudo tee /etc/bash_completion.d/hh &gt;/dev/null
+# or, per-user:
+hh completions bash &gt; ~/.local/share/bash-completion/completions/hh
+</code></pre>
+<p>Then start a new shell (or <code>source</code> the file).</p>
+<h3 id="zsh"><a class="header" href="#zsh">zsh</a></h3>
+<p>zsh looks in any directory on <code>$fpath</code> for files named <code>_hh</code>:</p>
+<pre><code class="language-bash">hh completions zsh &gt; ~/.zsh/completions/_hh
+# ensure the dir is on fpath (in ~/.zshrc):
+#   fpath=(~/.zsh/completions $fpath)
+#   autoload -Uz compinit &amp;&amp; compinit
+</code></pre>
+<h3 id="fish"><a class="header" href="#fish">fish</a></h3>
+<pre><code class="language-bash">hh completions fish &gt; ~/.config/fish/completions/hh.fish
+</code></pre>
+<p>fish picks it up immediately.</p>
+<h3 id="powershell"><a class="header" href="#powershell">PowerShell</a></h3>
+<pre><code class="language-powershell">hh completions powershell | Out-String | Invoke-Expression
+</code></pre>
+<p>or save it to your <code>$PROFILE</code>:</p>
+<pre><code class="language-powershell">hh completions powershell &gt; $PROFILE\..\hh-completions.ps1
+# then dot-source it from $PROFILE
+</code></pre>
+<h2 id="in-release-artifacts"><a class="header" href="#in-release-artifacts">In release artifacts</a></h2>
+<p>Pre-generated completion scripts and the <code>hh.1</code> man page are bundled in every
+Halfhand release archive under <code>completions/</code> and <code>man/</code>. If you installed via
+the shell installer or Homebrew, see the tap caveats; otherwise copy the files
+from the archive into the locations above.</p>
+<h2 id="man-page"><a class="header" href="#man-page">Man page</a></h2>
+<p>The <code>hh.1</code> man page is generated alongside completions and shipped in release
+archives. Install it manually if you built from source:</p>
+<pre><code class="language-bash"># from a release archive, or generated locally with `just dist-assets`:
+cp man/hh.1 ~/.local/share/man/man1/
+mandb
+man hh
+</code></pre>
+<div style="break-before: page; page-break-before: always;"></div><h1 id="stability"><a class="header" href="#stability">Stability</a></h1>
+<p>Halfhand is heading to <code>1.0.0</code>. This document is the promise <code>1.0.0</code> makes and
+every release after it keeps: what's frozen, what's allowed to grow, and what
+has to go through a deprecation cycle instead of just changing. It formalizes
+the "backward compatibility is a feature" rule from <code>CLAUDE.md</code>'s v1.0.0
+addendum.</p>
+<p>Everything here applies from <code>1.0.0</code> onward. Before <code>1.0.0</code> (the current
+<code>0.1.x-beta</code> series), the on-disk and JSON schemas may still move faster than
+this policy allows — pin a beta version in CI rather than tracking <code>latest</code>
+until <code>1.0.0</code> ships (see <code>README.md</code>).</p>
+<h2 id="a-cli-flags-subcommands-exit-codes"><a class="header" href="#a-cli-flags-subcommands-exit-codes">(a) CLI: flags, subcommands, exit codes</a></h2>
+<ul>
+<li>
+<p>Every documented subcommand, flag, and its current default behavior is
+stable. New subcommands and new flags are always additive — they may be
+added freely, never as a reason to change what an existing invocation does.</p>
+</li>
+<li>
+<p><strong>Removing</strong> a subcommand or flag, or changing what an existing flag
+combination does, requires a deprecation cycle: at least one minor release
+where the old behavior still works but prints a warning (via
+<code>hh_core::warn_deprecated</code>, the standard one-line stderr format — see
+<code>hh-core/src/deprecation.rs</code>), before it can be removed in a later minor
+release. Halfhand does not do major-version-only removals within the CLI —
+a deprecation warning must have shipped first, full stop.</p>
+</li>
+<li>
+<p>Exit codes are part of the contract, tested by
+<code>hh/tests/cli_conformance.rs</code>:</p>
+<div class="table-wrapper"><table><thead><tr><th>Code</th><th>Meaning</th><th>Where</th></tr></thead><tbody>
+<tr><td><code>0</code></td><td>success</td><td>every command on success</td></tr>
+<tr><td><code>1</code></td><td>generic error</td><td>any other failure (including a refused irreversible action, e.g. <code>hh redact</code>/<code>hh export --no-redact</code> refusing a non-interactive confirmation)</td></tr>
+<tr><td><code>2</code></td><td>usage error</td><td>clap's own flag/argument parsing (unknown flag, missing required arg)</td></tr>
+<tr><td><code>3</code></td><td>session not found</td><td>any subcommand that resolves a session id/<code>last</code> argument and fails to</td></tr>
+<tr><td><code>4</code></td><td>redaction/policy block</td><td><code>hh scan</code> exiting with findings — the one place this code is used today, so CI can gate on <code>hh scan --all</code></td></tr>
+</tbody></table>
+</div>
+<p>New exit codes may be added for new commands; an existing code's meaning
+for an existing command never changes.</p>
+</li>
+<li>
+<p><code>--help</code> output (both <code>hh --help</code> and every <code>hh &lt;sub&gt; --help</code>) is
+snapshot-tested (<code>hh/tests/cli_conformance.rs</code>); wording may improve, but a
+documented flag or subcommand does not silently disappear from it.</p>
+</li>
+</ul>
+<h2 id="b---json"><a class="header" href="#b---json">(b) <code>--json</code></a></h2>
+<ul>
+<li><code>schema</code> is frozen at <strong><code>2</code></strong> for the 1.0 series. See <code>docs/json.md</code> for
+the full field-by-field reference and the diff from <code>schema:1</code>.</li>
+<li>Additive changes — a new field, a new possible value for an existing
+field (e.g. a new <code>agent_kind</code>), a new <code>body</code> shape for an event kind — do
+<strong>not</strong> bump <code>schema</code>. They're documented in <code>docs/json.md</code> as they land.
+A documented field is always present once schema <code>2</code> documents it (never
+conditionally omitted); consumers must ignore fields and enum values they
+don't recognize rather than error.</li>
+<li>A field is never removed, renamed, or retyped within <code>schema:2</code>. That kind
+of change ships as a new <code>schema</code> value with both shapes documented side
+by side in <code>docs/json.md</code>, gated behind a major version of <code>hh</code>.</li>
+<li><code>hh-core::event::JSON_SCHEMA_VERSION</code> is the single constant every
+JSON-emitting call site reads <code>schema</code> from (session objects, event/step
+objects, and the <code>doctor</code>/<code>gc</code>/<code>stats</code>/<code>scan</code>/<code>export</code> objects) — one
+counter for the whole family, not one per command.</li>
+</ul>
+<h2 id="c-on-disk-database"><a class="header" href="#c-on-disk-database">(c) On-disk database</a></h2>
+<ul>
+<li>Migrations are forward-only and applied automatically, idempotently, on
+every <code>Store::open</code> (<code>hh-core/src/migrations.rs</code>, DR-1). There is no
+down-migration and none is planned.</li>
+<li>Any <code>1.x</code> release of <code>hh</code> can open and correctly read a database written
+by any earlier <code>1.x</code> release. A migration only ever adds (a table, a
+column, an index) — see <code>hh-core/src/migrations.rs</code>'s own module doc: "the
+v1.0.0 addendum permits additive schema changes … without a deprecation
+cycle; a <em>breaking</em> change to an existing table must go through
+STABILITY.md's policy instead." No migration under this policy breaks that
+promise; if one ever needs to, it requires a major version of <code>hh</code> and an
+explicit, documented migration path (e.g. <code>hh export --bundle</code> on the old
+version, <code>hh import</code> on the new one) — not a silent schema break.</li>
+<li><code>hh.db</code> <strong>remains directly queryable</strong> with <code>sqlite3</code> (DR-2) — that
+transparency isn't going away. But the SQL schema itself (table/column
+names, types, indexes) is <em>not</em> frozen the way <code>--json</code> is: migrations may
+still reshape it release to release. <strong>The supported programmatic
+interface is <code>--json</code> and <code>hh export</code> bundles, not raw SQL</strong> — build
+tooling against those, and treat direct <code>hh.db</code> queries as a debugging/
+power-user affordance, not an API.</li>
+</ul>
+<h2 id="d-msrv"><a class="header" href="#d-msrv">(d) MSRV</a></h2>
+<ul>
+<li>The minimum supported Rust version is stated once, in the workspace
+<code>Cargo.toml</code> (<code>rust-version.workspace = true</code> in <code>hh-core</code>/<code>hh-record</code>/
+<code>hh</code>; currently <code>1.75</code>).</li>
+<li>An MSRV bump only happens in a <strong>minor</strong> release, never a patch release,
+and is called out in <code>CHANGELOG.md</code>.</li>
+</ul>
+<h2 id="e-hh-core-semver-policy"><a class="header" href="#e-hh-core-semver-policy">(e) <code>hh-core</code> semver policy</a></h2>
+<ul>
+<li><code>hh-core</code>'s public Rust API (types, functions, trait, including the
+<code>Adapter</code> trait new adapters implement) follows semver for real: additive
+changes are always fine; a breaking change to a <code>1.x</code> <code>hh-core</code> requires a
+major version.</li>
+<li>This is enforced in CI today, ahead of the crate ever being published:
+<code>.github/workflows/ci.yml</code>'s <code>semver-checks</code> job runs
+<code>cargo semver-checks check-release -p hh-core --baseline-rev origin/main --release-type minor</code> on every PR — <code>--release-type minor</code> means
+"additions are fine, breakage is not," exactly this policy. The one
+standing exclusion (<code>--exclude enum_marked_non_exhaustive</code>) covers enums
+that predate the <code>#[non_exhaustive]</code> convention and were marked as a
+one-time cleanup, not a recurring allowance.</li>
+<li>Growth-prone public types (<code>SessionRow</code>, <code>Config</code>, the error enums,
+<code>AgentKind</code>, …) are <code>#[non_exhaustive]</code> specifically so a new field or
+variant stays additive under that check instead of registering as a
+break. New public types added after <code>1.0.0</code> should default to
+<code>#[non_exhaustive]</code> unless there's a specific reason a caller needs
+exhaustive matching or construction.</li>
+</ul>
+<h2 id="what-this-document-does-not-cover"><a class="header" href="#what-this-document-does-not-cover">What this document does not cover</a></h2>
+<ul>
+<li>The replay TUI's keybindings and rendered layout, and <code>hh export --html</code>'s
+page — these are user experience, not a machine-readable contract, and can
+keep improving without a deprecation cycle.</li>
+<li><code>hh.db</code>'s SQL schema shape (see (c) above) — deliberately not frozen.</li>
+<li>Anything under <code>docs/adr/</code> — architecture decisions, not compatibility
+promises.</li>
+</ul>
+<div style="break-before: page; page-break-before: always;"></div><h1 id="performance-1"><a class="header" href="#performance-1">Performance</a></h1>
+<p>Halfhand is a local-first flight recorder, so its performance budget is felt,
+not announced: <code>hh replay</code> opening instantly, <code>hh list</code> staying out of the way
+of a shell prompt, and a long recording not falling behind the agent. This page
+is the reference for the four performance-critical paths the SRS names, how to
+measure them, and what the regression gate does and does not enforce.</p>
+<p>The numbers below are <strong>reference, not the gate</strong>. The gate compares
+tonight's run against last night's run on the <em>same runner class</em>; the absolute
+figures shift with hardware. Treat the reference numbers as "roughly what a
+developer machine sees," and the gate as "did we get slower than yesterday."</p>
+<h2 id="the-four-benches"><a class="header" href="#the-four-benches">The four benches</a></h2>
+<p>Criterion benches live in <code>hh-core/benches/</code> (CLAUDE.md v1.0.0 addendum / NFR-1).
+Four groups, one per perf-critical path:</p>
+<div class="table-wrapper"><table><thead><tr><th>Group</th><th>What it measures</th><th>SRS hook</th></tr></thead><tbody>
+<tr><td><code>ingest</code></td><td><code>EventWriter::append_event</code> throughput — one durable round-trip through the single-writer channel per event (channel send → writer-thread INSERT → reply).</td><td>NFR-1 (≥5,000 events/s)</td></tr>
+<tr><td><code>replay_index</code></td><td><code>Store::list_event_index</code> for 10k and 100k-event sessions — the <code>hh replay</code> open hot path.</td><td>FR-3.5 (&lt;300 ms for 10k); Area 2 (&lt;1 s for 100k)</td></tr>
+<tr><td><code>blob_write</code></td><td><code>BlobStore::put</code> (BLAKE3 + zstd + atomic write) for 1 KiB / 1 MiB.</td><td>NFR-1 (file-change blob round-trips)</td></tr>
+<tr><td><code>blob_read</code></td><td><code>BlobStore::get</code> (read + zstd decompress + BLAKE3 verify) for 1 KiB / 1 MiB.</td><td>replay / inspect body fetch</td></tr>
+<tr><td><code>adapter_jsonl</code></td><td>Claude JSONL line → event conversion via the dev-only <code>adapter::fuzzing</code> parser entry.</td><td>FR-1.5 adapter tail</td></tr>
+</tbody></table>
+</div>
+<p><code>ingest</code> batches 128 events per criterion iteration and reports
+<code>Throughput::Elements(128)</code>, bounding the session to a small steady-state table
+so append cost does not drift as an index fills. <code>blob_write</code> returns its temp
+dir from the measured closure so the <code>TempDir</code> drop (the blob file + shard dir +
+rmdir) happens <em>outside</em> the timed region — otherwise that syscall noise would
+dominate and add false variance.</p>
+<p>Run them:</p>
+<pre><code>just bench                      # all four (enables `fuzzing` for adapter_jsonl)
+just bench-storage               # the three storage benches, ungated (faster loop)
+cargo bench -p hh-core --features fuzzing   # what the nightly gate runs
+</code></pre>
+<p>The nightly gate (<code>cargo bench</code> then <code>bench_compare.py</code>) runs with bounded
+criterion settings (1 s warmup, 1 s measurement, 30 samples ≈ 4 min total);
+criterion's defaults (100 × 5 s ≈ 8 min <em>per bench</em>) would make the run ~an
+hour. Tune up locally by editing <code>bench_config()</code> in the bench files or passing
+<code>--measurement-time</code> / <code>--sample-size</code> on the CLI.</p>
+<h2 id="reference-numbers"><a class="header" href="#reference-numbers">Reference numbers</a></h2>
+<p>From a <code>cargo bench -p hh-core --features fuzzing</code> run (developer-class Linux
+machine, bounded settings). These are reference points, not pass/fail:</p>
+<div class="table-wrapper"><table><thead><tr><th>Bench</th><th>Median</th><th>Throughput</th></tr></thead><tbody>
+<tr><td><code>ingest/append_event</code></td><td>18.9 ms / 128 events</td><td>~6.8k events/s (storage layer)</td></tr>
+<tr><td><code>replay_index/10000</code></td><td>5.0 ms</td><td>FR-3.5 &lt;300 ms ✓</td></tr>
+<tr><td><code>replay_index/100000</code></td><td>49 ms</td><td>Area 2 &lt;1 s ✓</td></tr>
+<tr><td><code>blob_write/1KiB</code></td><td>6.1 ms</td><td>—</td></tr>
+<tr><td><code>blob_write/1MiB</code></td><td>11.6 ms</td><td>~86 MiB/s</td></tr>
+<tr><td><code>blob_read/1KiB</code></td><td>6.7 µs</td><td>—</td></tr>
+<tr><td><code>blob_read/1MiB</code></td><td>1.05 ms</td><td>~950 MiB/s</td></tr>
+<tr><td><code>adapter_jsonl/parse_lines</code></td><td>7.6 µs / 3 lines</td><td>~395k records/s</td></tr>
+</tbody></table>
+</div>
+<h3 id="nfr-1-ingest-5000-eventss"><a class="header" href="#nfr-1-ingest-5000-eventss">NFR-1 (ingest ≥5,000 events/s)</a></h3>
+<p>The bench measures the <em>storage layer</em> in isolation — <code>append_event</code> through the
+single-writer channel with <code>synchronous = NORMAL</code> (no per-commit fsync; the WAL
+fsyncs at checkpoint, matching NFR-3's "fsync on session finalize" design). At
+that layer it sustains ~6.8k events/s, above the 5k/s target.</p>
+<p>NFR-1 is an end-to-end target, and the real recorder (PTY reader → adapter
+parse → serialize → channel → writer) runs slower than the storage layer
+alone. The <code>synchronous = NORMAL</code> fix lifted end-to-end ingest ~5× off the old
+per-event-fsync baseline (see the <code>### Performance</code> entry in the CHANGELOG);
+closing the remaining gap to 5k/s end-to-end needs statement caching + a batched
+writer, tracked as follow-up. The regression gate below protects the storage-
+layer gain from slipping back.</p>
+<h3 id="big-sessions-area-2"><a class="header" href="#big-sessions-area-2">Big sessions (Area 2)</a></h3>
+<p><code>hh replay</code> opens by loading the event index (<code>list_event_index</code>), then fetches
+bodies lazily through a bounded 50-entry LRU cache (<code>ReplayData</code>). At 100k
+events the index load is 49 ms and the body cache is verified bounded at capacity
+across unbounded scrolling (<code>get_evicts_lru_to_stay_bounded_at_capacity</code>), so
+open stays &lt;1 s and navigation does not grow memory with session size.</p>
+<p><code>hh inspect --json</code> streams a session as NDJSON through
+<code>Store::for_each_event_detail</code> — one <code>EventDetail</code> at a time, never collecting
+the whole session into RAM — so a 100k-event session inspects in constant
+memory. (An <code>#[ignore]</code> test, <code>for_each_event_detail_streams_100k_session</code>,
+exercises the 100k path end-to-end with <code>--ignored</code>.)</p>
+<h2 id="the-nightly-regression-gate"><a class="header" href="#the-nightly-regression-gate">The nightly regression gate</a></h2>
+<p><code>.github/workflows/bench-nightly.yml</code> runs the benches nightly and on
+<code>workflow_dispatch</code>, then <code>.github/scripts/bench_compare.py</code> compares each
+bench's median against the previous night's baseline, <strong>failing on &gt;15%
+regression</strong>. A bench is a regression when
+<code>current_median &gt; baseline_median × 1.15</code>.</p>
+<h3 id="why-a-rolling-baseline-not-a-committed-one"><a class="header" href="#why-a-rolling-baseline-not-a-committed-one">Why a rolling baseline, not a committed one</a></h3>
+<p>A baseline committed to git and generated on one machine, compared on another,
+is dominated by hardware differences, not code changes — a 15% gate would be
+meaningless across an Intel laptop vs an ARM cloud runner. Instead the workflow
+uses an <code>actions/cache</code> <strong>rolling baseline keyed by runner OS</strong>: each run
+restores the previous run's baseline (<code>bench-baseline-&lt;OS&gt;-</code>), compares against
+it, then — only on a passing run — saves its own results as the new baseline
+(<code>bench-baseline-&lt;OS&gt;-&lt;run_id&gt;</code>). Current-vs-baseline is therefore the same
+runner class, and the 15% threshold absorbs pool variance within that class.
+A regressed run is never adopted as the baseline (the seed step runs only on
+<code>if: success()</code>), so the gate always tracks the last <em>passing</em> run.</p>
+<h3 id="establishing-not-failing-on-a-cold-cache"><a class="header" href="#establishing-not-failing-on-a-cold-cache">Establishing, not failing, on a cold cache</a></h3>
+<p>When the cache is cold (first run, or after eviction), there is no baseline to
+compare against. Benches present in the current run but absent from the baseline
+are reported as <strong>establishing</strong> — no comparison, never a failure — and the
+run seeds the baseline for next time. The compare script's exit codes are part
+of the contract: <code>0</code> pass, <code>2</code> regression, <code>3</code> establishing/could-not-compare.</p>
+<h3 id="local-comparison"><a class="header" href="#local-comparison">Local comparison</a></h3>
+<pre><code>just bench                                  # run the benches (writes target/criterion)
+just bench-save-baseline ./bench-baseline   # snapshot this run as the baseline
+# ... make a change ...
+just bench                                  # run again
+just bench-compare ./bench-baseline         # same script the nightly gate uses
+</code></pre>
+<p><code>bench-baseline/</code> is gitignored (a local/CI cache artifact, not committed).
+<code>bench-compare</code> walks <code>target/criterion/&lt;group&gt;/&lt;bench&gt;/new/estimates.json</code>
+(criterion writes this on every run — no special flag) and reads each median
+point estimate in nanoseconds, criterion's native unit for <code>estimates.json</code>.</p>
+<h2 id="hh-list-cold-start-area-4"><a class="header" href="#hh-list-cold-start-area-4"><code>hh list</code> cold start (Area 4)</a></h2>
+<p><strong>Target:</strong> <code>hh list</code> cold start &lt;50 ms on a warm cache. This is a manual check,
+not CI-gated — wall-clock timing is too noisy across CI runners to gate on, and
+the 50 ms budget is a developer-experience target, not a correctness contract.</p>
+<p>The two things that used to make <code>hh list</code> scale with recorded history are both
+fixed:</p>
+<ul>
+<li><strong>No blob-dir scan on open.</strong> <code>Store::open</code> <code>mkdir -p</code>s the blob dir but does
+not read it; blob-dir scans only happen in <code>hh gc</code> (prune) and <code>hh stats</code>
+(footprint), never in <code>list</code>. <code>list</code> runs one <code>SELECT</code> against <code>sessions</code>.</li>
+<li><strong>O(rows-needing-heal) step probe.</strong> <code>Store::open</code>'s step self-heal used to
+scan every event on every invocation, so cold start grew with total history.
+Migration 0002 added a partial index
+<code>idx_events_needs_heal</code> (<code>WHERE step IS NULL AND kind != 'terminal_output'</code>),
+making the probe O(rows that actually need healing) — near-zero for a healthy
+store. Additive (a new index on an existing table); no breaking change.</li>
+</ul>
+<h3 id="running-the-check-hyperfine"><a class="header" href="#running-the-check-hyperfine">Running the check (hyperfine)</a></h3>
+<p><code>hyperfine</code> is a separate install (<code>cargo install hyperfine</code>); it is not a build
+dependency. The <code>just cold-start</code> recipe builds a release binary, seeds a temp
+data dir with a couple of sessions, warms the OS cache, and runs <code>hh list</code>
+under hyperfine:</p>
+<pre><code>just cold-start
+</code></pre>
+<p>which runs (roughly):</p>
+<pre><code>cargo build --release --bin hh
+export HH_DATA_DIR="$(mktemp -d)"
+./target/release/hh run -- echo warmup &gt;/dev/null   # seed a session
+hyperfine --warmup 3 --runs 20 \
+  "HH_DATA_DIR=$HH_DATA_DIR ./target/release/hh list"
+</code></pre>
+<p>On a warm cache (after <code>--warmup 3</code>), a developer-class machine sees <code>hh list</code>
+around 2 ms — well under the 50 ms budget. The budget has headroom for the
+config parse and store open (migrations are idempotent and cheap; the heal probe
+is near-zero) without scaling with how much you have recorded.</p>
+<blockquote>
+<p>If <code>hyperfine</code> is unavailable, a quick fallback is a shell loop:</p>
+<pre><code>export HH_DATA_DIR="$(mktemp -d)"; ./target/release/hh run -- echo x &gt;/dev/null
+for i in $(seq 1 20); do /usr/bin/time -f '%e' ./target/release/hh list &gt;/dev/null; done
+</code></pre>
+<p>(coarser than hyperfine, but enough to spot a regression into the tens of ms).</p>
+</blockquote>
+<div style="break-before: page; page-break-before: always;"></div><h1 id="faq"><a class="header" href="#faq">FAQ</a></h1>
+<h2 id="does-halfhand-upload-anything"><a class="header" href="#does-halfhand-upload-anything">Does Halfhand upload anything?</a></h2>
+<p>No. <code>hh</code> links no HTTP client crate and makes zero network calls (SRS NFR-2).
+A CI check enforces this. Everything stays in your local data dir.</p>
+<h2 id="where-is-my-data"><a class="header" href="#where-is-my-data">Where is my data?</a></h2>
+<p>One SQLite file (<code>hh.db</code>) plus a content-addressed blob store, under your
+Halfhand data dir (<code>~/.local/share/halfhand/</code> on Linux,
+<code>~/Library/Application Support/halfhand/</code> on macOS). Override with
+<code>HH_DATA_DIR</code>. <code>hh stats</code> summarizes it; <code>hh gc</code> reclaims space; <code>hh delete</code>
+removes a session and garbage-collects its blobs.</p>
+<h2 id="can-recordings-contain-secrets"><a class="header" href="#can-recordings-contain-secrets">Can recordings contain secrets?</a></h2>
+<p>Yes — prompts and outputs may contain secrets you typed or the agent emitted.
+<code>hh scan</code> reports what it found (type, step, location — never the secret
+itself) and exits 4 when findings exist, so CI can gate on a clean scan.
+<code>hh redact</code> rewrites events and blobs in place, replacing each secret with
+<code>{{REDACTED:&lt;type&gt;:&lt;hash8&gt;}}</code> and securely deleting originals. Exports are
+<strong>always redacted by default</strong>; <code>--no-redact</code> requires interactive
+confirmation. See <a href="./redaction.html">Redaction</a>.</p>
+<h2 id="is-windows-supported"><a class="header" href="#is-windows-supported">Is Windows supported?</a></h2>
+<p>Windows builds and ships, but runtime support is best-effort / build-only per
+SRS §2.2 — the PTY layer is tuned for Unix. Linux and macOS are fully
+supported and CI-tested end-to-end.</p>
+<h2 id="what-does-faithful-playback-mean"><a class="header" href="#what-does-faithful-playback-mean">What does "faithful playback" mean?</a></h2>
+<p><code>hh replay</code> reproduces the recorded transcript — agent turns, tool
+inputs/outputs, file diffs, terminal output — in order. It does <strong>not</strong>
+re-execute the agent or redo side effects. See
+<a href="./replay-inspect.html">Replay &amp; Inspect</a>.</p>
+<h2 id="how-do-i-share-a-recording"><a class="header" href="#how-do-i-share-a-recording">How do I share a recording?</a></h2>
+<p><code>hh export</code> produces a redacted JSON bundle, a portable <code>.hh</code> archive, or a
+self-contained HTML page. <code>hh import</code> brings a <code>.hh</code> bundle back into a store
+under a new id. See <a href="./export-import.html">Export &amp; import</a>.</p>
+<h2 id="how-are-releases-signed"><a class="header" href="#how-are-releases-signed">How are releases signed?</a></h2>
+<p>Each GitHub Release artifact has a keyless Sigstore provenance attestation
+(GitHub artifact attestations). Verify with:</p>
+<pre><code class="language-bash">gh attestation verify ./hh --repo halfhandorg/halfhand
+</code></pre>
+<h2 id="how-do-i-get-shell-completions"><a class="header" href="#how-do-i-get-shell-completions">How do I get shell completions?</a></h2>
+<pre><code class="language-bash">hh completions bash   # or zsh / fish / powershell
+</code></pre>
+<p>See <a href="./completions.html">Shell completions &amp; man page</a>.</p>
+<div style="break-before: page; page-break-before: always;"></div><h1 id="halfhand-10--definition-of-done"><a class="header" href="#halfhand-10--definition-of-done">Halfhand 1.0 — definition of done</a></h1>
+<p>This page walks the v1.0.0 release bar from <code>CLAUDE.md</code>'s "v1.0.0 addendum"
+(six bullets) plus <code>STABILITY.md</code> §a–e, and for each item points at the test,
+doc, or artifact that proves it (or notes the gap). It is the checklist used to
+sign off the 1.0.0 tag. Nothing here is a new contract — it maps existing
+contracts to existing proofs.</p>
+<blockquote>
+<p>The hard gate before tagging is the hand-run <code>docs/manual-qa.md</code> checklist.
+This page is the automated/auditable half: everything you can point a CI run
+or a file at.</p>
+</blockquote>
+<hr />
+<h2 id="claudemd-v100-addendum--six-bullets"><a class="header" href="#claudemd-v100-addendum--six-bullets">CLAUDE.md v1.0.0 addendum — six bullets</a></h2>
+<h3 id="1-backward-compatibility-is-a-feature"><a class="header" href="#1-backward-compatibility-is-a-feature">1. Backward compatibility is a feature</a></h3>
+<p>Any change to CLI flags, <code>--json</code> output, the DB schema, exit codes, or env vars
+is additive or goes through the <code>STABILITY.md</code> deprecation policy. A breaking
+change stops and is proposed before implementing.</p>
+<ul>
+<li><strong>Policy doc:</strong> <code>STABILITY.md</code> §a–e (CLI, <code>--json</code>, on-disk DB, MSRV, hh-core
+semver). Shipped in <code>eff307d</code> ("Add STABILITY.md, freeze JSON schema at 2").</li>
+<li><strong>Forward-readability proof (DB):</strong> <code>hh/tests/migration_from_beta.rs</code> opens a
+database created by <code>v0.1.0-beta.1</code> with the 1.0 binary and asserts list /
+inspect / export (JSON + bundle) / replay (<code>--web</code> HTML) all succeed. The
+beta DB is a committed fixture at <code>hh/tests/fixtures/beta-db/</code> with a
+provenance <code>README.md</code>.</li>
+<li><strong>API-stability proof (hh-core):</strong> <code>cargo semver-checks</code> runs in CI
+(<code>.github/workflows/ci.yml</code>, <code>semver-checks</code> job) against <code>origin/main</code> with
+<code>--release-type minor</code> and <code>--exclude enum_marked_non_exhaustive</code> (the
+one-time cleanup allowance recorded in <code>STABILITY.md</code> §e).</li>
+<li><strong>Deprecation machinery:</strong> <code>hh-core/src/deprecation.rs</code> exists for the
+"warns for one minor release, then removes" cycle (§a). No 1.0 feature uses
+it — 1.0 is additive — but the rail is in place.</li>
+</ul>
+<h3 id="2-every-parser-of-untrusted-input-has-a-fuzz-target-and-never-panics"><a class="header" href="#2-every-parser-of-untrusted-input-has-a-fuzz-target-and-never-panics">2. Every parser of untrusted input has a fuzz target and never panics</a></h3>
+<p>Parsers of Claude/Codex/Gemini JSONL, MCP JSON-RPC framing, import bundles, and
+config files must have a fuzz target and must never panic on malformed input —
+errors only.</p>
+<ul>
+<li><strong>Fuzz targets (<code>fuzz/fuzz_targets/</code>):</strong>
+<ul>
+<li><code>claude_jsonl.rs</code> — Claude Code transcript JSONL (FR-1.5 adapter).</li>
+<li><code>codex_jsonl.rs</code> — Codex CLI JSONL adapter.</li>
+<li><code>gemini_jsonl.rs</code> — Gemini CLI JSONL adapter.</li>
+<li><code>mcp_frame.rs</code> — MCP JSON-RPC stdio framing (FR-2 proxy).</li>
+<li><code>import_bundle.rs</code> — <code>hh import</code> bundle manifest + payload.</li>
+<li><code>config_toml.rs</code> — <code>[redaction]</code> / config TOML.</li>
+<li><code>redact_detect.rs</code> — secret detector on adversarial input.</li>
+<li><code>blob_decompress.rs</code> — zstd blob decode (corrupt/truncated blobs).</li>
+</ul>
+</li>
+<li><strong>CI:</strong> <code>.github/workflows/fuzz-nightly.yml</code> runs the targets on a schedule.</li>
+<li><strong>No-panic discipline:</strong> <code>CLAUDE.md</code> forbids <code>unwrap()</code>/<code>expect()</code> outside
+<code>#[cfg(test)]</code> and the top of <code>main()</code>; <code>?</code> with context everywhere. The
+audit pass (bullet 2 of the release tasks) confirmed no stray
+<code>dbg!</code>/<code>println!</code> in library code and clippy pedantic clean.</li>
+</ul>
+<h3 id="3-storage-invariants-are-property-tested-not-example-tested"><a class="header" href="#3-storage-invariants-are-property-tested-not-example-tested">3. Storage invariants are property-tested, not example-tested</a></h3>
+<p>Blob refcounts, migration idempotency, step-number assignment, and
+export→import round-trips are property tests.</p>
+<ul>
+<li><strong>Blob refcounts:</strong> <code>hh-core/src/store.rs</code> <code>mod blob_refcount_prop</code> (inline
+proptest) + <code>hh-core/tests/prop_redact.rs</code> <code>assert_refcounts_balanced</code>
+(refcount books balance after redaction rewrites; referenced blobs exist).</li>
+<li><strong>Migration idempotency:</strong> <code>hh-core/src/store.rs</code> <code>mod migration_idempotency_prop</code> (proptest) and <code>migration_is_idempotent</code> (unit);
+runner doc at <code>hh-core/src/migrations.rs</code> (DR-1, forward-only, idempotent).</li>
+<li><strong>Step-number assignment:</strong> <code>hh-core/tests/prop_step.rs</code>
+<code>assign_steps_invariants</code> (proptest) + <code>hh-core/src/step.rs</code>
+<code>assign_steps_idempotent</code>.</li>
+<li><strong>Export→import round-trip:</strong> <code>hh-core/tests/prop_bundle.rs</code>
+<code>export_import_export_round_trips_content</code> (export → import → export is
+content-stable). Also covered end-to-end by
+<code>hh/tests/migration_from_beta.rs</code>'s bundle export + the import tests in
+<code>hh/tests/cli.rs</code>.</li>
+</ul>
+<h3 id="4-performance-is-regression-gated"><a class="header" href="#4-performance-is-regression-gated">4. Performance is regression-gated</a></h3>
+<p>Criterion benches live in <code>benches/</code>, and CI fails on &gt;15% regression vs the
+committed baseline.</p>
+<ul>
+<li><strong>Benches:</strong> <code>hh-core/benches/storage.rs</code>, <code>adapter_jsonl.rs</code>, <code>search.rs</code>
+(criterion, declared in <code>hh-core/Cargo.toml</code>).</li>
+<li><strong>Regression gate:</strong> <code>.github/workflows/bench-nightly.yml</code> runs
+<code>cargo bench -p hh-core --features fuzzing --locked</code> nightly and calls
+<code>.github/scripts/bench_compare.py</code> to fail on &gt;15% median-time regression vs
+the cached baseline. Nightly (not per-PR) per the addendum's allowance.</li>
+<li><strong>Local repro:</strong> <code>just bench</code> runs the same benches.</li>
+</ul>
+<h3 id="5-new-user-facing-features-ship-with-docs-page---help-example-changelog-entry-and-an-insta-snapshot"><a class="header" href="#5-new-user-facing-features-ship-with-docs-page---help-example-changelog-entry-and-an-insta-snapshot">5. New user-facing features ship with docs page, --help example, CHANGELOG entry, and an insta snapshot</a></h3>
+<p>In the same PR, or the feature is not done.</p>
+<p>Each 1.0 user-facing feature, mapped:</p>
+<div class="table-wrapper"><table><thead><tr><th>Feature</th><th>Docs page</th><th><code>--help</code> example</th><th>CHANGELOG</th><th>Insta snapshot</th></tr></thead><tbody>
+<tr><td>Redaction (<code>scan</code>/<code>redact</code>)</td><td><code>docs/redaction.md</code>, <code>docs/redaction-design.md</code></td><td><code>cli.rs</code> <code>after_help</code></td><td><code>CHANGELOG.md</code></td><td><code>cli_conformance__hh_scan_help.snap</code>, <code>cli_conformance__hh_redact_help.snap</code></td></tr>
+<tr><td>Export / HTML replay (<code>export --bundle/--html</code>, <code>import</code>)</td><td><code>docs/export-import.md</code></td><td><code>cli.rs</code> <code>after_help</code></td><td><code>CHANGELOG.md</code></td><td><code>cli_conformance__hh_export_help.snap</code>, <code>cli_conformance__hh_import_help.snap</code></td></tr>
+<tr><td>Codex / Gemini adapters</td><td><code>docs/adapters.md</code></td><td>(adapter <code>--adapter</code> flag)</td><td><code>CHANGELOG.md</code></td><td>adapter conversion snapshots in <code>hh-core</code></td></tr>
+<tr><td>FTS5 search</td><td><code>docs/search.md</code></td><td><code>cli.rs</code> <code>after_help</code></td><td><code>CHANGELOG.md</code></td><td><code>cli_conformance__hh_search_help.snap</code></td></tr>
+<tr><td>Completions + man pages</td><td><code>docs/completions.md</code></td><td><code>cli.rs</code> <code>after_help</code></td><td><code>CHANGELOG.md</code></td><td><code>cli_conformance__hh_completions_help.snap</code></td></tr>
+<tr><td>Windows support (build-only, SRS §2.2)</td><td><code>README.md</code> install matrix; <code>ci.yml</code> <code>build-windows</code> job</td><td>—</td><td><code>CHANGELOG.md</code></td><td>— (build-only, no runtime claim)</td></tr>
+<tr><td>Stability contract</td><td><code>STABILITY.md</code>, this page</td><td>—</td><td><code>CHANGELOG.md</code></td><td>exit-code snapshots below</td></tr>
+</tbody></table>
+</div>
+<p>Snapshots live in <code>hh/tests/snapshots/</code> (insta). Every subcommand's <code>--help</code> is
+snapshot-tested by <code>hh/tests/cli_conformance.rs</code>, so the <code>--help</code> example
+column is mechanically enforced.</p>
+<h3 id="6-exit-codes-are-part-of-the-contract"><a class="header" href="#6-exit-codes-are-part-of-the-contract">6. Exit codes are part of the contract</a></h3>
+<p>0 ok, 1 generic error, 2 usage error, 3 session-not-found, 4 redaction/policy
+block — documented and tested.</p>
+<ul>
+<li><strong>Doc:</strong> <code>STABILITY.md</code> §a, the exit-code table (codes 0/1/2/3/4 with
+meanings).</li>
+<li><strong>Tests:</strong> <code>hh/tests/cli_conformance.rs</code> — <code>usage_error_exits_2</code>,
+<code>unknown_session_exits_3</code>, <code>scan_with_findings_exits_4</code> (and <code>--help</code>/sub
+<code>--help</code> exit 0). The table is the single source of truth; tests pin it.</li>
+</ul>
+<hr />
+<h2 id="stabilitymd-ae"><a class="header" href="#stabilitymd-ae">STABILITY.md §a–e</a></h2>
+<h3 id="a-cli-flags-subcommands-exit-codes-1"><a class="header" href="#a-cli-flags-subcommands-exit-codes-1">(a) CLI: flags, subcommands, exit codes</a></h3>
+<p>Additive freely; removal/behavior-change requires a deprecation cycle via
+<code>hh-core/src/deprecation.rs</code>. Exit-code table tested in
+<code>cli_conformance.rs</code> (above). <code>--help</code> output for every subcommand is
+snapshot-tested, so a wording/flag change is a visible diff that forces
+review.</p>
+<h3 id="b---json-1"><a class="header" href="#b---json-1">(b) <code>--json</code></a></h3>
+<p>Additive only (new fields/<code>body</code> shapes/enum values); a breaking change ships
+as a new <code>schema</code> value with both shapes documented side-by-side in
+<code>docs/json.md</code>, gated behind a major version. JSON schema frozen at version 2
+(<code>eff307d</code>); <code>docs/json.md</code> documents the shape. <code>--json</code> output is exercised
+by <code>hh/tests/cli.rs</code> and <code>hh/tests/migration_from_beta.rs</code>
+(<code>list --json</code> parses; <code>inspect --json</code> is valid NDJSON).</p>
+<h3 id="c-on-disk-database-1"><a class="header" href="#c-on-disk-database-1">(c) On-disk database</a></h3>
+<p>Any 1.x release can open and read a DB written by any earlier 1.x release;
+migrations only add. Proven by <code>hh/tests/migration_from_beta.rs</code> (beta.1 → 1.0
+forward readability) and <code>migration_idempotency_prop</code> (re-applying migrations is
+a no-op). <code>hh.db</code> is a documented interface (DR-2); the schema is in
+<code>hh-core/src/migrations/</code>.</p>
+<h3 id="d-msrv-1"><a class="header" href="#d-msrv-1">(d) MSRV</a></h3>
+<p>MSRV is 1.75 (<code>CLAUDE.md</code>); an MSRV bump only happens in a minor release.
+Enforced by <code>ci.yml</code>'s <code>test</code> matrix pinning the MSRV toolchain.</p>
+<h3 id="e-hh-core-semver-policy-1"><a class="header" href="#e-hh-core-semver-policy-1">(e) <code>hh-core</code> semver policy</a></h3>
+<p><code>hh-core</code> follows semver; breaking changes bump the major. Non-exhaustive enums
+(<code>AgentKind</code>, …) keep new variants additive. Enforced by the <code>semver-checks</code> CI
+job (bullet 1). The one-time <code>enum_marked_non_exhaustive</code> exclusion is
+documented in <code>STABILITY.md</code> §e and passed on the 1.0 cut (196 checks pass).</p>
+<hr />
+<h2 id="gaps-found-while-walking-this-list"><a class="header" href="#gaps-found-while-walking-this-list">Gaps found while walking this list</a></h2>
+<p>None open. Every addendum bullet and every STABILITY clause maps to a committed
+proof above. The one item that is <em>not</em> a per-PR CI gate — the criterion
+regression check — is intentionally a nightly job per the addendum's explicit
+allowance (<code>bench-nightly.yml</code>).</p>
+<p>The remaining sign-off is the human half: <code>docs/manual-qa.md</code>, run by hand on
+Linux, macOS, and Windows with real Claude Code / Codex / MCP proxy before
+tagging. Do not tag until that checklist passes.</p>
+<div style="break-before: page; page-break-before: always;"></div><h1 id="manual-qa--100-release"><a class="header" href="#manual-qa--100-release">Manual QA — 1.0.0 release</a></h1>
+<blockquote>
+<p><strong>Print this page.</strong> Run every checkbox by hand on each OS before tagging
+<code>v1.0.0</code>. The tag does not go out until every box on this page is ticked and
+the result is recorded in the release announcement. The automated half of
+this gate is <a href="./1.0-definition-of-done.html"><code>docs/1.0-definition-of-done.md</code></a>;
+this page is the human half — the things CI cannot check because they need a
+real agent, a live API key, a real PTY, or a human eye on rendered output.</p>
+</blockquote>
+<p><strong>How to use:</strong> three columns below — <strong>Linux</strong>, <strong>macOS</strong>, <strong>Windows</strong>. Tick
+each OS you actually ran on. Windows is build-only / best-effort per SRS §2.2
+(the PTY layer is Unix-first), so Windows rows are marked <em>(build-only)</em> where
+the runtime path is not claimed; still run them and record what happened.</p>
+<p>Record the <code>hh --version</code> string and the OS for each run at the top:</p>
+<pre><code>hh version: ____________________   date: ____________
+Linux [ ]   macOS [ ]   Windows [ ]
+</code></pre>
+<hr />
+<h2 id="0-fresh-machine-install"><a class="header" href="#0-fresh-machine-install">0. Fresh-machine install</a></h2>
+<p>On a machine with no prior Halfhand state, for each OS:</p>
+<ul>
+<li><input disabled="" type="checkbox"/>
+<strong>Linux</strong> — <strong>macOS</strong> — <strong>Windows</strong> <em>(build-only)</em>: <code>cargo install halfhand</code>
+(or: download the release archive for this OS, verify its SHA-256, and put
+<code>hh</code> on PATH). No prior <code>~/.halfhand</code> / <code>HH_DATA_DIR</code> present.</li>
+<li><input disabled="" type="checkbox"/>
+<strong>Linux</strong> — <strong>macOS</strong> — <strong>Windows</strong>: <code>hh --version</code> prints
+<code>hh 1.0.0 (&lt;git-sha&gt;)</code> (no <code>(dirty)</code>).</li>
+<li><input disabled="" type="checkbox"/>
+<strong>Linux</strong> — <strong>macOS</strong> — <strong>Windows</strong>: <code>hh --help</code> lists every subcommand
+(<code>run</code>, <code>replay</code>, <code>inspect</code>, <code>list</code>, <code>delete</code>, <code>mcp-proxy</code>, <code>doctor</code>, <code>gc</code>,
+<code>stats</code>, <code>scan</code>, <code>redact</code>, <code>export</code>, <code>import</code>, <code>search</code>, <code>completions</code>),
+each with a one-line example.</li>
+<li><input disabled="" type="checkbox"/>
+<strong>Linux</strong> — <strong>macOS</strong> — <strong>Windows</strong>: <code>hh completions &lt;shell&gt;</code> emits a
+script to stdout and exits 0 (run for the shell you actually use).</li>
+<li><input disabled="" type="checkbox"/>
+<strong>Linux</strong> — <strong>macOS</strong> — <strong>Windows</strong>: 30-second quickstart from the README
+completes without reading any docs beyond the hero/quickstart.</li>
+<li><input disabled="" type="checkbox"/>
+<strong>Linux</strong> — <strong>macOS</strong>: no real data dir touched unexpectedly — the run
+stays under <code>HH_DATA_DIR</code> or the platform default.</li>
+<li><input disabled="" type="checkbox"/>
+<strong>Linux</strong> — <strong>macOS</strong>: <code>hh list | cat</code> is plain, pipe-safe, no ANSI;
+<code>NO_COLOR=1 hh list</code> in a TTY is the same.</li>
+</ul>
+<hr />
+<h2 id="1-real-claude-code-run-ac-1"><a class="header" href="#1-real-claude-code-run-ac-1">1. Real Claude Code run (AC-1)</a></h2>
+<p>Needs the real <code>claude</code> CLI on PATH, <code>ANTHROPIC_API_KEY</code> exported, a throwaway
+work dir, and <code>HH_DATA_DIR</code> at a temp path. Halfhand itself makes zero network
+calls (NFR-2); only the wrapped agent does. This spends real tokens.</p>
+<pre><code class="language-bash">mkdir -p /tmp/hh-qa &amp;&amp; cd /tmp/hh-qa
+export HH_DATA_DIR=/tmp/hh-qa/data
+hh run -- claude        # ask something small, e.g. "list files here", let it finish
+</code></pre>
+<ul>
+<li><input disabled="" type="checkbox"/>
+<strong>Linux</strong> — <strong>macOS</strong>: <strong>Records.</strong> <code>hh run</code> prints
+<code>✓ Recorded session &lt;short-id&gt; · … · hh replay &lt;short-id&gt;</code> and exits 0.</li>
+<li><input disabled="" type="checkbox"/>
+<strong>Linux</strong> — <strong>macOS</strong>: <strong>Detected as Claude Code.</strong> <code>hh list --json</code>
+shows <code>agent_kind: "claude-code"</code>, <code>adapter_status: "active"</code>.</li>
+<li><input disabled="" type="checkbox"/>
+<strong>Linux</strong> — <strong>macOS</strong>: <strong>Structured events.</strong> <code>hh inspect &lt;id&gt;</code> shows
+steps for the user message, tool call(s), tool result(s) — not only terminal
+output. <code>hh inspect &lt;id&gt; --json</code> is NDJSON, one object per event, <code>schema: 2</code>.</li>
+<li><input disabled="" type="checkbox"/>
+<strong>Linux</strong> — <strong>macOS</strong>: <strong>Correlation.</strong> <code>tool_result.correlates</code> points
+at the producing <code>tool_call</code>
+(<code>hh inspect &lt;id&gt; --json | jq 'select(.kind=="tool_result") | .correlates'</code>).</li>
+<li><input disabled="" type="checkbox"/>
+<strong>Linux</strong> — <strong>macOS</strong>: <strong>Faithful replay.</strong> <code>hh replay &lt;id&gt;</code> in a real
+terminal walks the timeline; assistant text, tool calls, results appear in
+order. This is <strong>faithful playback</strong> of the captured timeline, not a
+re-execution — the agent is not re-invoked, no network during replay.</li>
+<li><input disabled="" type="checkbox"/>
+<strong>Linux</strong> — <strong>macOS</strong>: <strong>Delete.</strong> <code>hh delete &lt;id&gt; --yes</code> prints
+<code>✓ Deleted</code>; <code>hh list</code> no longer shows it.</li>
+</ul>
+<hr />
+<h2 id="2-codex-cli-run-if-available"><a class="header" href="#2-codex-cli-run-if-available">2. Codex CLI run (if available)</a></h2>
+<p>Only if <code>codex</code> is installed and you have access. If Codex is not available on
+any OS, write <strong>N/A</strong> for that OS and move on — do not block the release on an
+adapter you cannot exercise.</p>
+<pre><code class="language-bash">cd /tmp/hh-qa &amp;&amp; export HH_DATA_DIR=/tmp/hh-qa/data
+hh run -- codex          # small prompt, let it finish
+</code></pre>
+<ul>
+<li><input disabled="" type="checkbox"/>
+<strong>Linux</strong> — <strong>macOS</strong>: <strong>Records.</strong> <code>✓ Recorded session &lt;id&gt;</code>, exit 0.</li>
+<li><input disabled="" type="checkbox"/>
+<strong>Linux</strong> — <strong>macOS</strong>: <strong>Detected as Codex.</strong> <code>hh list --json</code> shows
+<code>agent_kind: "codex-cli"</code>.</li>
+<li><input disabled="" type="checkbox"/>
+<strong>Linux</strong> — <strong>macOS</strong>: <strong>Structured events.</strong> <code>hh inspect &lt;id&gt; --json</code>
+emits NDJSON with <code>schema: 2</code>; tool calls/results correlate.</li>
+<li><input disabled="" type="checkbox"/>
+<strong>Linux</strong> — <strong>macOS</strong>: <strong>Replay + inspect</strong> read back correctly.</li>
+</ul>
+<p>If Codex was unavailable on every OS: record <strong>Codex: N/A this release</strong> and
+note it in the release announcement (the adapter + its fuzz target still ship;
+this is a coverage caveat, not a blocker).</p>
+<hr />
+<h2 id="3-mcp-proxy-ac-3"><a class="header" href="#3-mcp-proxy-ac-3">3. MCP proxy (AC-3)</a></h2>
+<p>Needs an MCP server you can spawn. The stdio proxy records correlated
+JSON-RPC, spills large payloads to the blob store, and round-trips latency.</p>
+<pre><code class="language-bash">cd /tmp/hh-qa &amp;&amp; export HH_DATA_DIR=/tmp/hh-qa/data
+hh mcp-proxy -- uvx &lt;some-mcp-server&gt;      # or: -- node server.js
+# from another terminal, send it an initialize + a tool call, then exit
+</code></pre>
+<ul>
+<li><input disabled="" type="checkbox"/>
+<strong>Linux</strong> — <strong>macOS</strong>: <strong>Records.</strong> A session appears in <code>hh list</code> with
+<code>agent_kind</code> reflecting the mcp-only session.</li>
+<li><input disabled="" type="checkbox"/>
+<strong>Linux</strong> — <strong>macOS</strong>: <strong>Correlated traffic.</strong> <code>hh inspect &lt;id&gt; --json</code>
+shows <code>mcp_request</code> / <code>mcp_response</code> pairs with <code>correlates</code> linking them.</li>
+<li><input disabled="" type="checkbox"/>
+<strong>Linux</strong> — <strong>macOS</strong>: <strong>Large payload spill.</strong> A request/response ≥256
+KiB is stored as a blob (body references the blob, not inline plaintext).</li>
+<li><input disabled="" type="checkbox"/>
+<strong>Linux</strong> — <strong>macOS</strong>: <strong>Latency.</strong> Round-trip <code>latency_ms</code> is present
+on response events.</li>
+</ul>
+<hr />
+<h2 id="4-redact--export--import--html-on-every-agent"><a class="header" href="#4-redact--export--import--html-on-every-agent">4. Redact → export → import → HTML, on every agent</a></h2>
+<p>The full sharing pipeline, run end-to-end on a session that <strong>contains a
+planted secret</strong> (so redaction is provably doing work). Do this for at least
+one Claude Code session and one Codex session (if Codex ran above).</p>
+<pre><code class="language-bash"># plant a secret in the work dir before/after the run so it lands in a captured
+# file change or prompt, e.g. echo "AKIA0123456789EXAMPLE" &gt; creds.txt
+SID=$(hh list --json | jq -r '.[0].short_id')
+hh scan $SID                  # expect findings, exit 4
+hh redact $SID --yes          # rewrites events + blobs in place
+hh scan $SID                  # now clean, exit 0
+hh export $SID --bundle -o /tmp/hh-qa/sess.hh
+hh export $SID --html  -o /tmp/hh-qa/sess.html
+hh export $SID        -o /tmp/hh-qa/sess.json   # redacted by default
+HH_DATA_DIR=/tmp/hh-qa/imported hh import /tmp/hh-qa/sess.hh
+</code></pre>
+<ul>
+<li><input disabled="" type="checkbox"/>
+<strong>Linux</strong> — <strong>macOS</strong>: <strong>Scan finds the secret</strong> and exits <strong>4</strong>
+(STABILITY.md (a) exit-code contract). The secret value is <strong>not</strong> printed —
+only type/step/location/correlation tag.</li>
+<li><input disabled="" type="checkbox"/>
+<strong>Linux</strong> — <strong>macOS</strong>: <strong>Redact rewrites in place.</strong> <code>hh redact --yes</code>
+replaces the secret with <code>{{REDACTED:&lt;type&gt;:&lt;hash8&gt;}}</code>; originals are securely
+deleted and the DB compacted.</li>
+<li><input disabled="" type="checkbox"/>
+<strong>Linux</strong> — <strong>macOS</strong>: <strong>Post-redact scan is clean</strong> and exits <strong>0</strong>.</li>
+<li><input disabled="" type="checkbox"/>
+<strong>Linux</strong> — <strong>macOS</strong>: <strong>Export is redacted by default</strong> — open
+<code>sess.json</code> and <code>sess.html</code> and confirm the secret is gone and the
+<code>{{REDACTED:…}}</code> token is present. (Exporting unredacted requires
+<code>--no-redact</code> + an interactive TTY confirmation; a script can never do it.)</li>
+<li><input disabled="" type="checkbox"/>
+<strong>Linux</strong> — <strong>macOS</strong>: <strong>Bundle import round-trips.</strong> <code>hh import sess.hh</code>
+into a fresh <code>HH_DATA_DIR</code> succeeds; the imported session's <code>imported_from</code>
+preserves the original id; <code>hh inspect &lt;new-id&gt; --json</code> matches the original
+(minus the id) and the secret is still redacted.</li>
+<li><input disabled="" type="checkbox"/>
+<strong>Linux</strong> — <strong>macOS</strong>: <strong>HTML replay page</strong> opens in a browser, renders
+the timeline, and contains no plaintext secret (view-source / Ctrl-F the
+planted value).</li>
+</ul>
+<hr />
+<h2 id="5-crash-safety-spot-check-ac-4"><a class="header" href="#5-crash-safety-spot-check-ac-4">5. Crash-safety spot check (AC-4)</a></h2>
+<p>Not OS-specific; run once on Linux.</p>
+<pre><code class="language-bash">cd /tmp/hh-qa &amp;&amp; export HH_DATA_DIR=/tmp/hh-qa/data
+hh run -- python3 -c 'import time; print("working"); time.sleep(30)' &amp;
+HH_PID=$!
+sleep 2; kill -KILL $HH_PID        # SIGKILL mid-recording
+hh list                             # next invocation reconciles to interrupted
+hh inspect last                     # still readable
+</code></pre>
+<ul>
+<li><input disabled="" type="checkbox"/>
+<strong>Linux</strong>: The SIGKILLed session shows <code>status: interrupted</code> (or
+equivalent) in <code>hh list</code>, and <code>hh inspect last</code> reads it back without
+erroring — no partial-write corruption, no orphaned blob crash.</li>
+</ul>
+<hr />
+<h2 id="6-sign-off"><a class="header" href="#6-sign-off">6. Sign-off</a></h2>
+<ul>
+<li><input disabled="" type="checkbox"/>
+Every checkbox above is ticked for at least <strong>Linux and macOS</strong>, with the
+per-OS columns filled (or <strong>N/A</strong> / <strong>build-only</strong> noted where called out).</li>
+<li><input disabled="" type="checkbox"/>
+Codex outcome recorded (ran on which OS, or N/A with reason).</li>
+<li><input disabled="" type="checkbox"/>
+Any deviation from this checklist is written down in the release
+announcement with a justification.</li>
+<li><input disabled="" type="checkbox"/>
+<code>docs/1.0-definition-of-done.md</code> (the automated half) is green on the
+release branch.</li>
+</ul>
+<p><strong>Only after all of the above:</strong> proceed to the tag-and-release runbook in
+<code>RELEASING.md</code>. The maintainer tags <code>v1.0.0</code>; Halfhand's automation does not
+tag itself.</p>
+<div style="break-before: page; page-break-before: always;"></div><h1 id="adr-0001-threads--channels-for-the-recorder-not-tokio"><a class="header" href="#adr-0001-threads--channels-for-the-recorder-not-tokio">ADR-0001: Threads + channels for the recorder (not tokio)</a></h1>
+<ul>
+<li><strong>Status:</strong> Accepted</li>
+<li><strong>Date:</strong> 2026-07-04</li>
+<li><strong>Deciders:</strong> Halfhand engineering</li>
+<li><strong>SRS context:</strong> §6 lists <code>tokio (or threads + channels — implementer's choice, justify in ADR)</code> for <code>hh-record</code>.</li>
+</ul>
+<h2 id="context"><a class="header" href="#context">Context</a></h2>
+<p><code>hh-record</code> must concurrently drive three independent I/O sources during a
+recording:</p>
+<ol>
+<li>a PTY (read agent stdout, forward stdin, handle resize/signals),</li>
+<li>a recursive filesystem watcher (<code>notify</code>) for file changes,</li>
+<li>(optionally) a stdio MCP proxy forwarding JSON-RPC both ways,</li>
+<li>and feed all of them into the single-writer SQLite task.</li>
+</ol>
+<p>We need to choose a concurrency model for the recorder crate. The two
+realistic options are:</p>
+<ul>
+<li><strong>A. <code>tokio</code></strong> — an async runtime; each source becomes an <code>async</code> task
+multiplexed on a thread pool, with <code>tokio::sync::mpsc</code> feeding the writer.</li>
+<li><strong>B. OS threads + <code>std::sync::mpsc</code></strong> — one thread per source, plus the
+writer thread, communicating through standard channels.</li>
+</ul>
+<h2 id="decision"><a class="header" href="#decision">Decision</a></h2>
+<p>We choose <strong>B: OS threads + <code>std::sync::mpsc</code></strong> for v0.1.</p>
+<h2 id="justification"><a class="header" href="#justification">Justification</a></h2>
+<ol>
+<li><strong>Concurrency shape is small and fixed.</strong> A recording has a bounded,
+known set of long-lived workers (PTY reader, PTY writer, FS watcher, MCP
+proxy sides, SQLite writer). There is no fan-out to thousands of tasks. The
+cost/benefit of an async runtime does not pay off here: we would be paying
+the runtime's complexity to multiplex a handful of blocking I/O streams.</li>
+<li><strong>All real I/O here is blocking.</strong> <code>portable-pty</code> is a blocking PTY API;
+<code>notify</code> delivers events through a blocking channel; SQLite writes are
+blocking. Wrapping blocking I/O in <code>spawn_blocking</code> defeats the purpose of
+async and adds thread-pool juggling. Direct threads match the I/O model
+exactly.</li>
+<li><strong>The single-writer rule maps directly to a thread + channel.</strong> CLAUDE.md
+mandates "single-writer for SQLite (one writer task fed by an mpsc channel)
+… Never share a <code>Connection</code> across threads." That is literally one thread
+draining one <code>std::sync::mpsc::Receiver</code>. Introducing <code>tokio</code> would require
+a runtime, a <code>tokio::sync::mpsc</code>, and <code>spawn</code>ing the writer — more moving
+parts for the same guarantee, and a runtime handle that must be threaded
+across the FFI/PTY boundary.</li>
+<li><strong>Smaller, more auditable binary — relevant to NFR-2.</strong> No async runtime
+means fewer transitive crates and a smaller attack surface for a tool whose
+core promise is "never talks to the network." <code>tokio</code> pulls a large dependency
+graph with features (time, net, process, fs) we do not need.</li>
+<li><strong>MCP proxy latency (NFR-1, &lt; 5 ms p50) is fine with threads.</strong> Two threads
+(one per stdio direction) forwarding bytes add negligible overhead; there is
+no scheduler poll, no task wakeup latency.</li>
+<li><strong>Cancellation is straightforward.</strong> Agent exit or SIGTERM tears down the
+recorder by joining the workers; no runtime to shut down, no task abort
+machinery.</li>
+</ol>
+<h2 id="consequences"><a class="header" href="#consequences">Consequences</a></h2>
+<ul>
+<li>The recorder will use <code>std::thread</code> + <code>std::sync::mpsc</code> (or <code>crossbeam</code>
+channels if a multi-producer detail calls for it). <code>signal-hook</code> for
+SIGTERM/SIGINT.</li>
+<li>We forgo structured concurrency primitives (<code>tokio::select!</code>, cancellation
+tokens). We will emulate what we need with channel close + <code>JoinHandle</code>,
+which is adequate for this fixed topology.</li>
+<li><strong>Reversibility:</strong> if v0.2+ adds many concurrent MCP servers, streaming
+adapters, or a network-facing feature (none currently in scope — SRS §8
+excludes cloud/network), we would revisit this and likely adopt <code>tokio</code> at
+that boundary only, keeping <code>hh-core</code> runtime-free.</li>
+</ul>
+<h2 id="srs-deviation-flagged"><a class="header" href="#srs-deviation-flagged">SRS deviation flagged</a></h2>
+<p>The SRS leaves this open ("implementer's choice"). This ADR is the required
+justification. No SRS requirement is violated by either choice.</p>
+<div style="break-before: page; page-break-before: always;"></div><h1 id="adr-0001-threads--channels-for-the-recorder-not-tokio-1"><a class="header" href="#adr-0001-threads--channels-for-the-recorder-not-tokio-1">ADR-0001: Threads + channels for the recorder (not tokio)</a></h1>
+<ul>
+<li><strong>Status:</strong> Accepted</li>
+<li><strong>Date:</strong> 2026-07-04</li>
+<li><strong>Deciders:</strong> Halfhand engineering</li>
+<li><strong>SRS context:</strong> §6 lists <code>tokio (or threads + channels — implementer's choice, justify in ADR)</code> for <code>hh-record</code>.</li>
+</ul>
+<h2 id="context-1"><a class="header" href="#context-1">Context</a></h2>
+<p><code>hh-record</code> must concurrently drive three independent I/O sources during a
+recording:</p>
+<ol>
+<li>a PTY (read agent stdout, forward stdin, handle resize/signals),</li>
+<li>a recursive filesystem watcher (<code>notify</code>) for file changes,</li>
+<li>(optionally) a stdio MCP proxy forwarding JSON-RPC both ways,</li>
+<li>and feed all of them into the single-writer SQLite task.</li>
+</ol>
+<p>We need to choose a concurrency model for the recorder crate. The two
+realistic options are:</p>
+<ul>
+<li><strong>A. <code>tokio</code></strong> — an async runtime; each source becomes an <code>async</code> task
+multiplexed on a thread pool, with <code>tokio::sync::mpsc</code> feeding the writer.</li>
+<li><strong>B. OS threads + <code>std::sync::mpsc</code></strong> — one thread per source, plus the
+writer thread, communicating through standard channels.</li>
+</ul>
+<h2 id="decision-1"><a class="header" href="#decision-1">Decision</a></h2>
+<p>We choose <strong>B: OS threads + <code>std::sync::mpsc</code></strong> for v0.1.</p>
+<h2 id="justification-1"><a class="header" href="#justification-1">Justification</a></h2>
+<ol>
+<li><strong>Concurrency shape is small and fixed.</strong> A recording has a bounded,
+known set of long-lived workers (PTY reader, PTY writer, FS watcher, MCP
+proxy sides, SQLite writer). There is no fan-out to thousands of tasks. The
+cost/benefit of an async runtime does not pay off here: we would be paying
+the runtime's complexity to multiplex a handful of blocking I/O streams.</li>
+<li><strong>All real I/O here is blocking.</strong> <code>portable-pty</code> is a blocking PTY API;
+<code>notify</code> delivers events through a blocking channel; SQLite writes are
+blocking. Wrapping blocking I/O in <code>spawn_blocking</code> defeats the purpose of
+async and adds thread-pool juggling. Direct threads match the I/O model
+exactly.</li>
+<li><strong>The single-writer rule maps directly to a thread + channel.</strong> CLAUDE.md
+mandates "single-writer for SQLite (one writer task fed by an mpsc channel)
+… Never share a <code>Connection</code> across threads." That is literally one thread
+draining one <code>std::sync::mpsc::Receiver</code>. Introducing <code>tokio</code> would require
+a runtime, a <code>tokio::sync::mpsc</code>, and <code>spawn</code>ing the writer — more moving
+parts for the same guarantee, and a runtime handle that must be threaded
+across the FFI/PTY boundary.</li>
+<li><strong>Smaller, more auditable binary — relevant to NFR-2.</strong> No async runtime
+means fewer transitive crates and a smaller attack surface for a tool whose
+core promise is "never talks to the network." <code>tokio</code> pulls a large dependency
+graph with features (time, net, process, fs) we do not need.</li>
+<li><strong>MCP proxy latency (NFR-1, &lt; 5 ms p50) is fine with threads.</strong> Two threads
+(one per stdio direction) forwarding bytes add negligible overhead; there is
+no scheduler poll, no task wakeup latency.</li>
+<li><strong>Cancellation is straightforward.</strong> Agent exit or SIGTERM tears down the
+recorder by joining the workers; no runtime to shut down, no task abort
+machinery.</li>
+</ol>
+<h2 id="consequences-1"><a class="header" href="#consequences-1">Consequences</a></h2>
+<ul>
+<li>The recorder will use <code>std::thread</code> + <code>std::sync::mpsc</code> (or <code>crossbeam</code>
+channels if a multi-producer detail calls for it). <code>signal-hook</code> for
+SIGTERM/SIGINT.</li>
+<li>We forgo structured concurrency primitives (<code>tokio::select!</code>, cancellation
+tokens). We will emulate what we need with channel close + <code>JoinHandle</code>,
+which is adequate for this fixed topology.</li>
+<li><strong>Reversibility:</strong> if v0.2+ adds many concurrent MCP servers, streaming
+adapters, or a network-facing feature (none currently in scope — SRS §8
+excludes cloud/network), we would revisit this and likely adopt <code>tokio</code> at
+that boundary only, keeping <code>hh-core</code> runtime-free.</li>
+</ul>
+<h2 id="srs-deviation-flagged-1"><a class="header" href="#srs-deviation-flagged-1">SRS deviation flagged</a></h2>
+<p>The SRS leaves this open ("implementer's choice"). This ADR is the required
+justification. No SRS requirement is violated by either choice.</p>
+<div style="break-before: page; page-break-before: always;"></div><h1 id="adr-0002-store-step-ordinals-at-finalize-not-derive-them-at-read-time"><a class="header" href="#adr-0002-store-step-ordinals-at-finalize-not-derive-them-at-read-time">ADR-0002: Store step ordinals at finalize (not derive them at read time)</a></h1>
+<ul>
+<li><strong>Status:</strong> Accepted</li>
+<li><strong>Date:</strong> 2026-07-06</li>
+<li><strong>Deciders:</strong> Halfhand engineering</li>
+<li><strong>SRS context:</strong> FR-3.4 (step assignment: 1-based ordinals, <code>terminal_output</code>
+excluded, a <code>tool_result</code> shares its <code>tool_call</code>'s step). ADR-0001 states the
+project's general "derived at read time" stance for view-layer values; this
+ADR records a deliberate exception for <code>events.step</code>.</li>
+</ul>
+<h2 id="context-2"><a class="header" href="#context-2">Context</a></h2>
+<p>FR-3.4 requires every step-bearing event to carry a 1-based ordinal, with
+<code>tool_result</code> sharing its correlated <code>tool_call</code>'s ordinal. Two designs were
+available:</p>
+<ul>
+<li><strong>A. Derive at read time.</strong> <code>hh replay</code>/<code>hh inspect</code>/<code>hh list</code> compute step
+numbers on the fly from <code>(ts_ms, id, correlates)</code> whenever a session is read.
+<code>events.step</code> would not exist as a stored column.</li>
+<li><strong>B. Store at finalize.</strong> Run the FR-3.4 pass once, when a session's writer
+has flushed and closed, and persist the result in <code>events.step</code> (already
+present in the schema). Self-heal on <code>Store::open</code> for the sessions that
+never got a chance to finalize cleanly.</li>
+</ul>
+<h2 id="decision-2"><a class="header" href="#decision-2">Decision</a></h2>
+<p>We choose <strong>B: store the ordinals</strong>, computed by a pure pass
+(<code>hh_core::step::assign_steps</code>) over <code>EventRow</code>s and written back in one
+transaction via <code>Store::assign_steps</code>.</p>
+<h2 id="justification-2"><a class="header" href="#justification-2">Justification</a></h2>
+<ol>
+<li><strong>Session-row counts need <code>step</code> as a column.</strong> <code>hh list</code>/<code>hh inspect</code>
+report a step count and a files-changed count per session without replaying
+the whole event stream. <code>COUNT(DISTINCT step) WHERE step IS NOT NULL</code> is a
+single indexed aggregate; deriving it at read time would mean re-running the
+FR-3.4 pass (a full table scan + correlation resolution) just to print a
+number in <code>hh list</code>.</li>
+<li><strong>The correlation pass is O(n) but not free, and it is reused.</strong> <code>hh replay</code>, <code>hh inspect</code>, and <code>hh list</code> all want step numbers; recomputing the
+same pass in three call sites — or a shared read-time helper re-run on every
+invocation — costs more than computing it once and writing it down.</li>
+<li><strong>Idempotent by construction.</strong> The pass is pure
+(<code>assign_steps_pass(&amp;mut [EventRow])</code>) and deterministic given
+<code>(ts_ms, id, correlates, kind)</code>; re-running it (e.g. on self-heal) always
+converges to the same assignment, so "store vs. derive" is not a
+correctness trade — it is purely a caching decision with no staleness risk
+as long as every code path that appends events also re-runs the pass before
+the session is considered readable.</li>
+<li><strong>Crash / cross-process races are bounded, not eliminated, by design.</strong>
+<code>hh run</code> runs the pass at finalize (writer flushed + joined, no intra-process
+contention). A crashed <code>hh run</code> leaves <code>step IS NULL</code> on unfinalized
+sessions; <code>Store::open</code> self-heals by re-running the pass for any session
+with a NULL-stepped semantic event before the caller can read further
+(<code>heal_steps</code>, called after <code>mark_stale_interrupted</code>). This mirrors the
+already-accepted FR-1.7 "reconcile on next open" pattern.</li>
+</ol>
+<h2 id="consequences-2"><a class="header" href="#consequences-2">Consequences</a></h2>
+<ul>
+<li><code>events.step</code> is authoritative once set; nothing derives it independently.
+<code>Store::list_sessions</code>/<code>session_step_count</code> compute
+<code>COUNT(DISTINCT step) WHERE step IS NOT NULL</code>, which is correct under the
+FR-3.4 sharing rule (a <code>tool_call</code>+<code>tool_result</code> pair is one step, one
+distinct value) — the prior <code>COUNT(*) WHERE kind != 'terminal_output'</code> query
+over-counted shared steps and has been replaced.</li>
+<li><strong>Attached <code>hh mcp-proxy</code> late events are a known v0.1 limitation.</strong> The
+proxy runs <code>assign_steps</code> best-effort on its own attached session at exit
+(so MCP events usually get ordinals immediately), but if the parent <code>hh run</code>
+finalizes concurrently and the proxy's write loses the race, the affected
+events keep <code>step = NULL</code> until the next <code>hh</code> invocation's self-heal. No data
+is lost — only the ordinal is deferred. This is a cross-process race the
+child proxy process cannot join against; documented in <code>docs/mcp-proxy.md</code>
+and the plan's deviations list rather than solved with cross-process locking
+(out of proportion for a display-ordinal race).</li>
+<li><code>Store::open</code> does one extra <code>SELECT DISTINCT session_id</code> probe on every
+invocation (<code>heal_steps</code>); this is a cheap, usually-empty scan and is the
+price of the self-heal guarantee.</li>
+</ul>
+<h2 id="srs-deviation-flagged-2"><a class="header" href="#srs-deviation-flagged-2">SRS deviation flagged</a></h2>
+<p>ADR-0001 (and the general engineering-standards framing) leans toward "derive
+at read time" for view-layer values not backed by a requirement to persist
+them. <code>events.step</code> is schema-backed (SRS §4.1 already has the column) and
+FR-3.4 does not mandate either storage strategy, so this is a deviation from
+the project's general read-time-derivation instinct, not from an explicit SRS
+requirement — recorded here per CLAUDE.md's "flag deviations explicitly."</p>
+<div style="break-before: page; page-break-before: always;"></div><h1 id="adr-0003-fts5-full-text-search-index-strategy"><a class="header" href="#adr-0003-fts5-full-text-search-index-strategy">ADR 0003: FTS5 Full-Text Search Index Strategy</a></h1>
+<h2 id="status"><a class="header" href="#status">Status</a></h2>
+<p>Accepted (2026-07-14)</p>
+<h2 id="context-3"><a class="header" href="#context-3">Context</a></h2>
+<p>Halfhand needs cross-session full-text search (<code>hh search &lt;query&gt;</code>) over event
+summaries and message bodies. The events table already stores structured data
+in SQLite, but SQLite's <code>LIKE</code> operator on <code>body_json</code> would be too slow for
+interactive search across thousands of events.</p>
+<p>SQLite provides FTS5 — a full-text search virtual table — as a bundled extension
+(via <code>rusqlite</code>). The question is <em>when</em> to build the FTS index:</p>
+<ol>
+<li><strong>At record time</strong> (in the writer thread, alongside event insertion)</li>
+<li><strong>On first search</strong> (lazy, scanning all events)</li>
+<li><strong>Via SQLite triggers</strong> (on INSERT/UPDATE/DELETE on the events table)</li>
+</ol>
+<h2 id="decision-3"><a class="header" href="#decision-3">Decision</a></h2>
+<p><strong>Build the FTS index incrementally at record time in the writer thread.</strong></p>
+<h2 id="rationale"><a class="header" href="#rationale">Rationale</a></h2>
+<h3 id="why-not-on-first-search"><a class="header" href="#why-not-on-first-search">Why not on first search?</a></h3>
+<ul>
+<li>The first search on a large store would need to scan every event, extract
+text from <code>body_json</code>, and insert into the FTS table — potentially taking
+seconds for a 100k-event store.</li>
+<li>The index build would block the search response, making <code>hh search</code> feel
+slow on its first use.</li>
+<li>We would need to track which events have been indexed (a flag column or a
+separate tracking table), adding complexity.</li>
+</ul>
+<h3 id="why-not-via-sqlite-triggers"><a class="header" href="#why-not-via-sqlite-triggers">Why not via SQLite triggers?</a></h3>
+<ul>
+<li>Triggers on the <code>events</code> table would fire on every INSERT, including bulk
+imports and the step-assignment pass — adding overhead to operations that
+don't need FTS indexing.</li>
+<li>Triggers cannot easily call Rust code to extract text from <code>body_json</code>
+(which is a JSON blob, not plain text).</li>
+<li>The single-writer pattern means the writer thread already serializes all
+event writes; adding an FTS insert there is simpler than maintaining
+trigger logic.</li>
+</ul>
+<h3 id="why-the-writer-thread"><a class="header" href="#why-the-writer-thread">Why the writer thread?</a></h3>
+<ul>
+<li>The writer thread already has the event data in memory (summary + body_json)
+after inserting the event row. Adding an FTS insert is one extra SQL
+statement with no additional reads.</li>
+<li>The writer thread is the single point of serialization for all event writes,
+so the FTS index is always consistent with the events table.</li>
+<li>No background jobs, no catch-up scans, no tracking state.</li>
+<li>The FTS5 INSERT is cheap (it's just indexing the summary + extracted body
+text, which is already in memory).</li>
+</ul>
+<h3 id="crash-safety"><a class="header" href="#crash-safety">Crash safety</a></h3>
+<p>If <code>hh</code> crashes mid-write, the FTS index may be missing the last few events.
+This is acceptable because:</p>
+<ul>
+<li>The events themselves are durable (WAL mode).</li>
+<li>On next <code>Store::open</code>, <code>heal_steps</code> already re-processes events with NULL
+steps; a similar catch-up for FTS could be added if needed, but the window
+is at most 50 ms of events (the terminal chunk flush interval).</li>
+<li>A missing FTS entry means the event won't appear in search results — it
+does not corrupt the index or the events table.</li>
+</ul>
+<h2 id="consequences-3"><a class="header" href="#consequences-3">Consequences</a></h2>
+<ul>
+<li><strong>Positive</strong>: Search is always fast, no first-search delay, no background
+jobs, no trigger complexity.</li>
+<li><strong>Positive</strong>: The FTS index is always consistent with the events table
+(modulo crash window).</li>
+<li><strong>Negative</strong>: Slightly more work per event insert (one extra INSERT into
+the FTS table). This is negligible — FTS5 is designed for this pattern.</li>
+<li><strong>Negative</strong>: The FTS index adds disk space proportional to the total text
+content of all events. For a typical session with ~1000 events, this is
+well under 1 MiB.</li>
+</ul>
+<h2 id="implementation"><a class="header" href="#implementation">Implementation</a></h2>
+<p>The FTS5 virtual table is created by migration 0004:</p>
+<pre><code class="language-sql">CREATE VIRTUAL TABLE IF NOT EXISTS events_fts USING fts5(
+    session_id UNINDEXED,
+    summary,
+    body_text,
+    kind UNINDEXED,
+    step UNINDEXED,
+    tokenize='porter unicode61'
+);
+</code></pre>
+<p>The writer thread inserts into <code>events_fts</code> after every <code>INSERT INTO events</code>:</p>
+<pre><pre class="playground"><code class="language-rust"><span class="boring">#![allow(unused)]
+</span><span class="boring">fn main() {
+</span>let body_text = extract_fts_text(&amp;event.body_json);
+conn.execute(
+    "INSERT INTO events_fts (rowid, session_id, summary, body_text, kind, step)
+     VALUES (?1, ?2, ?3, ?4, ?5, ?6)",
+    params![new_id, event.session_id, event.summary, body_text,
+            event.kind.to_string(), event.step],
+)?;
+<span class="boring">}</span></code></pre></pre>
+<p>The <code>extract_fts_text</code> function extracts a flat text string from <code>body_json</code>:</p>
+<ul>
+<li>For text events: extract the <code>text</code> field</li>
+<li>For tool calls: extract <code>name</code> + <code>input</code></li>
+<li>For tool results: extract <code>content</code></li>
+<li>For error events: extract <code>reason</code></li>
+<li>For overflow envelopes: return empty string (blob content is not indexed)</li>
+</ul>
+<p>The FTS index is maintained on:</p>
+<ul>
+<li><strong>Delete</strong>: <code>DELETE FROM events_fts WHERE rowid IN (SELECT id FROM events WHERE session_id = ?)</code></li>
+<li><strong>Redact</strong>: <code>UPDATE events_fts SET summary = ?, body_text = ? WHERE rowid = ?</code></li>
+</ul>
+
+                    </main>
+
+                    <nav class="nav-wrapper" aria-label="Page navigation">
+                        <!-- Mobile navigation buttons -->
+
+
+                        <div style="clear: both"></div>
+                    </nav>
+                </div>
+            </div>
+
+            <nav class="nav-wide-wrapper" aria-label="Page navigation">
+
+            </nav>
+
+        </div>
+
+
+
+
+        <script>
+            window.playground_copyable = true;
+        </script>
+
+
+        <script src="elasticlunr.min.js"></script>
+        <script src="mark.min.js"></script>
+        <script src="searcher.js"></script>
+
+        <script src="clipboard.min.js"></script>
+        <script src="highlight.js"></script>
+        <script src="book.js"></script>
+
+        <!-- Custom JS scripts -->
+
+        <script>
+        window.addEventListener('load', function() {
+            window.setTimeout(window.print, 100);
+        });
+        </script>
+
+    </div>
+    </body>
+</html>

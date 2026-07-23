@@ -1,0 +1,383 @@
+<!DOCTYPE HTML>
+<html lang="en" class="light" dir="ltr">
+    <head>
+        <!-- Book generated using mdBook -->
+        <meta charset="UTF-8">
+        <title>Performance - Halfhand</title>
+
+
+        <!-- Custom HTML head -->
+        
+        <meta name="description" content="">
+        <meta name="viewport" content="width=device-width, initial-scale=1">
+        <meta name="theme-color" content="#ffffff">
+
+        <link rel="icon" href="favicon.svg">
+        <link rel="shortcut icon" href="favicon.png">
+        <link rel="stylesheet" href="css/variables.css">
+        <link rel="stylesheet" href="css/general.css">
+        <link rel="stylesheet" href="css/chrome.css">
+        <link rel="stylesheet" href="css/print.css" media="print">
+
+        <!-- Fonts -->
+        <link rel="stylesheet" href="FontAwesome/css/font-awesome.css">
+        <link rel="stylesheet" href="fonts/fonts.css">
+
+        <!-- Highlight.js Stylesheets -->
+        <link rel="stylesheet" href="highlight.css">
+        <link rel="stylesheet" href="tomorrow-night.css">
+        <link rel="stylesheet" href="ayu-highlight.css">
+
+        <!-- Custom theme stylesheets -->
+
+    </head>
+    <body class="sidebar-visible no-js">
+    <div id="body-container">
+        <!-- Provide site root to javascript -->
+        <script>
+            var path_to_root = "";
+            var default_theme = window.matchMedia("(prefers-color-scheme: dark)").matches ? "navy" : "light";
+        </script>
+
+        <!-- Work around some values being stored in localStorage wrapped in quotes -->
+        <script>
+            try {
+                var theme = localStorage.getItem('mdbook-theme');
+                var sidebar = localStorage.getItem('mdbook-sidebar');
+
+                if (theme.startsWith('"') && theme.endsWith('"')) {
+                    localStorage.setItem('mdbook-theme', theme.slice(1, theme.length - 1));
+                }
+
+                if (sidebar.startsWith('"') && sidebar.endsWith('"')) {
+                    localStorage.setItem('mdbook-sidebar', sidebar.slice(1, sidebar.length - 1));
+                }
+            } catch (e) { }
+        </script>
+
+        <!-- Set the theme before any content is loaded, prevents flash -->
+        <script>
+            var theme;
+            try { theme = localStorage.getItem('mdbook-theme'); } catch(e) { }
+            if (theme === null || theme === undefined) { theme = default_theme; }
+            var html = document.querySelector('html');
+            html.classList.remove('light')
+            html.classList.add(theme);
+            var body = document.querySelector('body');
+            body.classList.remove('no-js')
+            body.classList.add('js');
+        </script>
+
+        <input type="checkbox" id="sidebar-toggle-anchor" class="hidden">
+
+        <!-- Hide / unhide sidebar before it is displayed -->
+        <script>
+            var body = document.querySelector('body');
+            var sidebar = null;
+            var sidebar_toggle = document.getElementById("sidebar-toggle-anchor");
+            if (document.body.clientWidth >= 1080) {
+                try { sidebar = localStorage.getItem('mdbook-sidebar'); } catch(e) { }
+                sidebar = sidebar || 'visible';
+            } else {
+                sidebar = 'hidden';
+            }
+            sidebar_toggle.checked = sidebar === 'visible';
+            body.classList.remove('sidebar-visible');
+            body.classList.add("sidebar-" + sidebar);
+        </script>
+
+        <nav id="sidebar" class="sidebar" aria-label="Table of contents">
+            <div class="sidebar-scrollbox">
+                <ol class="chapter"><li class="chapter-item expanded "><a href="index.html"><strong aria-hidden="true">1.</strong> Introduction</a></li><li class="chapter-item expanded affix "><li class="part-title">Getting started</li><li class="chapter-item expanded "><a href="quickstart.html"><strong aria-hidden="true">2.</strong> Quickstart</a></li><li class="chapter-item expanded "><a href="recording.html"><strong aria-hidden="true">3.</strong> Recording</a></li><li class="chapter-item expanded "><a href="replay-inspect.html"><strong aria-hidden="true">4.</strong> Replay & Inspect</a></li><li class="chapter-item expanded "><a href="search.html"><strong aria-hidden="true">5.</strong> Search</a></li><li class="chapter-item expanded affix "><li class="part-title">Security</li><li class="chapter-item expanded "><a href="redaction.html"><strong aria-hidden="true">6.</strong> Redaction</a></li><li class="chapter-item expanded "><a href="redaction-design.html"><strong aria-hidden="true">7.</strong> Redaction design</a></li><li class="chapter-item expanded "><a href="security.html"><strong aria-hidden="true">8.</strong> Security policy</a></li><li class="chapter-item expanded affix "><li class="part-title">Sharing & maintenance</li><li class="chapter-item expanded "><a href="export-import.html"><strong aria-hidden="true">9.</strong> Export & import</a></li><li class="chapter-item expanded "><a href="gc.html"><strong aria-hidden="true">10.</strong> Garbage collection</a></li><li class="chapter-item expanded "><a href="doctor.html"><strong aria-hidden="true">11.</strong> Doctor</a></li><li class="chapter-item expanded "><a href="stats.html"><strong aria-hidden="true">12.</strong> Stats</a></li><li class="chapter-item expanded affix "><li class="part-title">Reference</li><li class="chapter-item expanded "><a href="adapters.html"><strong aria-hidden="true">13.</strong> Adapters</a></li><li class="chapter-item expanded "><a href="mcp-proxy.html"><strong aria-hidden="true">14.</strong> MCP proxy</a></li><li class="chapter-item expanded "><a href="json.html"><strong aria-hidden="true">15.</strong> JSON reference</a></li><li class="chapter-item expanded "><a href="completions.html"><strong aria-hidden="true">16.</strong> Shell completions & man page</a></li><li class="chapter-item expanded "><a href="stability.html"><strong aria-hidden="true">17.</strong> Stability policy</a></li><li class="chapter-item expanded "><a href="performance.html" class="active"><strong aria-hidden="true">18.</strong> Performance</a></li><li class="chapter-item expanded affix "><li class="part-title">Appendices</li><li class="chapter-item expanded "><a href="faq.html"><strong aria-hidden="true">19.</strong> FAQ</a></li><li class="chapter-item expanded "><a href="1.0-definition-of-done.html"><strong aria-hidden="true">20.</strong> 1.0 definition of done</a></li><li class="chapter-item expanded "><a href="manual-qa.html"><strong aria-hidden="true">21.</strong> Manual QA</a></li><li class="chapter-item expanded "><a href="adr/0001-threads-vs-tokio.html"><strong aria-hidden="true">22.</strong> Architecture decision records</a></li><li><ol class="section"><li class="chapter-item expanded "><a href="adr/0001-threads-vs-tokio.html"><strong aria-hidden="true">22.1.</strong> ADR 0001: threads vs tokio</a></li><li class="chapter-item expanded "><a href="adr/0002-stored-step-ordinals.html"><strong aria-hidden="true">22.2.</strong> ADR 0002: stored step ordinals</a></li><li class="chapter-item expanded "><a href="adr/0003-fts-index-strategy.html"><strong aria-hidden="true">22.3.</strong> ADR 0003: FTS index strategy</a></li></ol></li></ol>
+            </div>
+            <div id="sidebar-resize-handle" class="sidebar-resize-handle">
+                <div class="sidebar-resize-indicator"></div>
+            </div>
+        </nav>
+
+        <!-- Track and set sidebar scroll position -->
+        <script>
+            var sidebarScrollbox = document.querySelector('#sidebar .sidebar-scrollbox');
+            sidebarScrollbox.addEventListener('click', function(e) {
+                if (e.target.tagName === 'A') {
+                    sessionStorage.setItem('sidebar-scroll', sidebarScrollbox.scrollTop);
+                }
+            }, { passive: true });
+            var sidebarScrollTop = sessionStorage.getItem('sidebar-scroll');
+            sessionStorage.removeItem('sidebar-scroll');
+            if (sidebarScrollTop) {
+                // preserve sidebar scroll position when navigating via links within sidebar
+                sidebarScrollbox.scrollTop = sidebarScrollTop;
+            } else {
+                // scroll sidebar to current active section when navigating via "next/previous chapter" buttons
+                var activeSection = document.querySelector('#sidebar .active');
+                if (activeSection) {
+                    activeSection.scrollIntoView({ block: 'center' });
+                }
+            }
+        </script>
+
+        <div id="page-wrapper" class="page-wrapper">
+
+            <div class="page">
+                                <div id="menu-bar-hover-placeholder"></div>
+                <div id="menu-bar" class="menu-bar sticky">
+                    <div class="left-buttons">
+                        <label id="sidebar-toggle" class="icon-button" for="sidebar-toggle-anchor" title="Toggle Table of Contents" aria-label="Toggle Table of Contents" aria-controls="sidebar">
+                            <i class="fa fa-bars"></i>
+                        </label>
+                        <button id="theme-toggle" class="icon-button" type="button" title="Change theme" aria-label="Change theme" aria-haspopup="true" aria-expanded="false" aria-controls="theme-list">
+                            <i class="fa fa-paint-brush"></i>
+                        </button>
+                        <ul id="theme-list" class="theme-popup" aria-label="Themes" role="menu">
+                            <li role="none"><button role="menuitem" class="theme" id="light">Light</button></li>
+                            <li role="none"><button role="menuitem" class="theme" id="rust">Rust</button></li>
+                            <li role="none"><button role="menuitem" class="theme" id="coal">Coal</button></li>
+                            <li role="none"><button role="menuitem" class="theme" id="navy">Navy</button></li>
+                            <li role="none"><button role="menuitem" class="theme" id="ayu">Ayu</button></li>
+                        </ul>
+                        <button id="search-toggle" class="icon-button" type="button" title="Search. (Shortkey: s)" aria-label="Toggle Searchbar" aria-expanded="false" aria-keyshortcuts="S" aria-controls="searchbar">
+                            <i class="fa fa-search"></i>
+                        </button>
+                    </div>
+
+                    <h1 class="menu-title">Halfhand</h1>
+
+                    <div class="right-buttons">
+                        <a href="print.html" title="Print this book" aria-label="Print this book">
+                            <i id="print-button" class="fa fa-print"></i>
+                        </a>
+                        <a href="https://github.com/halfhandorg/halfhand" title="Git repository" aria-label="Git repository">
+                            <i id="git-repository-button" class="fa fa-github"></i>
+                        </a>
+                        <a href="https://github.com/halfhandorg/halfhand/edit/main/docs/./performance.md" title="Suggest an edit" aria-label="Suggest an edit">
+                            <i id="git-edit-button" class="fa fa-edit"></i>
+                        </a>
+
+                    </div>
+                </div>
+
+                <div id="search-wrapper" class="hidden">
+                    <form id="searchbar-outer" class="searchbar-outer">
+                        <input type="search" id="searchbar" name="searchbar" placeholder="Search this book ..." aria-controls="searchresults-outer" aria-describedby="searchresults-header">
+                    </form>
+                    <div id="searchresults-outer" class="searchresults-outer hidden">
+                        <div id="searchresults-header" class="searchresults-header"></div>
+                        <ul id="searchresults">
+                        </ul>
+                    </div>
+                </div>
+
+                <!-- Apply ARIA attributes after the sidebar and the sidebar toggle button are added to the DOM -->
+                <script>
+                    document.getElementById('sidebar-toggle').setAttribute('aria-expanded', sidebar === 'visible');
+                    document.getElementById('sidebar').setAttribute('aria-hidden', sidebar !== 'visible');
+                    Array.from(document.querySelectorAll('#sidebar a')).forEach(function(link) {
+                        link.setAttribute('tabIndex', sidebar === 'visible' ? 0 : -1);
+                    });
+                </script>
+
+                <div id="content" class="content">
+                    <main>
+                        <h1 id="performance"><a class="header" href="#performance">Performance</a></h1>
+<p>Halfhand is a local-first flight recorder, so its performance budget is felt,
+not announced: <code>hh replay</code> opening instantly, <code>hh list</code> staying out of the way
+of a shell prompt, and a long recording not falling behind the agent. This page
+is the reference for the four performance-critical paths the SRS names, how to
+measure them, and what the regression gate does and does not enforce.</p>
+<p>The numbers below are <strong>reference, not the gate</strong>. The gate compares
+tonight's run against last night's run on the <em>same runner class</em>; the absolute
+figures shift with hardware. Treat the reference numbers as "roughly what a
+developer machine sees," and the gate as "did we get slower than yesterday."</p>
+<h2 id="the-four-benches"><a class="header" href="#the-four-benches">The four benches</a></h2>
+<p>Criterion benches live in <code>hh-core/benches/</code> (CLAUDE.md v1.0.0 addendum / NFR-1).
+Four groups, one per perf-critical path:</p>
+<div class="table-wrapper"><table><thead><tr><th>Group</th><th>What it measures</th><th>SRS hook</th></tr></thead><tbody>
+<tr><td><code>ingest</code></td><td><code>EventWriter::append_event</code> throughput — one durable round-trip through the single-writer channel per event (channel send → writer-thread INSERT → reply).</td><td>NFR-1 (≥5,000 events/s)</td></tr>
+<tr><td><code>replay_index</code></td><td><code>Store::list_event_index</code> for 10k and 100k-event sessions — the <code>hh replay</code> open hot path.</td><td>FR-3.5 (&lt;300 ms for 10k); Area 2 (&lt;1 s for 100k)</td></tr>
+<tr><td><code>blob_write</code></td><td><code>BlobStore::put</code> (BLAKE3 + zstd + atomic write) for 1 KiB / 1 MiB.</td><td>NFR-1 (file-change blob round-trips)</td></tr>
+<tr><td><code>blob_read</code></td><td><code>BlobStore::get</code> (read + zstd decompress + BLAKE3 verify) for 1 KiB / 1 MiB.</td><td>replay / inspect body fetch</td></tr>
+<tr><td><code>adapter_jsonl</code></td><td>Claude JSONL line → event conversion via the dev-only <code>adapter::fuzzing</code> parser entry.</td><td>FR-1.5 adapter tail</td></tr>
+</tbody></table>
+</div>
+<p><code>ingest</code> batches 128 events per criterion iteration and reports
+<code>Throughput::Elements(128)</code>, bounding the session to a small steady-state table
+so append cost does not drift as an index fills. <code>blob_write</code> returns its temp
+dir from the measured closure so the <code>TempDir</code> drop (the blob file + shard dir +
+rmdir) happens <em>outside</em> the timed region — otherwise that syscall noise would
+dominate and add false variance.</p>
+<p>Run them:</p>
+<pre><code>just bench                      # all four (enables `fuzzing` for adapter_jsonl)
+just bench-storage               # the three storage benches, ungated (faster loop)
+cargo bench -p hh-core --features fuzzing   # what the nightly gate runs
+</code></pre>
+<p>The nightly gate (<code>cargo bench</code> then <code>bench_compare.py</code>) runs with bounded
+criterion settings (1 s warmup, 1 s measurement, 30 samples ≈ 4 min total);
+criterion's defaults (100 × 5 s ≈ 8 min <em>per bench</em>) would make the run ~an
+hour. Tune up locally by editing <code>bench_config()</code> in the bench files or passing
+<code>--measurement-time</code> / <code>--sample-size</code> on the CLI.</p>
+<h2 id="reference-numbers"><a class="header" href="#reference-numbers">Reference numbers</a></h2>
+<p>From a <code>cargo bench -p hh-core --features fuzzing</code> run (developer-class Linux
+machine, bounded settings). These are reference points, not pass/fail:</p>
+<div class="table-wrapper"><table><thead><tr><th>Bench</th><th>Median</th><th>Throughput</th></tr></thead><tbody>
+<tr><td><code>ingest/append_event</code></td><td>18.9 ms / 128 events</td><td>~6.8k events/s (storage layer)</td></tr>
+<tr><td><code>replay_index/10000</code></td><td>5.0 ms</td><td>FR-3.5 &lt;300 ms ✓</td></tr>
+<tr><td><code>replay_index/100000</code></td><td>49 ms</td><td>Area 2 &lt;1 s ✓</td></tr>
+<tr><td><code>blob_write/1KiB</code></td><td>6.1 ms</td><td>—</td></tr>
+<tr><td><code>blob_write/1MiB</code></td><td>11.6 ms</td><td>~86 MiB/s</td></tr>
+<tr><td><code>blob_read/1KiB</code></td><td>6.7 µs</td><td>—</td></tr>
+<tr><td><code>blob_read/1MiB</code></td><td>1.05 ms</td><td>~950 MiB/s</td></tr>
+<tr><td><code>adapter_jsonl/parse_lines</code></td><td>7.6 µs / 3 lines</td><td>~395k records/s</td></tr>
+</tbody></table>
+</div>
+<h3 id="nfr-1-ingest-5000-eventss"><a class="header" href="#nfr-1-ingest-5000-eventss">NFR-1 (ingest ≥5,000 events/s)</a></h3>
+<p>The bench measures the <em>storage layer</em> in isolation — <code>append_event</code> through the
+single-writer channel with <code>synchronous = NORMAL</code> (no per-commit fsync; the WAL
+fsyncs at checkpoint, matching NFR-3's "fsync on session finalize" design). At
+that layer it sustains ~6.8k events/s, above the 5k/s target.</p>
+<p>NFR-1 is an end-to-end target, and the real recorder (PTY reader → adapter
+parse → serialize → channel → writer) runs slower than the storage layer
+alone. The <code>synchronous = NORMAL</code> fix lifted end-to-end ingest ~5× off the old
+per-event-fsync baseline (see the <code>### Performance</code> entry in the CHANGELOG);
+closing the remaining gap to 5k/s end-to-end needs statement caching + a batched
+writer, tracked as follow-up. The regression gate below protects the storage-
+layer gain from slipping back.</p>
+<h3 id="big-sessions-area-2"><a class="header" href="#big-sessions-area-2">Big sessions (Area 2)</a></h3>
+<p><code>hh replay</code> opens by loading the event index (<code>list_event_index</code>), then fetches
+bodies lazily through a bounded 50-entry LRU cache (<code>ReplayData</code>). At 100k
+events the index load is 49 ms and the body cache is verified bounded at capacity
+across unbounded scrolling (<code>get_evicts_lru_to_stay_bounded_at_capacity</code>), so
+open stays &lt;1 s and navigation does not grow memory with session size.</p>
+<p><code>hh inspect --json</code> streams a session as NDJSON through
+<code>Store::for_each_event_detail</code> — one <code>EventDetail</code> at a time, never collecting
+the whole session into RAM — so a 100k-event session inspects in constant
+memory. (An <code>#[ignore]</code> test, <code>for_each_event_detail_streams_100k_session</code>,
+exercises the 100k path end-to-end with <code>--ignored</code>.)</p>
+<h2 id="the-nightly-regression-gate"><a class="header" href="#the-nightly-regression-gate">The nightly regression gate</a></h2>
+<p><code>.github/workflows/bench-nightly.yml</code> runs the benches nightly and on
+<code>workflow_dispatch</code>, then <code>.github/scripts/bench_compare.py</code> compares each
+bench's median against the previous night's baseline, <strong>failing on &gt;15%
+regression</strong>. A bench is a regression when
+<code>current_median &gt; baseline_median × 1.15</code>.</p>
+<h3 id="why-a-rolling-baseline-not-a-committed-one"><a class="header" href="#why-a-rolling-baseline-not-a-committed-one">Why a rolling baseline, not a committed one</a></h3>
+<p>A baseline committed to git and generated on one machine, compared on another,
+is dominated by hardware differences, not code changes — a 15% gate would be
+meaningless across an Intel laptop vs an ARM cloud runner. Instead the workflow
+uses an <code>actions/cache</code> <strong>rolling baseline keyed by runner OS</strong>: each run
+restores the previous run's baseline (<code>bench-baseline-&lt;OS&gt;-</code>), compares against
+it, then — only on a passing run — saves its own results as the new baseline
+(<code>bench-baseline-&lt;OS&gt;-&lt;run_id&gt;</code>). Current-vs-baseline is therefore the same
+runner class, and the 15% threshold absorbs pool variance within that class.
+A regressed run is never adopted as the baseline (the seed step runs only on
+<code>if: success()</code>), so the gate always tracks the last <em>passing</em> run.</p>
+<h3 id="establishing-not-failing-on-a-cold-cache"><a class="header" href="#establishing-not-failing-on-a-cold-cache">Establishing, not failing, on a cold cache</a></h3>
+<p>When the cache is cold (first run, or after eviction), there is no baseline to
+compare against. Benches present in the current run but absent from the baseline
+are reported as <strong>establishing</strong> — no comparison, never a failure — and the
+run seeds the baseline for next time. The compare script's exit codes are part
+of the contract: <code>0</code> pass, <code>2</code> regression, <code>3</code> establishing/could-not-compare.</p>
+<h3 id="local-comparison"><a class="header" href="#local-comparison">Local comparison</a></h3>
+<pre><code>just bench                                  # run the benches (writes target/criterion)
+just bench-save-baseline ./bench-baseline   # snapshot this run as the baseline
+# ... make a change ...
+just bench                                  # run again
+just bench-compare ./bench-baseline         # same script the nightly gate uses
+</code></pre>
+<p><code>bench-baseline/</code> is gitignored (a local/CI cache artifact, not committed).
+<code>bench-compare</code> walks <code>target/criterion/&lt;group&gt;/&lt;bench&gt;/new/estimates.json</code>
+(criterion writes this on every run — no special flag) and reads each median
+point estimate in nanoseconds, criterion's native unit for <code>estimates.json</code>.</p>
+<h2 id="hh-list-cold-start-area-4"><a class="header" href="#hh-list-cold-start-area-4"><code>hh list</code> cold start (Area 4)</a></h2>
+<p><strong>Target:</strong> <code>hh list</code> cold start &lt;50 ms on a warm cache. This is a manual check,
+not CI-gated — wall-clock timing is too noisy across CI runners to gate on, and
+the 50 ms budget is a developer-experience target, not a correctness contract.</p>
+<p>The two things that used to make <code>hh list</code> scale with recorded history are both
+fixed:</p>
+<ul>
+<li><strong>No blob-dir scan on open.</strong> <code>Store::open</code> <code>mkdir -p</code>s the blob dir but does
+not read it; blob-dir scans only happen in <code>hh gc</code> (prune) and <code>hh stats</code>
+(footprint), never in <code>list</code>. <code>list</code> runs one <code>SELECT</code> against <code>sessions</code>.</li>
+<li><strong>O(rows-needing-heal) step probe.</strong> <code>Store::open</code>'s step self-heal used to
+scan every event on every invocation, so cold start grew with total history.
+Migration 0002 added a partial index
+<code>idx_events_needs_heal</code> (<code>WHERE step IS NULL AND kind != 'terminal_output'</code>),
+making the probe O(rows that actually need healing) — near-zero for a healthy
+store. Additive (a new index on an existing table); no breaking change.</li>
+</ul>
+<h3 id="running-the-check-hyperfine"><a class="header" href="#running-the-check-hyperfine">Running the check (hyperfine)</a></h3>
+<p><code>hyperfine</code> is a separate install (<code>cargo install hyperfine</code>); it is not a build
+dependency. The <code>just cold-start</code> recipe builds a release binary, seeds a temp
+data dir with a couple of sessions, warms the OS cache, and runs <code>hh list</code>
+under hyperfine:</p>
+<pre><code>just cold-start
+</code></pre>
+<p>which runs (roughly):</p>
+<pre><code>cargo build --release --bin hh
+export HH_DATA_DIR="$(mktemp -d)"
+./target/release/hh run -- echo warmup &gt;/dev/null   # seed a session
+hyperfine --warmup 3 --runs 20 \
+  "HH_DATA_DIR=$HH_DATA_DIR ./target/release/hh list"
+</code></pre>
+<p>On a warm cache (after <code>--warmup 3</code>), a developer-class machine sees <code>hh list</code>
+around 2 ms — well under the 50 ms budget. The budget has headroom for the
+config parse and store open (migrations are idempotent and cheap; the heal probe
+is near-zero) without scaling with how much you have recorded.</p>
+<blockquote>
+<p>If <code>hyperfine</code> is unavailable, a quick fallback is a shell loop:</p>
+<pre><code>export HH_DATA_DIR="$(mktemp -d)"; ./target/release/hh run -- echo x &gt;/dev/null
+for i in $(seq 1 20); do /usr/bin/time -f '%e' ./target/release/hh list &gt;/dev/null; done
+</code></pre>
+<p>(coarser than hyperfine, but enough to spot a regression into the tens of ms).</p>
+</blockquote>
+
+                    </main>
+
+                    <nav class="nav-wrapper" aria-label="Page navigation">
+                        <!-- Mobile navigation buttons -->
+                            <a rel="prev" href="stability.html" class="mobile-nav-chapters previous" title="Previous chapter" aria-label="Previous chapter" aria-keyshortcuts="Left">
+                                <i class="fa fa-angle-left"></i>
+                            </a>
+
+                            <a rel="next prefetch" href="faq.html" class="mobile-nav-chapters next" title="Next chapter" aria-label="Next chapter" aria-keyshortcuts="Right">
+                                <i class="fa fa-angle-right"></i>
+                            </a>
+
+                        <div style="clear: both"></div>
+                    </nav>
+                </div>
+            </div>
+
+            <nav class="nav-wide-wrapper" aria-label="Page navigation">
+                    <a rel="prev" href="stability.html" class="nav-chapters previous" title="Previous chapter" aria-label="Previous chapter" aria-keyshortcuts="Left">
+                        <i class="fa fa-angle-left"></i>
+                    </a>
+
+                    <a rel="next prefetch" href="faq.html" class="nav-chapters next" title="Next chapter" aria-label="Next chapter" aria-keyshortcuts="Right">
+                        <i class="fa fa-angle-right"></i>
+                    </a>
+            </nav>
+
+        </div>
+
+
+
+
+        <script>
+            window.playground_copyable = true;
+        </script>
+
+
+        <script src="elasticlunr.min.js"></script>
+        <script src="mark.min.js"></script>
+        <script src="searcher.js"></script>
+
+        <script src="clipboard.min.js"></script>
+        <script src="highlight.js"></script>
+        <script src="book.js"></script>
+
+        <!-- Custom JS scripts -->
+
+
+    </div>
+    </body>
+</html>

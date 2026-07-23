@@ -1,0 +1,305 @@
+<!DOCTYPE HTML>
+<html lang="en" class="light" dir="ltr">
+    <head>
+        <!-- Book generated using mdBook -->
+        <meta charset="UTF-8">
+        <title>ADR 0001: threads vs tokio - Halfhand</title>
+
+
+        <!-- Custom HTML head -->
+        
+        <meta name="description" content="">
+        <meta name="viewport" content="width=device-width, initial-scale=1">
+        <meta name="theme-color" content="#ffffff">
+
+        <link rel="icon" href="../favicon.svg">
+        <link rel="shortcut icon" href="../favicon.png">
+        <link rel="stylesheet" href="../css/variables.css">
+        <link rel="stylesheet" href="../css/general.css">
+        <link rel="stylesheet" href="../css/chrome.css">
+        <link rel="stylesheet" href="../css/print.css" media="print">
+
+        <!-- Fonts -->
+        <link rel="stylesheet" href="../FontAwesome/css/font-awesome.css">
+        <link rel="stylesheet" href="../fonts/fonts.css">
+
+        <!-- Highlight.js Stylesheets -->
+        <link rel="stylesheet" href="../highlight.css">
+        <link rel="stylesheet" href="../tomorrow-night.css">
+        <link rel="stylesheet" href="../ayu-highlight.css">
+
+        <!-- Custom theme stylesheets -->
+
+    </head>
+    <body class="sidebar-visible no-js">
+    <div id="body-container">
+        <!-- Provide site root to javascript -->
+        <script>
+            var path_to_root = "../";
+            var default_theme = window.matchMedia("(prefers-color-scheme: dark)").matches ? "navy" : "light";
+        </script>
+
+        <!-- Work around some values being stored in localStorage wrapped in quotes -->
+        <script>
+            try {
+                var theme = localStorage.getItem('mdbook-theme');
+                var sidebar = localStorage.getItem('mdbook-sidebar');
+
+                if (theme.startsWith('"') && theme.endsWith('"')) {
+                    localStorage.setItem('mdbook-theme', theme.slice(1, theme.length - 1));
+                }
+
+                if (sidebar.startsWith('"') && sidebar.endsWith('"')) {
+                    localStorage.setItem('mdbook-sidebar', sidebar.slice(1, sidebar.length - 1));
+                }
+            } catch (e) { }
+        </script>
+
+        <!-- Set the theme before any content is loaded, prevents flash -->
+        <script>
+            var theme;
+            try { theme = localStorage.getItem('mdbook-theme'); } catch(e) { }
+            if (theme === null || theme === undefined) { theme = default_theme; }
+            var html = document.querySelector('html');
+            html.classList.remove('light')
+            html.classList.add(theme);
+            var body = document.querySelector('body');
+            body.classList.remove('no-js')
+            body.classList.add('js');
+        </script>
+
+        <input type="checkbox" id="sidebar-toggle-anchor" class="hidden">
+
+        <!-- Hide / unhide sidebar before it is displayed -->
+        <script>
+            var body = document.querySelector('body');
+            var sidebar = null;
+            var sidebar_toggle = document.getElementById("sidebar-toggle-anchor");
+            if (document.body.clientWidth >= 1080) {
+                try { sidebar = localStorage.getItem('mdbook-sidebar'); } catch(e) { }
+                sidebar = sidebar || 'visible';
+            } else {
+                sidebar = 'hidden';
+            }
+            sidebar_toggle.checked = sidebar === 'visible';
+            body.classList.remove('sidebar-visible');
+            body.classList.add("sidebar-" + sidebar);
+        </script>
+
+        <nav id="sidebar" class="sidebar" aria-label="Table of contents">
+            <div class="sidebar-scrollbox">
+                <ol class="chapter"><li class="chapter-item expanded "><a href="../index.html"><strong aria-hidden="true">1.</strong> Introduction</a></li><li class="chapter-item expanded affix "><li class="part-title">Getting started</li><li class="chapter-item expanded "><a href="../quickstart.html"><strong aria-hidden="true">2.</strong> Quickstart</a></li><li class="chapter-item expanded "><a href="../recording.html"><strong aria-hidden="true">3.</strong> Recording</a></li><li class="chapter-item expanded "><a href="../replay-inspect.html"><strong aria-hidden="true">4.</strong> Replay & Inspect</a></li><li class="chapter-item expanded "><a href="../search.html"><strong aria-hidden="true">5.</strong> Search</a></li><li class="chapter-item expanded affix "><li class="part-title">Security</li><li class="chapter-item expanded "><a href="../redaction.html"><strong aria-hidden="true">6.</strong> Redaction</a></li><li class="chapter-item expanded "><a href="../redaction-design.html"><strong aria-hidden="true">7.</strong> Redaction design</a></li><li class="chapter-item expanded "><a href="../security.html"><strong aria-hidden="true">8.</strong> Security policy</a></li><li class="chapter-item expanded affix "><li class="part-title">Sharing & maintenance</li><li class="chapter-item expanded "><a href="../export-import.html"><strong aria-hidden="true">9.</strong> Export & import</a></li><li class="chapter-item expanded "><a href="../gc.html"><strong aria-hidden="true">10.</strong> Garbage collection</a></li><li class="chapter-item expanded "><a href="../doctor.html"><strong aria-hidden="true">11.</strong> Doctor</a></li><li class="chapter-item expanded "><a href="../stats.html"><strong aria-hidden="true">12.</strong> Stats</a></li><li class="chapter-item expanded affix "><li class="part-title">Reference</li><li class="chapter-item expanded "><a href="../adapters.html"><strong aria-hidden="true">13.</strong> Adapters</a></li><li class="chapter-item expanded "><a href="../mcp-proxy.html"><strong aria-hidden="true">14.</strong> MCP proxy</a></li><li class="chapter-item expanded "><a href="../json.html"><strong aria-hidden="true">15.</strong> JSON reference</a></li><li class="chapter-item expanded "><a href="../completions.html"><strong aria-hidden="true">16.</strong> Shell completions & man page</a></li><li class="chapter-item expanded "><a href="../stability.html"><strong aria-hidden="true">17.</strong> Stability policy</a></li><li class="chapter-item expanded "><a href="../performance.html"><strong aria-hidden="true">18.</strong> Performance</a></li><li class="chapter-item expanded affix "><li class="part-title">Appendices</li><li class="chapter-item expanded "><a href="../faq.html"><strong aria-hidden="true">19.</strong> FAQ</a></li><li class="chapter-item expanded "><a href="../1.0-definition-of-done.html"><strong aria-hidden="true">20.</strong> 1.0 definition of done</a></li><li class="chapter-item expanded "><a href="../manual-qa.html"><strong aria-hidden="true">21.</strong> Manual QA</a></li><li class="chapter-item expanded "><a href="../adr/0001-threads-vs-tokio.html" class="active"><strong aria-hidden="true">22.</strong> Architecture decision records</a></li><li><ol class="section"><li class="chapter-item expanded "><a href="../adr/0001-threads-vs-tokio.html" class="active"><strong aria-hidden="true">22.1.</strong> ADR 0001: threads vs tokio</a></li><li class="chapter-item expanded "><a href="../adr/0002-stored-step-ordinals.html"><strong aria-hidden="true">22.2.</strong> ADR 0002: stored step ordinals</a></li><li class="chapter-item expanded "><a href="../adr/0003-fts-index-strategy.html"><strong aria-hidden="true">22.3.</strong> ADR 0003: FTS index strategy</a></li></ol></li></ol>
+            </div>
+            <div id="sidebar-resize-handle" class="sidebar-resize-handle">
+                <div class="sidebar-resize-indicator"></div>
+            </div>
+        </nav>
+
+        <!-- Track and set sidebar scroll position -->
+        <script>
+            var sidebarScrollbox = document.querySelector('#sidebar .sidebar-scrollbox');
+            sidebarScrollbox.addEventListener('click', function(e) {
+                if (e.target.tagName === 'A') {
+                    sessionStorage.setItem('sidebar-scroll', sidebarScrollbox.scrollTop);
+                }
+            }, { passive: true });
+            var sidebarScrollTop = sessionStorage.getItem('sidebar-scroll');
+            sessionStorage.removeItem('sidebar-scroll');
+            if (sidebarScrollTop) {
+                // preserve sidebar scroll position when navigating via links within sidebar
+                sidebarScrollbox.scrollTop = sidebarScrollTop;
+            } else {
+                // scroll sidebar to current active section when navigating via "next/previous chapter" buttons
+                var activeSection = document.querySelector('#sidebar .active');
+                if (activeSection) {
+                    activeSection.scrollIntoView({ block: 'center' });
+                }
+            }
+        </script>
+
+        <div id="page-wrapper" class="page-wrapper">
+
+            <div class="page">
+                                <div id="menu-bar-hover-placeholder"></div>
+                <div id="menu-bar" class="menu-bar sticky">
+                    <div class="left-buttons">
+                        <label id="sidebar-toggle" class="icon-button" for="sidebar-toggle-anchor" title="Toggle Table of Contents" aria-label="Toggle Table of Contents" aria-controls="sidebar">
+                            <i class="fa fa-bars"></i>
+                        </label>
+                        <button id="theme-toggle" class="icon-button" type="button" title="Change theme" aria-label="Change theme" aria-haspopup="true" aria-expanded="false" aria-controls="theme-list">
+                            <i class="fa fa-paint-brush"></i>
+                        </button>
+                        <ul id="theme-list" class="theme-popup" aria-label="Themes" role="menu">
+                            <li role="none"><button role="menuitem" class="theme" id="light">Light</button></li>
+                            <li role="none"><button role="menuitem" class="theme" id="rust">Rust</button></li>
+                            <li role="none"><button role="menuitem" class="theme" id="coal">Coal</button></li>
+                            <li role="none"><button role="menuitem" class="theme" id="navy">Navy</button></li>
+                            <li role="none"><button role="menuitem" class="theme" id="ayu">Ayu</button></li>
+                        </ul>
+                        <button id="search-toggle" class="icon-button" type="button" title="Search. (Shortkey: s)" aria-label="Toggle Searchbar" aria-expanded="false" aria-keyshortcuts="S" aria-controls="searchbar">
+                            <i class="fa fa-search"></i>
+                        </button>
+                    </div>
+
+                    <h1 class="menu-title">Halfhand</h1>
+
+                    <div class="right-buttons">
+                        <a href="../print.html" title="Print this book" aria-label="Print this book">
+                            <i id="print-button" class="fa fa-print"></i>
+                        </a>
+                        <a href="https://github.com/halfhandorg/halfhand" title="Git repository" aria-label="Git repository">
+                            <i id="git-repository-button" class="fa fa-github"></i>
+                        </a>
+                        <a href="https://github.com/halfhandorg/halfhand/edit/main/docs/./adr/0001-threads-vs-tokio.md" title="Suggest an edit" aria-label="Suggest an edit">
+                            <i id="git-edit-button" class="fa fa-edit"></i>
+                        </a>
+
+                    </div>
+                </div>
+
+                <div id="search-wrapper" class="hidden">
+                    <form id="searchbar-outer" class="searchbar-outer">
+                        <input type="search" id="searchbar" name="searchbar" placeholder="Search this book ..." aria-controls="searchresults-outer" aria-describedby="searchresults-header">
+                    </form>
+                    <div id="searchresults-outer" class="searchresults-outer hidden">
+                        <div id="searchresults-header" class="searchresults-header"></div>
+                        <ul id="searchresults">
+                        </ul>
+                    </div>
+                </div>
+
+                <!-- Apply ARIA attributes after the sidebar and the sidebar toggle button are added to the DOM -->
+                <script>
+                    document.getElementById('sidebar-toggle').setAttribute('aria-expanded', sidebar === 'visible');
+                    document.getElementById('sidebar').setAttribute('aria-hidden', sidebar !== 'visible');
+                    Array.from(document.querySelectorAll('#sidebar a')).forEach(function(link) {
+                        link.setAttribute('tabIndex', sidebar === 'visible' ? 0 : -1);
+                    });
+                </script>
+
+                <div id="content" class="content">
+                    <main>
+                        <h1 id="adr-0001-threads--channels-for-the-recorder-not-tokio"><a class="header" href="#adr-0001-threads--channels-for-the-recorder-not-tokio">ADR-0001: Threads + channels for the recorder (not tokio)</a></h1>
+<ul>
+<li><strong>Status:</strong> Accepted</li>
+<li><strong>Date:</strong> 2026-07-04</li>
+<li><strong>Deciders:</strong> Halfhand engineering</li>
+<li><strong>SRS context:</strong> §6 lists <code>tokio (or threads + channels — implementer's choice, justify in ADR)</code> for <code>hh-record</code>.</li>
+</ul>
+<h2 id="context"><a class="header" href="#context">Context</a></h2>
+<p><code>hh-record</code> must concurrently drive three independent I/O sources during a
+recording:</p>
+<ol>
+<li>a PTY (read agent stdout, forward stdin, handle resize/signals),</li>
+<li>a recursive filesystem watcher (<code>notify</code>) for file changes,</li>
+<li>(optionally) a stdio MCP proxy forwarding JSON-RPC both ways,</li>
+<li>and feed all of them into the single-writer SQLite task.</li>
+</ol>
+<p>We need to choose a concurrency model for the recorder crate. The two
+realistic options are:</p>
+<ul>
+<li><strong>A. <code>tokio</code></strong> — an async runtime; each source becomes an <code>async</code> task
+multiplexed on a thread pool, with <code>tokio::sync::mpsc</code> feeding the writer.</li>
+<li><strong>B. OS threads + <code>std::sync::mpsc</code></strong> — one thread per source, plus the
+writer thread, communicating through standard channels.</li>
+</ul>
+<h2 id="decision"><a class="header" href="#decision">Decision</a></h2>
+<p>We choose <strong>B: OS threads + <code>std::sync::mpsc</code></strong> for v0.1.</p>
+<h2 id="justification"><a class="header" href="#justification">Justification</a></h2>
+<ol>
+<li><strong>Concurrency shape is small and fixed.</strong> A recording has a bounded,
+known set of long-lived workers (PTY reader, PTY writer, FS watcher, MCP
+proxy sides, SQLite writer). There is no fan-out to thousands of tasks. The
+cost/benefit of an async runtime does not pay off here: we would be paying
+the runtime's complexity to multiplex a handful of blocking I/O streams.</li>
+<li><strong>All real I/O here is blocking.</strong> <code>portable-pty</code> is a blocking PTY API;
+<code>notify</code> delivers events through a blocking channel; SQLite writes are
+blocking. Wrapping blocking I/O in <code>spawn_blocking</code> defeats the purpose of
+async and adds thread-pool juggling. Direct threads match the I/O model
+exactly.</li>
+<li><strong>The single-writer rule maps directly to a thread + channel.</strong> CLAUDE.md
+mandates "single-writer for SQLite (one writer task fed by an mpsc channel)
+… Never share a <code>Connection</code> across threads." That is literally one thread
+draining one <code>std::sync::mpsc::Receiver</code>. Introducing <code>tokio</code> would require
+a runtime, a <code>tokio::sync::mpsc</code>, and <code>spawn</code>ing the writer — more moving
+parts for the same guarantee, and a runtime handle that must be threaded
+across the FFI/PTY boundary.</li>
+<li><strong>Smaller, more auditable binary — relevant to NFR-2.</strong> No async runtime
+means fewer transitive crates and a smaller attack surface for a tool whose
+core promise is "never talks to the network." <code>tokio</code> pulls a large dependency
+graph with features (time, net, process, fs) we do not need.</li>
+<li><strong>MCP proxy latency (NFR-1, &lt; 5 ms p50) is fine with threads.</strong> Two threads
+(one per stdio direction) forwarding bytes add negligible overhead; there is
+no scheduler poll, no task wakeup latency.</li>
+<li><strong>Cancellation is straightforward.</strong> Agent exit or SIGTERM tears down the
+recorder by joining the workers; no runtime to shut down, no task abort
+machinery.</li>
+</ol>
+<h2 id="consequences"><a class="header" href="#consequences">Consequences</a></h2>
+<ul>
+<li>The recorder will use <code>std::thread</code> + <code>std::sync::mpsc</code> (or <code>crossbeam</code>
+channels if a multi-producer detail calls for it). <code>signal-hook</code> for
+SIGTERM/SIGINT.</li>
+<li>We forgo structured concurrency primitives (<code>tokio::select!</code>, cancellation
+tokens). We will emulate what we need with channel close + <code>JoinHandle</code>,
+which is adequate for this fixed topology.</li>
+<li><strong>Reversibility:</strong> if v0.2+ adds many concurrent MCP servers, streaming
+adapters, or a network-facing feature (none currently in scope — SRS §8
+excludes cloud/network), we would revisit this and likely adopt <code>tokio</code> at
+that boundary only, keeping <code>hh-core</code> runtime-free.</li>
+</ul>
+<h2 id="srs-deviation-flagged"><a class="header" href="#srs-deviation-flagged">SRS deviation flagged</a></h2>
+<p>The SRS leaves this open ("implementer's choice"). This ADR is the required
+justification. No SRS requirement is violated by either choice.</p>
+
+                    </main>
+
+                    <nav class="nav-wrapper" aria-label="Page navigation">
+                        <!-- Mobile navigation buttons -->
+                            <a rel="prev" href="../manual-qa.html" class="mobile-nav-chapters previous" title="Previous chapter" aria-label="Previous chapter" aria-keyshortcuts="Left">
+                                <i class="fa fa-angle-left"></i>
+                            </a>
+
+                            <a rel="next prefetch" href="../adr/0001-threads-vs-tokio.html" class="mobile-nav-chapters next" title="Next chapter" aria-label="Next chapter" aria-keyshortcuts="Right">
+                                <i class="fa fa-angle-right"></i>
+                            </a>
+
+                        <div style="clear: both"></div>
+                    </nav>
+                </div>
+            </div>
+
+            <nav class="nav-wide-wrapper" aria-label="Page navigation">
+                    <a rel="prev" href="../manual-qa.html" class="nav-chapters previous" title="Previous chapter" aria-label="Previous chapter" aria-keyshortcuts="Left">
+                        <i class="fa fa-angle-left"></i>
+                    </a>
+
+                    <a rel="next prefetch" href="../adr/0001-threads-vs-tokio.html" class="nav-chapters next" title="Next chapter" aria-label="Next chapter" aria-keyshortcuts="Right">
+                        <i class="fa fa-angle-right"></i>
+                    </a>
+            </nav>
+
+        </div>
+
+
+
+
+        <script>
+            window.playground_copyable = true;
+        </script>
+
+
+        <script src="../elasticlunr.min.js"></script>
+        <script src="../mark.min.js"></script>
+        <script src="../searcher.js"></script>
+
+        <script src="../clipboard.min.js"></script>
+        <script src="../highlight.js"></script>
+        <script src="../book.js"></script>
+
+        <!-- Custom JS scripts -->
+
+
+    </div>
+    </body>
+</html>

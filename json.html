@@ -1,0 +1,377 @@
+<!DOCTYPE HTML>
+<html lang="en" class="light" dir="ltr">
+    <head>
+        <!-- Book generated using mdBook -->
+        <meta charset="UTF-8">
+        <title>JSON reference - Halfhand</title>
+
+
+        <!-- Custom HTML head -->
+        
+        <meta name="description" content="">
+        <meta name="viewport" content="width=device-width, initial-scale=1">
+        <meta name="theme-color" content="#ffffff">
+
+        <link rel="icon" href="favicon.svg">
+        <link rel="shortcut icon" href="favicon.png">
+        <link rel="stylesheet" href="css/variables.css">
+        <link rel="stylesheet" href="css/general.css">
+        <link rel="stylesheet" href="css/chrome.css">
+        <link rel="stylesheet" href="css/print.css" media="print">
+
+        <!-- Fonts -->
+        <link rel="stylesheet" href="FontAwesome/css/font-awesome.css">
+        <link rel="stylesheet" href="fonts/fonts.css">
+
+        <!-- Highlight.js Stylesheets -->
+        <link rel="stylesheet" href="highlight.css">
+        <link rel="stylesheet" href="tomorrow-night.css">
+        <link rel="stylesheet" href="ayu-highlight.css">
+
+        <!-- Custom theme stylesheets -->
+
+    </head>
+    <body class="sidebar-visible no-js">
+    <div id="body-container">
+        <!-- Provide site root to javascript -->
+        <script>
+            var path_to_root = "";
+            var default_theme = window.matchMedia("(prefers-color-scheme: dark)").matches ? "navy" : "light";
+        </script>
+
+        <!-- Work around some values being stored in localStorage wrapped in quotes -->
+        <script>
+            try {
+                var theme = localStorage.getItem('mdbook-theme');
+                var sidebar = localStorage.getItem('mdbook-sidebar');
+
+                if (theme.startsWith('"') && theme.endsWith('"')) {
+                    localStorage.setItem('mdbook-theme', theme.slice(1, theme.length - 1));
+                }
+
+                if (sidebar.startsWith('"') && sidebar.endsWith('"')) {
+                    localStorage.setItem('mdbook-sidebar', sidebar.slice(1, sidebar.length - 1));
+                }
+            } catch (e) { }
+        </script>
+
+        <!-- Set the theme before any content is loaded, prevents flash -->
+        <script>
+            var theme;
+            try { theme = localStorage.getItem('mdbook-theme'); } catch(e) { }
+            if (theme === null || theme === undefined) { theme = default_theme; }
+            var html = document.querySelector('html');
+            html.classList.remove('light')
+            html.classList.add(theme);
+            var body = document.querySelector('body');
+            body.classList.remove('no-js')
+            body.classList.add('js');
+        </script>
+
+        <input type="checkbox" id="sidebar-toggle-anchor" class="hidden">
+
+        <!-- Hide / unhide sidebar before it is displayed -->
+        <script>
+            var body = document.querySelector('body');
+            var sidebar = null;
+            var sidebar_toggle = document.getElementById("sidebar-toggle-anchor");
+            if (document.body.clientWidth >= 1080) {
+                try { sidebar = localStorage.getItem('mdbook-sidebar'); } catch(e) { }
+                sidebar = sidebar || 'visible';
+            } else {
+                sidebar = 'hidden';
+            }
+            sidebar_toggle.checked = sidebar === 'visible';
+            body.classList.remove('sidebar-visible');
+            body.classList.add("sidebar-" + sidebar);
+        </script>
+
+        <nav id="sidebar" class="sidebar" aria-label="Table of contents">
+            <div class="sidebar-scrollbox">
+                <ol class="chapter"><li class="chapter-item expanded "><a href="index.html"><strong aria-hidden="true">1.</strong> Introduction</a></li><li class="chapter-item expanded affix "><li class="part-title">Getting started</li><li class="chapter-item expanded "><a href="quickstart.html"><strong aria-hidden="true">2.</strong> Quickstart</a></li><li class="chapter-item expanded "><a href="recording.html"><strong aria-hidden="true">3.</strong> Recording</a></li><li class="chapter-item expanded "><a href="replay-inspect.html"><strong aria-hidden="true">4.</strong> Replay & Inspect</a></li><li class="chapter-item expanded "><a href="search.html"><strong aria-hidden="true">5.</strong> Search</a></li><li class="chapter-item expanded affix "><li class="part-title">Security</li><li class="chapter-item expanded "><a href="redaction.html"><strong aria-hidden="true">6.</strong> Redaction</a></li><li class="chapter-item expanded "><a href="redaction-design.html"><strong aria-hidden="true">7.</strong> Redaction design</a></li><li class="chapter-item expanded "><a href="security.html"><strong aria-hidden="true">8.</strong> Security policy</a></li><li class="chapter-item expanded affix "><li class="part-title">Sharing & maintenance</li><li class="chapter-item expanded "><a href="export-import.html"><strong aria-hidden="true">9.</strong> Export & import</a></li><li class="chapter-item expanded "><a href="gc.html"><strong aria-hidden="true">10.</strong> Garbage collection</a></li><li class="chapter-item expanded "><a href="doctor.html"><strong aria-hidden="true">11.</strong> Doctor</a></li><li class="chapter-item expanded "><a href="stats.html"><strong aria-hidden="true">12.</strong> Stats</a></li><li class="chapter-item expanded affix "><li class="part-title">Reference</li><li class="chapter-item expanded "><a href="adapters.html"><strong aria-hidden="true">13.</strong> Adapters</a></li><li class="chapter-item expanded "><a href="mcp-proxy.html"><strong aria-hidden="true">14.</strong> MCP proxy</a></li><li class="chapter-item expanded "><a href="json.html" class="active"><strong aria-hidden="true">15.</strong> JSON reference</a></li><li class="chapter-item expanded "><a href="completions.html"><strong aria-hidden="true">16.</strong> Shell completions & man page</a></li><li class="chapter-item expanded "><a href="stability.html"><strong aria-hidden="true">17.</strong> Stability policy</a></li><li class="chapter-item expanded "><a href="performance.html"><strong aria-hidden="true">18.</strong> Performance</a></li><li class="chapter-item expanded affix "><li class="part-title">Appendices</li><li class="chapter-item expanded "><a href="faq.html"><strong aria-hidden="true">19.</strong> FAQ</a></li><li class="chapter-item expanded "><a href="1.0-definition-of-done.html"><strong aria-hidden="true">20.</strong> 1.0 definition of done</a></li><li class="chapter-item expanded "><a href="manual-qa.html"><strong aria-hidden="true">21.</strong> Manual QA</a></li><li class="chapter-item expanded "><a href="adr/0001-threads-vs-tokio.html"><strong aria-hidden="true">22.</strong> Architecture decision records</a></li><li><ol class="section"><li class="chapter-item expanded "><a href="adr/0001-threads-vs-tokio.html"><strong aria-hidden="true">22.1.</strong> ADR 0001: threads vs tokio</a></li><li class="chapter-item expanded "><a href="adr/0002-stored-step-ordinals.html"><strong aria-hidden="true">22.2.</strong> ADR 0002: stored step ordinals</a></li><li class="chapter-item expanded "><a href="adr/0003-fts-index-strategy.html"><strong aria-hidden="true">22.3.</strong> ADR 0003: FTS index strategy</a></li></ol></li></ol>
+            </div>
+            <div id="sidebar-resize-handle" class="sidebar-resize-handle">
+                <div class="sidebar-resize-indicator"></div>
+            </div>
+        </nav>
+
+        <!-- Track and set sidebar scroll position -->
+        <script>
+            var sidebarScrollbox = document.querySelector('#sidebar .sidebar-scrollbox');
+            sidebarScrollbox.addEventListener('click', function(e) {
+                if (e.target.tagName === 'A') {
+                    sessionStorage.setItem('sidebar-scroll', sidebarScrollbox.scrollTop);
+                }
+            }, { passive: true });
+            var sidebarScrollTop = sessionStorage.getItem('sidebar-scroll');
+            sessionStorage.removeItem('sidebar-scroll');
+            if (sidebarScrollTop) {
+                // preserve sidebar scroll position when navigating via links within sidebar
+                sidebarScrollbox.scrollTop = sidebarScrollTop;
+            } else {
+                // scroll sidebar to current active section when navigating via "next/previous chapter" buttons
+                var activeSection = document.querySelector('#sidebar .active');
+                if (activeSection) {
+                    activeSection.scrollIntoView({ block: 'center' });
+                }
+            }
+        </script>
+
+        <div id="page-wrapper" class="page-wrapper">
+
+            <div class="page">
+                                <div id="menu-bar-hover-placeholder"></div>
+                <div id="menu-bar" class="menu-bar sticky">
+                    <div class="left-buttons">
+                        <label id="sidebar-toggle" class="icon-button" for="sidebar-toggle-anchor" title="Toggle Table of Contents" aria-label="Toggle Table of Contents" aria-controls="sidebar">
+                            <i class="fa fa-bars"></i>
+                        </label>
+                        <button id="theme-toggle" class="icon-button" type="button" title="Change theme" aria-label="Change theme" aria-haspopup="true" aria-expanded="false" aria-controls="theme-list">
+                            <i class="fa fa-paint-brush"></i>
+                        </button>
+                        <ul id="theme-list" class="theme-popup" aria-label="Themes" role="menu">
+                            <li role="none"><button role="menuitem" class="theme" id="light">Light</button></li>
+                            <li role="none"><button role="menuitem" class="theme" id="rust">Rust</button></li>
+                            <li role="none"><button role="menuitem" class="theme" id="coal">Coal</button></li>
+                            <li role="none"><button role="menuitem" class="theme" id="navy">Navy</button></li>
+                            <li role="none"><button role="menuitem" class="theme" id="ayu">Ayu</button></li>
+                        </ul>
+                        <button id="search-toggle" class="icon-button" type="button" title="Search. (Shortkey: s)" aria-label="Toggle Searchbar" aria-expanded="false" aria-keyshortcuts="S" aria-controls="searchbar">
+                            <i class="fa fa-search"></i>
+                        </button>
+                    </div>
+
+                    <h1 class="menu-title">Halfhand</h1>
+
+                    <div class="right-buttons">
+                        <a href="print.html" title="Print this book" aria-label="Print this book">
+                            <i id="print-button" class="fa fa-print"></i>
+                        </a>
+                        <a href="https://github.com/halfhandorg/halfhand" title="Git repository" aria-label="Git repository">
+                            <i id="git-repository-button" class="fa fa-github"></i>
+                        </a>
+                        <a href="https://github.com/halfhandorg/halfhand/edit/main/docs/./json.md" title="Suggest an edit" aria-label="Suggest an edit">
+                            <i id="git-edit-button" class="fa fa-edit"></i>
+                        </a>
+
+                    </div>
+                </div>
+
+                <div id="search-wrapper" class="hidden">
+                    <form id="searchbar-outer" class="searchbar-outer">
+                        <input type="search" id="searchbar" name="searchbar" placeholder="Search this book ..." aria-controls="searchresults-outer" aria-describedby="searchresults-header">
+                    </form>
+                    <div id="searchresults-outer" class="searchresults-outer hidden">
+                        <div id="searchresults-header" class="searchresults-header"></div>
+                        <ul id="searchresults">
+                        </ul>
+                    </div>
+                </div>
+
+                <!-- Apply ARIA attributes after the sidebar and the sidebar toggle button are added to the DOM -->
+                <script>
+                    document.getElementById('sidebar-toggle').setAttribute('aria-expanded', sidebar === 'visible');
+                    document.getElementById('sidebar').setAttribute('aria-hidden', sidebar !== 'visible');
+                    Array.from(document.querySelectorAll('#sidebar a')).forEach(function(link) {
+                        link.setAttribute('tabIndex', sidebar === 'visible' ? 0 : -1);
+                    });
+                </script>
+
+                <div id="content" class="content">
+                    <main>
+                        <h1 id="halfhand-json-schema"><a class="header" href="#halfhand-json-schema">Halfhand JSON schema</a></h1>
+<p><code>hh</code> emits stable, documented JSON for machine consumption. There are two
+core shapes: a <strong>session object</strong> (one row in <code>hh list --json</code>) and an
+<strong>event object</strong> (the unit of <code>hh inspect --json</code>). Every object carries a
+<code>schema</code> field naming the version of this document it conforms to.</p>
+<div class="table-wrapper"><table><thead><tr><th>Command</th><th>Shape</th><th>Form</th></tr></thead><tbody>
+<tr><td><code>hh list --json</code></td><td>array of session objects</td><td>one JSON array</td></tr>
+<tr><td><code>hh inspect --json</code></td><td>event objects, one per event, in <code>(ts_ms, id)</code> order</td><td>NDJSON — one object per line</td></tr>
+<tr><td><code>hh inspect --json --step N</code></td><td>a single step object</td><td>one JSON object</td></tr>
+</tbody></table>
+</div>
+<p>The diagnostic/lifecycle commands also emit <code>schema:2</code> objects; they are
+documented on their own pages and linked from <a href="#other-json-outputs">Other JSON outputs</a>.</p>
+<p>Consumers should gate on <code>schema</code> before reading any other field. Unknown
+fields — and unknown values within a documented field, such as a new
+<code>agent_kind</code> — must be ignored; we never silently rename or remove a
+documented field within a version.</p>
+<h2 id="versioning"><a class="header" href="#versioning">Versioning</a></h2>
+<p><code>schema</code> is a single integer shared by every JSON-emitting command (session
+objects, event/step objects, and the <code>doctor</code>/<code>gc</code>/<code>stats</code>/<code>scan</code>/<code>export</code>
+objects on their own pages). The current version is <strong>2</strong>, frozen for the
+1.0 series (<a href="../STABILITY.html"><code>STABILITY.md</code></a>):</p>
+<ul>
+<li><strong>Additive changes — a new field, a new enum value, a new <code>body</code> shape —
+do not bump <code>schema</code> further.</strong> They are documented here (and on the
+relevant page) as they land, and the field they extend is always present.
+This is a change from the pre-1.0 (<code>0.1.x-beta</code>) policy, under which every
+additive change bumped the integer.</li>
+<li>A change that removes or renames a field, or changes a field's type, is
+breaking and is never made within <code>schema:2</code>. It ships as a new <code>schema</code>
+value with both shapes documented side by side, gated behind a major
+version of <code>hh</code> per <code>STABILITY.md</code>.</li>
+</ul>
+<h3 id="diff-from-schema-1"><a class="header" href="#diff-from-schema-1">Diff from schema 1</a></h3>
+<p><code>schema:2</code> folds in additive drift from the <code>0.1.x-beta</code> series that never
+got its own version bump, so <code>schema:1</code> output is missing:</p>
+<ul>
+<li>Three <code>agent_kind</code> values: <code>claude-desktop</code>, <code>codex-cli</code>, <code>gemini-cli</code>
+(only <code>claude-code</code>, <code>generic</code>, <code>mcp-only</code> existed under <code>schema:1</code>).</li>
+<li>The <code>lifecycle</code> event's <code>redaction_audit</code> body shape (produced by <code>hh redact</code>; see <a href="#body-by-kind"><code>body</code> by kind</a> below).</li>
+</ul>
+<p>No field was removed, renamed, or retyped — every <code>schema:1</code> consumer that
+already ignores unknown fields/values reads <code>schema:2</code> output unchanged.</p>
+<hr />
+<h2 id="session-object-hh-list---json"><a class="header" href="#session-object-hh-list---json">Session object (<code>hh list --json</code>)</a></h2>
+<p>One object per recorded session, newest-first.</p>
+<div class="table-wrapper"><table><thead><tr><th>Field</th><th>Type</th><th>Always present?</th><th>Description</th></tr></thead><tbody>
+<tr><td><code>schema</code></td><td>integer</td><td>yes</td><td><code>2</code>.</td></tr>
+<tr><td><code>id</code></td><td>string</td><td>yes</td><td>Full UUIDv7 session id.</td></tr>
+<tr><td><code>short_id</code></td><td>string</td><td>yes</td><td>6-hex-char short id (the random tail of the UUIDv7; see <code>NewSession::short_id</code>).</td></tr>
+<tr><td><code>status</code></td><td>string</td><td>yes</td><td>One of <code>recording</code>, <code>ok</code>, <code>error</code>, <code>interrupted</code>.</td></tr>
+<tr><td><code>agent_kind</code></td><td>string</td><td>yes</td><td>One of <code>claude-code</code>, <code>claude-desktop</code>, <code>codex-cli</code>, <code>gemini-cli</code>, <code>generic</code>, <code>mcp-only</code>. New values are additive (added in <code>schema:2</code>: <code>claude-desktop</code>, <code>codex-cli</code>, <code>gemini-cli</code> — see <a href="#diff-from-schema-1">Diff from schema 1</a>); consumers must ignore a value they don't recognize rather than error.</td></tr>
+<tr><td><code>adapter_status</code></td><td>string</td><td>yes</td><td>One of <code>none</code>, <code>active</code>, <code>degraded</code>. <code>active</code> while a structured adapter tailed events; <code>degraded</code> if the adapter failed but PTY/FS recording continued; <code>none</code> for a generic PTY-only session.</td></tr>
+<tr><td><code>adapter_degrade_reason</code></td><td>string | null</td><td>yes</td><td>When <code>adapter_status</code> is <code>degraded</code>, a machine-readable code explaining why (<code>jsonl_not_found</code>, <code>jsonl_parse_error</code>, <code>jsonl_schema_drift</code>, <code>discovery_ambiguous</code>, <code>permission_denied</code>, <code>io_error</code>). <code>null</code> for <code>active</code>/<code>none</code> sessions and for degraded sessions whose tailer panicked (no structured error). See SRS BUG-1.1. Added additively in v1.1.0.</td></tr>
+<tr><td><code>started_at</code></td><td>integer</td><td>yes</td><td>Session start, unix-ms UTC.</td></tr>
+<tr><td><code>ended_at</code></td><td>integer | null</td><td>yes</td><td>Session end, unix-ms UTC. <code>null</code> while recording or if the session was interrupted before finalizing.</td></tr>
+<tr><td><code>exit_code</code></td><td>integer | null</td><td>yes</td><td>The wrapped process's exit code, if finalized. <code>null</code> while recording or interrupted.</td></tr>
+<tr><td><code>duration_ms</code></td><td>integer | null</td><td>yes</td><td><code>ended_at - started_at</code>, clamped non-negative. <code>null</code> when <code>ended_at</code> is <code>null</code>.</td></tr>
+<tr><td><code>steps</code></td><td>integer</td><td>yes</td><td>Count of distinct stored step ordinals (semantic events). <code>terminal_output</code> events are not steps.</td></tr>
+<tr><td><code>files_changed</code></td><td>integer</td><td>yes</td><td>Count of distinct file paths in the session's <code>file_changes</code> rows.</td></tr>
+<tr><td><code>command</code></td><td>array of strings</td><td>yes</td><td>The recorded command line as an argv vector.</td></tr>
+<tr><td><code>cwd</code></td><td>string</td><td>yes</td><td>The session's working directory.</td></tr>
+<tr><td><code>imported_from</code></td><td>string | null</td><td>yes</td><td>The original session id, if this session was created by <code>hh import</code> (see <a href="export-import.html"><code>docs/export-import.md</code></a>). <code>null</code> for a locally-recorded session. Added additively — older clients that don't read it are unaffected.</td></tr>
+</tbody></table>
+</div>
+<hr />
+<h2 id="event-object-hh-inspect---json"><a class="header" href="#event-object-hh-inspect---json">Event object (<code>hh inspect --json</code>)</a></h2>
+<p>The unit of the NDJSON stream (<code>hh inspect --json</code>) and of each entry in a
+step object's <code>events</code> array (<code>hh inspect --json --step N</code>).</p>
+<div class="table-wrapper"><table><thead><tr><th>Field</th><th>Type</th><th>Always present?</th><th>Description</th></tr></thead><tbody>
+<tr><td><code>schema</code></td><td>integer</td><td>yes</td><td><code>2</code>.</td></tr>
+<tr><td><code>session</code></td><td>object</td><td>yes</td><td><code>{ "id": &lt;full uuid&gt;, "short_id": &lt;6 hex&gt;, "adapter_status": &lt;string&gt;, "adapter_degrade_reason": &lt;string|null&gt; }</code>. The <code>adapter_status</code>/<code>adapter_degrade_reason</code> fields (v1.1.0, SRS BUG-1.1) let a consumer detect a degraded session from any event's NDJSON line without a separate <code>hh list</code> call.</td></tr>
+<tr><td><code>id</code></td><td>integer</td><td>yes</td><td>The <code>events.id</code> row id (rowid PK). Stable within a session; used by <code>correlates</code>.</td></tr>
+<tr><td><code>ts_ms</code></td><td>integer</td><td>yes</td><td>Milliseconds since the session's <code>started_at</code>.</td></tr>
+<tr><td><code>kind</code></td><td>string</td><td>yes</td><td>One of <code>lifecycle</code>, <code>user_message</code>, <code>agent_message</code>, <code>thinking</code>, <code>tool_call</code>, <code>tool_result</code>, <code>mcp_request</code>, <code>mcp_response</code>, <code>mcp_notification</code>, <code>file_change</code>, <code>terminal_output</code>, <code>error</code>.</td></tr>
+<tr><td><code>step</code></td><td>integer | null</td><td>yes</td><td>1-based step ordinal, or <code>null</code> for non-step events (<code>terminal_output</code>, and <code>lifecycle</code> markers that never received a step).</td></tr>
+<tr><td><code>correlates</code></td><td>integer | null</td><td>yes</td><td>The <code>id</code> of the event this one is paired with (a <code>tool_result</code> → its <code>tool_call</code>; an <code>mcp_response</code> → its <code>mcp_request</code>), or <code>null</code>.</td></tr>
+<tr><td><code>summary</code></td><td>string</td><td>yes</td><td>One-line summary (≤ 120 chars).</td></tr>
+<tr><td><code>body</code></td><td>object | null</td><td>yes</td><td>The kind-specific structured payload, with internal-only keys (currently <code>correlate_key</code>) stripped. <code>null</code> if the event had no body. Large bodies that overflowed inline storage are resolved here — the <code>{"overflow": true, ...}</code> envelope is replaced by the real, blob-resolved content, so consumers never see the envelope.</td></tr>
+<tr><td><code>file_change</code></td><td>object | null</td><td>yes</td><td>Present (non-null) only when <code>kind == "file_change"</code>.</td></tr>
+</tbody></table>
+</div>
+<h3 id="body-by-kind"><a class="header" href="#body-by-kind"><code>body</code> by kind</a></h3>
+<p>The <code>body</code> field is free-form JSON whose shape depends on <code>kind</code>. The shapes
+the built-in adapters emit today:</p>
+<div class="table-wrapper"><table><thead><tr><th><code>kind</code></th><th><code>body</code> shape</th></tr></thead><tbody>
+<tr><td><code>user_message</code> (text prompt)</td><td><code>{ "text": "…" }</code></td></tr>
+<tr><td><code>agent_message</code></td><td><code>{ "text": "…" }</code></td></tr>
+<tr><td><code>thinking</code></td><td><code>{ "text": "…" }</code></td></tr>
+<tr><td><code>terminal_output</code></td><td><code>{ "text": "…" }</code> (UTF-8 chunk); binary chunks are stored as a blob and <code>body</code> carries the resolved bytes' lossy-UTF-8 text.</td></tr>
+<tr><td><code>tool_call</code></td><td><code>{ "name": "Bash", "input": { … } }</code></td></tr>
+<tr><td><code>tool_result</code></td><td><code>{ "content": "…", "is_error": false }</code> (<code>is_error</code> is <code>true</code> for a failed tool call)</td></tr>
+<tr><td><code>mcp_request</code></td><td>the forwarded JSON-RPC request object, plus <code>{ "latency_ms": … }</code> on the paired response</td></tr>
+<tr><td><code>mcp_response</code></td><td>the forwarded JSON-RPC response object, plus <code>{ "latency_ms": &lt;int&gt; }</code></td></tr>
+<tr><td><code>mcp_notification</code></td><td>the forwarded JSON-RPC notification object</td></tr>
+<tr><td><code>error</code></td><td><code>{ "message": "…" }</code></td></tr>
+<tr><td><code>file_change</code></td><td><code>null</code> (the structured change is in <code>file_change</code>)</td></tr>
+<tr><td><code>lifecycle</code></td><td><code>null</code>; `{ "event": "start"</td></tr>
+</tbody></table>
+</div>
+<p>Future adapter bodies are additive: new keys may appear within <code>body</code> without
+bumping <code>schema</code>.</p>
+<h3 id="file_change-object"><a class="header" href="#file_change-object"><code>file_change</code> object</a></h3>
+<div class="table-wrapper"><table><thead><tr><th>Field</th><th>Type</th><th>Description</th></tr></thead><tbody>
+<tr><td><code>path</code></td><td>string</td><td>Path relative to the session's <code>cwd</code>.</td></tr>
+<tr><td><code>change_kind</code></td><td>string</td><td>One of <code>created</code>, <code>modified</code>, <code>deleted</code>.</td></tr>
+<tr><td><code>before_hash</code></td><td>string | null</td><td>BLAKE3 hex of the pre-change content blob, if captured. <code>null</code> for a created file, or when the pre-change content exceeded <code>max_file_size</code> and was not stored.</td></tr>
+<tr><td><code>after_hash</code></td><td>string | null</td><td>BLAKE3 hex of the post-change content blob, if captured. <code>null</code> for a deleted file.</td></tr>
+<tr><td><code>is_binary</code></td><td>boolean</td><td>Whether the file was detected as binary.</td></tr>
+</tbody></table>
+</div>
+<hr />
+<h2 id="step-object-hh-inspect---json---step-n"><a class="header" href="#step-object-hh-inspect---json---step-n">Step object (<code>hh inspect --json --step N</code>)</a></h2>
+<p>A single JSON object describing one step.</p>
+<div class="table-wrapper"><table><thead><tr><th>Field</th><th>Type</th><th>Description</th></tr></thead><tbody>
+<tr><td><code>schema</code></td><td>integer</td><td><code>2</code>.</td></tr>
+<tr><td><code>session</code></td><td>object</td><td><code>{ "id", "short_id" }</code> as in the event object.</td></tr>
+<tr><td><code>step</code></td><td>integer</td><td>The 1-based step ordinal.</td></tr>
+<tr><td><code>kind</code></td><td>string</td><td>The step's badge kind — the "opening" side of a correlated pair (a <code>tool_call</code> over its <code>tool_result</code>; an <code>mcp_request</code> over its <code>mcp_response</code>).</td></tr>
+<tr><td><code>summary</code></td><td>string</td><td>The primary event's one-line summary.</td></tr>
+<tr><td><code>ts_ms</code></td><td>integer</td><td>The earliest <code>ts_ms</code> among the step's events.</td></tr>
+<tr><td><code>events</code></td><td>array of event objects</td><td>The events sharing this step, in <code>id</code> order. Usually one entry; two for a correlated call+result or request+response pair.</td></tr>
+</tbody></table>
+</div>
+<hr />
+<h2 id="resolving-blob-content"><a class="header" href="#resolving-blob-content">Resolving blob content</a></h2>
+<p><code>body</code> is always returned already-resolved: if an event's payload overflowed
+inline storage, <code>hh inspect --json</code> fetches and decompresses the blob and
+places the real content in <code>body</code>, so consumers never handle the
+<code>{"overflow": true, ...}</code> envelope. To fetch raw file-change content
+yourself, read the blob at <code>blobs/&lt;hash[0..2]&gt;/&lt;hash&gt;.zst</code> (zstd-compressed,
+BLAKE3-keyed) using <code>before_hash</code> / <code>after_hash</code>.</p>
+<hr />
+<h2 id="other-json-outputs"><a class="header" href="#other-json-outputs">Other JSON outputs</a></h2>
+<p>These commands emit their own <code>schema:1</code> objects (not session/event objects).
+They are documented in full on their own pages:</p>
+<div class="table-wrapper"><table><thead><tr><th>Command</th><th>Shape</th><th>Docs</th></tr></thead><tbody>
+<tr><td><code>hh doctor --json</code></td><td><code>{ schema, status, checks: [{ name, status, detail }] }</code></td><td><a href="doctor.html"><code>docs/doctor.md</code></a></td></tr>
+<tr><td><code>hh gc --json</code></td><td><code>{ schema, orphan_files_removed, orphan_bytes_reclaimed, orphan_rows_removed, vacuumed }</code></td><td><a href="gc.html"><code>docs/gc.md</code></a></td></tr>
+<tr><td><code>hh stats --json</code></td><td><code>{ schema, sessions, events, blobs: {…}, disk: {…}, largest_sessions: [{ id, short_id, events }] }</code></td><td><a href="stats.html"><code>docs/stats.md</code></a></td></tr>
+<tr><td><code>hh scan --json</code></td><td><code>{ schema, total_findings, sessions: [{ id, short_id, findings: [{ type, hash8, count, event_id, step, event_kind, location }] }] }</code> — findings never contain the secret; <code>hash8</code> correlates one secret across rows</td><td><a href="redaction.html"><code>docs/redaction.md</code></a></td></tr>
+<tr><td><code>hh export</code></td><td><code>{ schema, kind: "hh-export", hh_version, session, events }</code> — <code>session</code> is the <code>hh list --json</code> session object; <code>events</code> are event objects with resolved bodies; redacted by default</td><td><a href="redaction.html"><code>docs/redaction.md</code></a></td></tr>
+<tr><td><code>hh export --bundle</code></td><td>a zstd-compressed tar (<code>manifest.json</code> + <code>events.ndjson</code> + <code>blobs/</code>), not a single JSON object — see <a href="export-import.html"><code>docs/export-import.md</code></a> for the bundle's own schema</td><td><a href="export-import.html"><code>docs/export-import.md</code></a></td></tr>
+</tbody></table>
+</div>
+                    </main>
+
+                    <nav class="nav-wrapper" aria-label="Page navigation">
+                        <!-- Mobile navigation buttons -->
+                            <a rel="prev" href="mcp-proxy.html" class="mobile-nav-chapters previous" title="Previous chapter" aria-label="Previous chapter" aria-keyshortcuts="Left">
+                                <i class="fa fa-angle-left"></i>
+                            </a>
+
+                            <a rel="next prefetch" href="completions.html" class="mobile-nav-chapters next" title="Next chapter" aria-label="Next chapter" aria-keyshortcuts="Right">
+                                <i class="fa fa-angle-right"></i>
+                            </a>
+
+                        <div style="clear: both"></div>
+                    </nav>
+                </div>
+            </div>
+
+            <nav class="nav-wide-wrapper" aria-label="Page navigation">
+                    <a rel="prev" href="mcp-proxy.html" class="nav-chapters previous" title="Previous chapter" aria-label="Previous chapter" aria-keyshortcuts="Left">
+                        <i class="fa fa-angle-left"></i>
+                    </a>
+
+                    <a rel="next prefetch" href="completions.html" class="nav-chapters next" title="Next chapter" aria-label="Next chapter" aria-keyshortcuts="Right">
+                        <i class="fa fa-angle-right"></i>
+                    </a>
+            </nav>
+
+        </div>
+
+
+
+
+        <script>
+            window.playground_copyable = true;
+        </script>
+
+
+        <script src="elasticlunr.min.js"></script>
+        <script src="mark.min.js"></script>
+        <script src="searcher.js"></script>
+
+        <script src="clipboard.min.js"></script>
+        <script src="highlight.js"></script>
+        <script src="book.js"></script>
+
+        <!-- Custom JS scripts -->
+
+
+    </div>
+    </body>
+</html>
