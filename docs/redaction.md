@@ -160,6 +160,14 @@ Trade-offs to know about:
 backreferences). An invalid pattern is a hard error, not a silent no-op —
 a detector you configured must never quietly fail to load.
 
+## Ready-made rules for common services
+
+The built-ins above cover AWS, GitHub, GitLab, Slack, PEM keys, and JWTs.
+For gaps they don't cover yet — AI platforms, payment processors, package
+registries, and database URLs with embedded credentials — see the full
+`config.toml` (with a copy-paste-safe creation script) in the
+[Configuration section of the README](../README.md#configuration).
+
 ## Exit codes
 
 Part of the CLI contract (see the README): `0` ok · `1` generic error ·
