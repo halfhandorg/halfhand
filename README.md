@@ -24,13 +24,9 @@ Pick one. All three install the `hh` binary.
 # cargo (any OS with a Rust toolchain)
 cargo install halfhand
 
-# Homebrew (macOS / Linux)
-brew tap halfhand-org/tap
-brew install hh
-
+# Shell (macOS & Linux, recommended)
 # shell installer (prebuilt binary + SHA-256 checksum from the latest release)
-curl --proto '=https' --tlsv1.2 -sSf \
-  https://github.com/halfhandorg/halfhand/releases/latest/download/install.sh | sh
+curl --proto '=https' --tlsv1.2 -LsSf https://github.com/halfhandorg/halfhand/releases/latest/download/halfhand-installer.sh | sh
 ```
 
 The shell installer places `hh` in `~/.halfhand/bin`; add it to your `PATH`.
