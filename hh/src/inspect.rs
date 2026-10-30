@@ -1214,7 +1214,7 @@ mod tests {
         assert_eq!(hunks.len(), 1);
         assert!(hunks[0]["header"].is_null());
         let lines = hunks[0]["lines"].as_array().unwrap();
-        assert!(!lines.is_empty());
+        assert_ne!(lines.as_slice(), [] as [serde_json::Value; 0]);
         assert!(lines.iter().all(|l| l["tag"] == "insert"));
         assert!(lines.iter().any(|l| l["text"] == "created-content"));
     }

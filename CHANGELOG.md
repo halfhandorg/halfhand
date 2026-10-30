@@ -11,6 +11,22 @@ in CI rather than tracking `latest` until 1.0.
 
 ## [Unreleased]
 
+### Security
+
+- **zstd 0.13 → 0.14** (`zstd` 0.14.3, `zstd-safe` 8.2.0, `zstd-sys` 2.1.2):
+  resolves RUSTSEC-2026-0391, -0398, -0403 and -0410. Blob and bundle
+  compression format is unchanged; existing data stays readable.
+- **lru 0.18.0 → 0.18.5** (lockfile only): resolves RUSTSEC-2026-0253.
+  Note: lru 0.18.2+ declares `rust-version = 1.85`, above the workspace's
+  declared 1.75; no CI job currently enforces MSRV.
+
+### Fixed
+
+- Clippy 1.99's new `assert_is_empty` lint flagged eleven
+  `assert!(x.is_empty())` sites in tests; rewritten as
+  `assert_eq!`/`assert_ne!` against an empty array so failures print the
+  offending value. No behavior change.
+
 ### Tests — Claude Desktop fixture
 
 - **`hh-core/tests/fixtures/claude-desktop/session.jsonl`**: a sanitized real

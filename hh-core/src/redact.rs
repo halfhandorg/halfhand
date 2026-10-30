@@ -604,9 +604,9 @@ mod tests {
         })
         .unwrap();
         let secret = "wJalrXUtnFEMI/K7MDENG/bPxRfiCYzEXAMPLEKEY3";
-        assert!(d.detect(secret).is_empty());
+        assert_eq!(d.detect(secret), [] as [Finding; 0]);
         // Named types still fire.
-        assert!(!d.detect("AKIAIOSFODNN7EXAMPLE").is_empty());
+        assert_ne!(d.detect("AKIAIOSFODNN7EXAMPLE"), [] as [Finding; 0]);
     }
 
     #[test]

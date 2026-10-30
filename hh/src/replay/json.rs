@@ -276,7 +276,7 @@ mod tests {
         // pretty-printed JSON must come back as a real line break, not the
         // literal two-character sequence `\` `n`.
         let lines = pretty_lines(&v, theme);
-        assert!(!lines.is_empty());
+        assert_ne!(lines, [] as [ratatui::text::Line<'_>; 0]);
         let text = plain(&lines);
         assert!(!text.contains("\\n"), "escape sequence leaked: {text:?}");
         assert!(text.contains("line one"));

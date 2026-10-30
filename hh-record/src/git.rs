@@ -84,7 +84,7 @@ mod tests {
         let cwd = env::current_dir().unwrap();
         let meta = GitMeta::capture(&cwd);
         if let Some(sha) = &meta.sha {
-            assert!(!sha.is_empty());
+            assert_ne!(sha, "");
         }
         // `dirty` should at least be determined when sha is present.
         if meta.sha.is_some() {
