@@ -39,7 +39,7 @@ pub struct Cli {
 pub enum Command {
     /// Record an agent session inside a PTY (SRS FR-1).
     #[command(
-        after_help = "Example:\n  hh run -- claude\n  hh run --record-input -- python3 my_agent.py"
+        after_help = "Example:\n  hh run -- claude\n  hh run --record-input -- python3 my_agent.py\n  hh run --adapter claude-desktop -- $SHELL   # record the Claude Desktop session open in this dir; exit to finish"
     )]
     Run(RunArgs),
 

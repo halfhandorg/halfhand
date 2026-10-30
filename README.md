@@ -80,9 +80,11 @@ overview. Full reference: the [docs site](docs/index.md).
 
 Every `hh run` captures terminal output and file changes regardless of what
 you run. On top of that, Halfhand detects certain agents and records their
-internal turns as structured events: **Claude Code**, **Claude Desktop**,
-**OpenAI Codex CLI**, and **Google Gemini CLI** (auto-detected; force one with
-`--adapter`). If a transcript can't be found, it degrades gracefully — you
+internal turns as structured events: **Claude Code**, **OpenAI Codex CLI**,
+and **Google Gemini CLI** (auto-detected from the command; force one with
+`--adapter`), plus **Claude Desktop** Code-tab sessions via
+`hh run --adapter claude-desktop -- $SHELL` (confirmed on Linux; macOS and
+Windows paths are unverified). If a transcript can't be found, it degrades gracefully — you
 still get the full terminal and file-change recording, just without the
 structured breakdown. See
 [Adapters](docs/adapters.md).

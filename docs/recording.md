@@ -6,6 +6,7 @@
 hh run -- claude              # record a Claude Code session (auto-detected)
 hh run -- python3 my_agent.py # record any command
 hh run --adapter codex-cli -- codex   # force an adapter instead of auto-detect
+hh run --adapter claude-desktop -- $SHELL   # record the Claude Desktop session open in this dir
 ```
 
 Everything after `--` is the command to record.
@@ -21,7 +22,10 @@ Everything after `--` is the command to record.
 ## Flags
 
 - `--adapter <name>` — force `claude-code`, `claude-desktop`, `codex-cli`, or
-  `gemini-cli` instead of auto-detecting. See [Adapters](./adapters.md).
+  `gemini-cli` instead of auto-detecting. `claude-desktop` is never
+  auto-detected (Desktop is a GUI app, there is no command to recognize):
+  wrap a shell with `--adapter claude-desktop` and exit it to end the
+  recording. See [Adapters](./adapters.md).
 - `--record-input` — also record your keystrokes. **Off by default** because
   keystrokes may contain secrets (SRS NFR-4). Enable only when you need to
   reproduce exact input, and scan/redact before sharing.

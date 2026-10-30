@@ -48,7 +48,10 @@ gh attestation verify ./hh --repo halfhandorg/halfhand
   HTML replay page; `hh import` brings a bundle back under a new id. Exports
   are **always redacted by default**.
 - **More adapters** — Codex CLI, Gemini CLI, and Claude Desktop, alongside
-  Claude Code.
+  Claude Code. *Erratum (1.1.0):* in 1.0.0 the Claude Desktop adapter only
+  engaged for a binary literally named `claude-desktop`, which is not how
+  Desktop is launched, so Desktop runs recorded no structured steps. Fixed in
+  1.1.0 — see `docs/adapters.md`, "Recording a Claude Desktop session".
 - **Search** — `hh search` is FTS5 full-text across all sessions, with filters
   and `--json`.
 - **Windows** — builds on Windows every push (runtime PTY is best-effort per

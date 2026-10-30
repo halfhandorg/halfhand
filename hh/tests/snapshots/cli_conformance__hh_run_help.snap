@@ -17,3 +17,4 @@ Options:
 Example:
   hh run -- claude
   hh run --record-input -- python3 my_agent.py
+  hh run --adapter claude-desktop -- $SHELL   # record the Claude Desktop session open in this dir; exit to finish
