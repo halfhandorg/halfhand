@@ -5,6 +5,18 @@ the Desktop counterpart of `../claude-code/current-format.jsonl` and exists so
 the `claude-desktop` adapter has a committed sample of what Desktop actually
 writes, rather than a hand-written approximation.
 
+## Tests that consume this fixture
+
+Both live in `hh-core/src/adapter/mod.rs` (`mod tests`):
+
+- `snapshot_claude_desktop_fixture_parse` runs every line through the pure
+  parser and locks the resulting 51 events in an insta snapshot. Regenerate
+  with `INSTA_UPDATE=always cargo test -p hh-core snapshot_claude_desktop`
+  after an intentional change, and review the `.snap` diff.
+- `tailer_parses_committed_claude_desktop_fixture` tails the fixture through
+  `ClaudeDesktopAdapter` end to end and checks the event mix, tool names, the
+  single error result, `AgentKind::ClaudeDesktop`, model and usage.
+
 ## Provenance
 
 | Field                 | Value                                              |

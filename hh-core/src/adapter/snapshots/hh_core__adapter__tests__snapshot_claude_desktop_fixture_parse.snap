@@ -1,0 +1,803 @@
+---
+source: hh-core/src/adapter/mod.rs
+expression: "serde_json::to_string_pretty(&serde_json::json!({\n    \"events\": all_events\n})).unwrap()"
+---
+{
+  "events": [
+    {
+      "blob_hash": null,
+      "blob_size": null,
+      "body_json": {
+        "text": "lorem ipsum dolor sit amet consectetur adipiscing elit sed\ndo eiusmod tempor incididunt ut labore et dolore magna aliqua ut enim \n\nad minim veniam lorem ipsum dolor sit amet cons\nadipiscing elit sed do eiusmod tempor incididunt ut labo\net dolore magna aliqua \nut enim ad minim veniam lorem ipsum dolor sit amet consectetur adipiscing elit sed do eius\ntempor incididunt ut labore et dolore magna aliqua ut enim ad minim veniam lorem ipsum dolor sit amet consectetur adipiscing elit sed do eiusmod tempor incididunt ut labore et dolore magna aliqua ut enim ad minim veniam lorem ipsum dolor sit amet consectetur adipiscing elit sed do eiusmod tempor incididunt ut labore et\ndolore magna aliqua \n\nut enim ad minim veniam lorem ipsum dolor sit amet consectetur adipiscing elit s\ndo eiusmod tempor incididunt ut labore\net dolore magna aliqua ut enim ad minim veniam lorem ipsum dolor sit amet consectetur adipiscing elit sed do eiusmod tempor incididunt ut lab\net dolore magna aliqua ut enim ad minim veniam lorem ipsum dolor sit amet consectetur adipiscing elit sed do eiusmod tempor incididunt ut labore \net dolore magna aliqua ut enim ad minim veniam lorem ipsum dolor sit amet consectetur adipiscing elit sed do eius\ntempor incididunt ut labore et dolore magna aliqua ut enim ad minim veniam lorem ipsum dolor sit amet consectetur adipiscing \nelit sed do eiusmod tempor incididunt ut labore et\ndolore magna aliqua ut enim ad minim veniam lorem ipsum dolor sit amet consectetur adipiscing elit sed d\neiusmod tempor incididunt ut labore et dolore magn"
+      },
+      "correlates": null,
+      "kind": "user_message",
+      "session_id": "test-session-id",
+      "step": null,
+      "summary": "lorem ipsum dolor sit amet consectetur adipiscing elit sed\ndo eiusmod tempor incididunt ut labore et dolore magna aliqu…",
+      "ts_ms": 0
+    },
+    {
+      "blob_hash": null,
+      "blob_size": null,
+      "body_json": {
+        "text": "lorem ipsum dolor sit amet consectetur adipiscing elit sed do eiusmod tempor incididunt ut labore et dolore magna aliqua u"
+      },
+      "correlates": null,
+      "kind": "thinking",
+      "session_id": "test-session-id",
+      "step": null,
+      "summary": "lorem ipsum dolor sit amet consectetur adipiscing elit sed do eiusmod tempor incididunt ut labore et dolore magna aliqu…",
+      "ts_ms": 0
+    },
+    {
+      "blob_hash": null,
+      "blob_size": null,
+      "body_json": {
+        "correlate_key": "toolu_000000000000000000000001",
+        "input": {
+          "command": "lorem ipsum dolor sit amet consectetur adipiscing elit sed do eiusmod tempor incididunt ut labore et dolore magna aliqua ut enim ad minim veniam lorem ipsum dolor sit amet consectetur adipiscing elit sed do eiusmod tempor incididunt ut labore et dolore magna aliqua u"
+        },
+        "name": "Bash"
+      },
+      "correlates": null,
+      "kind": "tool_call",
+      "session_id": "test-session-id",
+      "step": null,
+      "summary": "tool_call: Bash",
+      "ts_ms": 0
+    },
+    {
+      "blob_hash": null,
+      "blob_size": null,
+      "body_json": {
+        "content": "lorem ipsum dolor sit amet consectetur\nadipiscing elit sed do eiusmod tempor incidi\nut labore et dolore magna aliqua ut enim ad minim \nveniam lorem ipsum dolor sit amet consectetur \nadipiscing elit sed do eiusmod tempor incididunt ut \nlabore et dolore magna aliqua ut enim ad minim ven\nlorem ipsum dolor sit amet consectetur adipiscing elit\nsed do eiusmod tempor incididunt ut labore et dolo\nmagna aliqua ut enim ad minim veniam lorem ips\ndolor sit amet consectetur adipiscing elit\n\nsed do eiusmod tempor incididunt\nut labore \net dolore magna aliqua ut enim ad minim veniam l\nipsum dolor si\namet consectetur \nadipiscing elit sed \ndo eiusmod tempor \nincididunt ut labore \net dolore magna aliq\nut enim ad minim venia\nlorem ipsum dolor si\namet consectetur a\nelit sed do eius\ntempor inc\nut \nl\net \ndolore magna al\nut enim ad min\nveniam lorem\nipsum dolor \nsit amet c\nadipiscing elit \nsed do e\ntempor incidid\nut labore et d\nmagna aliqu\nut enim ad minim\nven\nlorem ipsum dolor sit amet consectetur adipi\nelit sed do eiusmod tempor incididunt ut\n\nlabore et dolore magna aliqua ut enim ad mini\nveniam lorem ipsum dolor sit a\nc",
+        "correlate_key": "toolu_000000000000000000000001",
+        "is_error": false,
+        "tool_use_id": "toolu_000000000000000000000001"
+      },
+      "correlates": null,
+      "kind": "tool_result",
+      "session_id": "test-session-id",
+      "step": null,
+      "summary": "tool_result: lorem ipsum dolor sit amet consectetur adipiscing elit sed do eiusmod tempor incidi ut labore et dolore ma…",
+      "ts_ms": 0
+    },
+    {
+      "blob_hash": null,
+      "blob_size": null,
+      "body_json": {
+        "text": "lorem ipsum dolor sit amet consectetur adipiscing elit sed do eiusmod tempor incididunt ut labore et dolore magna aliqua ut"
+      },
+      "correlates": null,
+      "kind": "thinking",
+      "session_id": "test-session-id",
+      "step": null,
+      "summary": "lorem ipsum dolor sit amet consectetur adipiscing elit sed do eiusmod tempor incididunt ut labore et dolore magna aliqu…",
+      "ts_ms": 0
+    },
+    {
+      "blob_hash": null,
+      "blob_size": null,
+      "body_json": {
+        "correlate_key": "toolu_000000000000000000000002",
+        "input": {
+          "command": "lorem ipsum dolor sit amet consectetur adipiscing elit sed do eiusmod tempor incididunt ut labore et dolore magna aliqua ut enim ad minim veniam lorem ipsum dolor sit amet con"
+        },
+        "name": "Bash"
+      },
+      "correlates": null,
+      "kind": "tool_call",
+      "session_id": "test-session-id",
+      "step": null,
+      "summary": "tool_call: Bash",
+      "ts_ms": 0
+    },
+    {
+      "blob_hash": null,
+      "blob_size": null,
+      "body_json": {
+        "content": "lorem ipsum dolor sit amet conse\n\nadipiscing elit sed do eiusmod t\nincididunt\nut labore et dolore magna aliqua ut enim ad minim veniam lorem ipsum dolor sit amet \nconsectetur adipiscing elit sed do eiusmod tempor incididunt u\nlabore et dolore magna aliqua ut enim ad minim veniam lorem ipsum dolor sit amet consectetur adipiscing \nelit sed do eiusmod tempor incididun\nut labore et \n\ndolore magna aliqua ut enim ad minim veniam lorem ipsum dolor sit amet consectetu\nadipiscing elit sed do eiusmod tempor incididunt ut labore et\ndolore magna aliqua ut enim ad minim veniam lorem ipsum dolor sit amet conse\nadipiscing eli\nsed do eiusmod tempor incididunt ut\nlabore et dolo\nmagna aliqua ut enim ad minim veniam lorem ips\ndolor sit amet consectetur ad\nelit sed do eiusmod tempor incididunt u\nlabore et dolore magna aliqua ut enim ad minim veniam l\nipsum dolor s\namet consectetur adipiscing elit se\ndo eiusmod tempo\nincididunt ut labore et dolore magna aliqua ut enim ad minim v\nlorem ipsum dolor sit amet co\nadipiscing elit \nsed do eiusmod tempor incididunt ut labore et dolore m\naliqua ut enim ad minim veniam \nlorem ipsum dolor sit amet consectetur ad\nelit sed do eiusmod tempor incididunt ut labore et dolore magna aliqua u\nenim ad minim v\nlorem ipsum dolor sit am\nconsectetur adipis\nelit sed do eiusmod \ntempor incididun\nut labore et dolore magna aliqua ut enim ad minim veniam lorem i\ndolor sit amet consectetur adip\nelit sed do eiusmod tempor incididunt ut \nlabore et dolore magna aliqua ut enim ad minim veniam lorem ipsum dolor \nsit amet consec\nadipiscing elit sed do \neiusmod tempor inc\nut labore et dolore \nmagna aliqua ut \nenim ad minim veniam lorem ipsum dolor sit amet conse\nadipiscing elit sed do eiusmod \ntempor incididunt ut labore et dolore mag\naliqua ut enim ad minim veniam lorem ipsum dolor sit amet consectetur ad\nelit sed do eiu\ntempor incididunt ut l\net dolore magna aliqua \nut enim ad minim veniam \nlorem ipsum dolo\nsit amet consect\nadipiscing eli\nsed do eiusm\ntempor incidid\nut \nlabore et dolore ma\naliqua ut enim ad minim veniam l\nipsum dolor sit amet consectetur adipiscing elit sed \n\ndo eiusmod tempor incididunt u\nlabore et \ndolore magna aliqua ut enim ad minim veniam lorem ipsum dolor sit amet consectetur \nadipiscing elit sed do eiusmod tempor incididunt ut labore et \ndolore magna aliqua ut enim ad minim veniam lorem ipsum dolor\nsit amet consectetur adipiscing elit sed do eiusmod tempor incididunt ut labore et dolor\nmagna aliqua ut enim ad minim ve\nlorem ipsum dol\nsit amet consectetur adipiscing elit sed do eiusmod \ntempor incididunt ut labore et dolore magna aliqua ut enim ad minim veniam l\nipsum dolor sit amet consectetur adipi\nelit sed do ei\ntempor incidid\n\nut labore et dolore magna aliqua ut enim ad minim v\nlorem ipsum \ndolor sit ame\nconsectetur adipiscing elit sed do eiusmod tempor inc\nut labore et dolore magna aliqua ut e\nad minim veniam lorem ipsu\ndolor sit amet consectetur adipiscing elit sed do eiusmod tempor incididunt ut labore et dolore magna aliqua \nut enim ad min\nveniam lorem \nipsum dolor sit amet consectetur adipiscing elit se\ndo eiusmod tempor incididunt ut labore et dol\nmagna aliqua ut enim ad mi\nveniam lorem ipsum dolor sit amet consectetur adipiscing elit sed do eiusmod tempor incididunt ut labore et\ndolore magna a\nut enim ad mi\nveniam lorem ipsum dolor sit amet consectetur adi\nelit sed do eiusmod tempor incididunt \nut labore et dolore magna \naliqua ut enim ad minim veniam lorem ipsum dolor sit amet consectetur adipiscing elit sed do eiusmod tempor\nincididunt ut \nlabore et dolore magna aliqua ut e\nad minim veniam \nlorem ipsum dolor sit ame\nconsectetur adipiscing elit \nsed do eiusmod tempor incididunt ut labore et dolore magna aliqua ut enim ad minim veniam lorem ipsu\ndolor sit amet consectetur adipiscing elit sed do eiusmod tempor incididunt ut labore et dolore magna aliqua ut enim ad min\nveniam lorem ips\ndolor sit ame\nconsectetur adipiscing elit sed do eiusmod tempor incididunt ut labore et dolore magna aliqua ut enim ad minim veniam lorem ipsum do\nsit amet consectetur adipis\nelit sed do eiusmod \ntempor incididunt ut labore et dolore magna aliqua ut enim ad minim veniam\nlorem ipsum dolor sit amet c\nadipiscing elit sed\ndo eiusmod tempor incididunt ut labore et dolore magna aliqua ut enim ad mi\nveniam lorem ipsum dolor sit amet \nconsectetur adipis\nelit sed do eiusmo\ntempor incidi\nut labore et d\n\nmagna aliqua ut enim ad minim veniam lorem \nipsum dolor \nsit amet consectetur adipiscing elit sed do eiusmod tempor\nincididunt ut labore et dol\nmagna aliqua ut enim ad minim veniam \nlorem ipsum dolor sit amet\nconsectetur adipiscing elit sed do eiusmod tempor incididunt ut labore et dolore magna aliqua ut enim ad minim veniam lorem ipsum dolor sit amet consectetur adipiscing elit sed \ndo eiusmod tempor incididunt ut labore et dolore magna aliqua ut enim ad minim veniam lorem ipsum dolor si\namet consectet\nadipiscing \nelit sed do eiusmod tempor incididunt ut l\net dolore magna aliqua ut \nenim ad minim \nveniam lorem i\ndolor sit am\nconsectetur ad\neli\ns",
+        "correlate_key": "toolu_000000000000000000000002",
+        "is_error": false,
+        "tool_use_id": "toolu_000000000000000000000002"
+      },
+      "correlates": null,
+      "kind": "tool_result",
+      "session_id": "test-session-id",
+      "step": null,
+      "summary": "tool_result: lorem ipsum dolor sit amet conse  adipiscing elit sed do eiusmod t incididunt ut labore et dolore magna al…",
+      "ts_ms": 0
+    },
+    {
+      "blob_hash": null,
+      "blob_size": null,
+      "body_json": {
+        "text": "lorem ipsum dolor sit amet consectetur adipiscing elit sed do eiusmod tempor incididunt ut labore et dolore magna aliqua ut enim ad minim veniam lorem ipsum dolor sit amet consectetur adipiscing elit sed do eiusmod tempor incididunt ut labore et dolore magna aliqua ut enim ad minim veniam lorem ipsum dolor sit amet consectetur a"
+      },
+      "correlates": null,
+      "kind": "thinking",
+      "session_id": "test-session-id",
+      "step": null,
+      "summary": "lorem ipsum dolor sit amet consectetur adipiscing elit sed do eiusmod tempor incididunt ut labore et dolore magna aliqu…",
+      "ts_ms": 0
+    },
+    {
+      "blob_hash": null,
+      "blob_size": null,
+      "body_json": {
+        "text": "lorem ipsum dolor sit amet consectetur adipiscing elit sed do eiusmod tempor incididunt ut labore et dolore magna aliqua ut enim ad minim veniam lorem ipsum dolor sit amet consectetur adipiscing e"
+      },
+      "correlates": null,
+      "kind": "agent_message",
+      "session_id": "test-session-id",
+      "step": null,
+      "summary": "lorem ipsum dolor sit amet consectetur adipiscing elit sed do eiusmod tempor incididunt ut labore et dolore magna aliqu…",
+      "ts_ms": 0
+    },
+    {
+      "blob_hash": null,
+      "blob_size": null,
+      "body_json": {
+        "correlate_key": "toolu_000000000000000000000003",
+        "input": {
+          "content": "lorem ipsum dolor sit amet conse\n\nadipiscing elit sed do eiusmod t\nincididunt\nut labore et dolore magna aliqua ut enim ad minim veniam lorem ipsum dolor sit amet \nconsectetur adipiscing elit sed do eiusmod tempor incididunt u\nlabore et dolore magna aliqua ut enim ad minim veniam lorem ipsum dolor sit amet consectetur adipiscing \nelit sed do eiusmod tempor incididun\nut labore et \n\ndolore magna aliqua ut enim ad minim veniam lorem ipsum dolor sit amet consectetu\nadipiscing elit sed do eiusmod tempor incididunt ut labore et\ndolore magna aliqua ut enim ad minim veniam lorem ipsum dolor sit amet conse\nadipiscing eli\nsed do eiusmod tempor incididunt ut\nlabore et dolo\nmagna aliqua ut enim ad minim veniam lorem ips\ndolor sit amet consectetur ad\nelit sed do eiusmod tempor incididunt u\nlabore et dolore magna aliqua ut enim ad minim veniam l\nipsum dolor s\namet consectetur adipiscing elit se\ndo eiusmod tempo\nincididunt ut labore et dolore magna aliqua ut enim ad minim v\nlorem ipsum dolor sit amet co\nadipiscing elit \nsed do eiusmod tempor incididunt ut labore et dolore magna aliqua\nut enim ad minim veniam lorem i\ndolor sit amet consectetur adipiscing eli\nsed do eiusmod tempor incididunt ut labore et dolore magna aliqua ut eni\nad minim veniam\nlorem ipsum dolor sit am\nconsectetur adipis\nelit sed do eiusmod \ntempor incididun\nut labore et dolore magna aliqua ut enim ad minim veniam lorem i\ndolor sit amet consectetur adip\nelit sed do eiusmod tempor incididunt ut \nlabore et dolore magna aliqua ut enim ad minim veniam lorem ipsum dolor \nsit amet consec\nadipiscing elit sed do \neiusmod tempor inc\nut labore et dolore \nmagna aliqua ut \nenim ad minim veniam lorem ipsum dolor sit amet consectetur adi\nelit sed do eiusmod tempor inci\nut labore et dolore magna aliqua ut enim \nad minim veniam lorem ipsum dolor sit amet consectetur adipiscing elit s\ndo eiusmod temp\nincididunt ut labore e\ndolore magna aliqua ut \nenim ad minim veniam lor\nipsum dolor sit \namet consectetur adipiscing elit sed do eiusmod tempor i\nut labore et dolore magna aliqu\nut enim ad minim veniam lorem ipsum dolor\nsit amet consectetur adipiscing elit sed do eiusmod tempor incididunt ut\nlabore et dolor\nmagna aliqua ut enim\nad minim veniam lo\nipsum dolor sit \namet consectetur\nadipiscing eli\nsed do eiusm\ntempor incidid\nut \nl\n",
+          "file_path": "/home/user/proj/dir1/dir2/file1.tsx"
+        },
+        "name": "Write"
+      },
+      "correlates": null,
+      "kind": "tool_call",
+      "session_id": "test-session-id",
+      "step": null,
+      "summary": "tool_call: Write",
+      "ts_ms": 0
+    },
+    {
+      "blob_hash": null,
+      "blob_size": null,
+      "body_json": {
+        "content": "lorem ipsum dolor sit amet consectetur adipiscing elit sed do eiusmod tempor incididunt ut labor",
+        "correlate_key": "toolu_000000000000000000000003",
+        "is_error": true,
+        "tool_use_id": "toolu_000000000000000000000003"
+      },
+      "correlates": null,
+      "kind": "tool_result",
+      "session_id": "test-session-id",
+      "step": null,
+      "summary": "tool_result (error): lorem ipsum dolor sit amet consectetur adipiscing elit sed do eiusmod tempor incididunt ut labor",
+      "ts_ms": 0
+    },
+    {
+      "blob_hash": null,
+      "blob_size": null,
+      "body_json": {
+        "correlate_key": "toolu_000000000000000000000004",
+        "input": {
+          "file_path": "/home/user/proj/dir1/dir2/file1.tsx"
+        },
+        "name": "Read"
+      },
+      "correlates": null,
+      "kind": "tool_call",
+      "session_id": "test-session-id",
+      "step": null,
+      "summary": "tool_call: Read",
+      "ts_ms": 0
+    },
+    {
+      "blob_hash": null,
+      "blob_size": null,
+      "body_json": {
+        "content": "lorem ipsum dolor sit amet consect\nad\nelit sed do eiusmod tempor incidid\nut labore et\ndolore magna aliqua ut enim ad minim veniam lorem ipsum dolor sit amet consectetur adi\nelit sed do eiusmod tempor incididunt ut labore et dolore magna \naliqua ut enim ad minim veniam lorem ipsum dolor sit amet consectetur adipiscing elit sed do eiusmod tempo\nincididunt ut labore et dolore magna a\nut enim ad mini\nven\nlorem ipsum dolor sit amet consectetur adipiscing elit sed do eiusmod tempor incidid\nut labore et dolore magna aliqua ut enim ad minim veniam lorem i\ndolor sit amet consectetur adipiscing elit sed do eiusmod tempor incididunt ut \nlabore et dolore \nmagna aliqua ut enim ad minim veniam l\nipsum dolor sit a\nconsectetur adipiscing elit sed do eiusmod tempor\nincididunt ut labore et dolore m\naliqua ut enim ad minim veniam lorem ipsum\ndolor sit amet consectetur adipiscing elit sed do eiusmod \ntempor incididun\nut labore et dolore magna aliqua ut en\nad minim veniam lor\nipsum dolor sit amet consectetur adipiscing elit sed do eiusmod t\nincididunt ut labore et dolore m\naliqua ut enim ad m\nveniam lorem ipsum dolor sit amet consectetur adipiscing \nelit sed do eiusmod tempor incidid\nut labore et dolore magna aliqua ut enim ad \nminim veniam lorem ipsum dolor sit amet consectetur adipiscing elit sed do \neiusmod tempor inc\nut labore et dolore magna a\nut enim ad minim veni\nlorem ipsum dolor sit a\nconsectetur adipisc\nelit sed do eiusmod tempor incididunt ut labore et dolore magna ali\nut enim ad minim veniam lorem ipsu\ndolor sit amet consectetur adipiscing elit s\ndo eiusmod tempor incididunt ut labore et dolore magna aliqua ut enim ad mi\nveniam lorem ipsum\ndolor sit amet consectetur\nadipiscing elit sed d\neiusmod tempor incididu\nut labore et dolore\nmagna aliqua ut enim ad minim veniam lorem ipsum dolor s\namet consectetur adipiscing elit s\ndo eiusmod tempor incididunt ut labore et do\nmagna aliqua ut enim ad minim veniam lorem ipsum dolor sit amet consectetur\nadipiscing elit se\ndo eiusmod tempor incidid\nut labore et dolore magna \naliqua ut enim ad minim ven\nlorem ipsum dolor s\namet consectetur ad\nelit sed do eiusm\ntempor incididu\nut labore et dolo\nmagna \naliq",
+        "correlate_key": "toolu_000000000000000000000004",
+        "is_error": false,
+        "tool_use_id": "toolu_000000000000000000000004"
+      },
+      "correlates": null,
+      "kind": "tool_result",
+      "session_id": "test-session-id",
+      "step": null,
+      "summary": "tool_result: lorem ipsum dolor sit amet consect ad elit sed do eiusmod tempor incidid ut labore et dolore magna aliqua …",
+      "ts_ms": 0
+    },
+    {
+      "blob_hash": null,
+      "blob_size": null,
+      "body_json": {
+        "text": "lorem ipsum dolor sit amet consectetur adipiscing elit sed do eiusmod tempor incididunt ut labore et dolore magn"
+      },
+      "correlates": null,
+      "kind": "agent_message",
+      "session_id": "test-session-id",
+      "step": null,
+      "summary": "lorem ipsum dolor sit amet consectetur adipiscing elit sed do eiusmod tempor incididunt ut labore et dolore magn",
+      "ts_ms": 0
+    },
+    {
+      "blob_hash": null,
+      "blob_size": null,
+      "body_json": {
+        "correlate_key": "toolu_000000000000000000000005",
+        "input": {
+          "file_path": "/home/user/proj/dir1/dir2/file1.tsx",
+          "new_string": "lorem ipsum dolo\nsit amet consectetur adipiscing elit sed do eiusmod tempor incidi\nut labore et dolore magna aliqu\nut enim ad minim veniam lorem ipsum dolor\nsit amet consectetur adipiscing elit sed do eiusmod tempor incididunt ut\nlabore et dolor\nmagna aliqua ut enim ad \nminim veniam lorem\nipsum dolor sit amet\nconsectetur adip\nelit sed do eiusmod tempor incididunt ut labore et dolore magna \naliqua ut enim ad minim veniam \nlorem ipsum dolor sit amet consectetur ad\nelit sed do eiusmod tempor incididunt ut labore et dolore magna aliqua u\nenim ad minim v\nlorem ipsum dolor sit a\nconsectetur adipis\nelit sed do eiusmod \ntempor incididun\nut labore et dolore magna aliqua ut enim ad minim veniam lorem \nipsum dolor sit amet consectetu\nadipiscing elit sed do eiusmod tempor inc\nut labore et dolore magna aliqua ut enim ad minim veniam lorem ipsum dol\nsit amet consec\nadipiscing elit sed do\neiusmod tempor incididu\nut labore et dolore magn\naliqua ut enim a\nminim veniam lorem ipsum dolor sit amet consectetur adip\nelit sed do eiusmod tempor inci\nut labore et dolore magna aliqua ut enim \nad minim veniam lorem ipsum dolor sit amet consectetur adipiscing elit s\ndo eiusmod temp\nincididunt ut labore\net dolore magna al",
+          "old_string": "lorem ipsum dolo\nsit amet consectetur adipiscing elit sed do eiusmod te\nincididunt ut labore et dolore \nmagna aliqua ut enim ad minim veniam lore\nipsum dolor sit amet consectetur adipiscing elit sed do eiusmod tempor i\nut labore et do\nmagna aliqua ut enim ad \nminim veniam lorem\nipsum dolor sit amet\nconsectetur adip\nelit sed do eiusmod tempor incididunt ut labore et dolore magna \naliqua ut enim ad minim veniam \nlorem ipsum dolor sit amet consectetur ad\nelit sed do eiusmod tempor incididunt ut labore et dolore magna aliqua u\nenim ad minim v\nlorem ipsum dolor sit a\nconsectetur adipis\nelit sed do eiusmod \ntempor incididun\nut labore et dolore magna aliqua ut enim ad minim ven\nlorem ipsum dolor sit amet cons\nadipiscing elit sed do eiusmod tempor inc\nut labore et dolore magna aliqua ut enim ad minim veniam lorem ipsum dol\nsit amet consec\nadipiscing elit sed do\neiusmod tempor incididu\nut labore et dolore magn",
+          "replace_all": false
+        },
+        "name": "Edit"
+      },
+      "correlates": null,
+      "kind": "tool_call",
+      "session_id": "test-session-id",
+      "step": null,
+      "summary": "tool_call: Edit",
+      "ts_ms": 0
+    },
+    {
+      "blob_hash": null,
+      "blob_size": null,
+      "body_json": {
+        "content": "lorem ipsum dolor sit amet consectetur adipiscing elit sed do eiusmod tempor incididunt ut labore et dolore magna aliqua ut enim ad minim veniam lorem ipsum dolor sit ame",
+        "correlate_key": "toolu_000000000000000000000005",
+        "is_error": false,
+        "tool_use_id": "toolu_000000000000000000000005"
+      },
+      "correlates": null,
+      "kind": "tool_result",
+      "session_id": "test-session-id",
+      "step": null,
+      "summary": "tool_result: lorem ipsum dolor sit amet consectetur adipiscing elit sed do eiusmod tempor incididunt ut labore et dolor…",
+      "ts_ms": 0
+    },
+    {
+      "blob_hash": null,
+      "blob_size": null,
+      "body_json": {
+        "text": "lorem ipsum dolor sit amet consectetur adipiscing elit sed do eiusmod "
+      },
+      "correlates": null,
+      "kind": "agent_message",
+      "session_id": "test-session-id",
+      "step": null,
+      "summary": "lorem ipsum dolor sit amet consectetur adipiscing elit sed do eiusmod ",
+      "ts_ms": 0
+    },
+    {
+      "blob_hash": null,
+      "blob_size": null,
+      "body_json": {
+        "correlate_key": "toolu_000000000000000000000006",
+        "input": {
+          "file_path": "/home/user/proj/dir1/file2.tsx",
+          "new_string": "lorem ipsum dolor sit amet consectetur adipiscing \nelit sed do eiusmod tempor incididunt ut labore et dol\nmagna aliqua ut enim ad minim veniam lorem ips",
+          "old_string": "lorem ipsum dolor sit amet consectetur adipiscing \nelit sed do eiusmod tempor incididunt ut labor",
+          "replace_all": false
+        },
+        "name": "Edit"
+      },
+      "correlates": null,
+      "kind": "tool_call",
+      "session_id": "test-session-id",
+      "step": null,
+      "summary": "tool_call: Edit",
+      "ts_ms": 0
+    },
+    {
+      "blob_hash": null,
+      "blob_size": null,
+      "body_json": {
+        "content": "lorem ipsum dolor sit amet consectetur adipiscing elit sed do eiusmod tempor incididunt ut labore et dolore magna aliqua ut enim ad minim veniam lorem ip",
+        "correlate_key": "toolu_000000000000000000000006",
+        "is_error": false,
+        "tool_use_id": "toolu_000000000000000000000006"
+      },
+      "correlates": null,
+      "kind": "tool_result",
+      "session_id": "test-session-id",
+      "step": null,
+      "summary": "tool_result: lorem ipsum dolor sit amet consectetur adipiscing elit sed do eiusmod tempor incididunt ut labore et dolor…",
+      "ts_ms": 0
+    },
+    {
+      "blob_hash": null,
+      "blob_size": null,
+      "body_json": {
+        "correlate_key": "toolu_000000000000000000000007",
+        "input": {
+          "file_path": "/home/user/proj/dir1/file2.tsx",
+          "new_string": "lorem ipsum dolor si\namet consectetur adipi\nelit sed do eiusmo",
+          "old_string": "lorem ipsum dolor si\namet consectetur a",
+          "replace_all": false
+        },
+        "name": "Edit"
+      },
+      "correlates": null,
+      "kind": "tool_call",
+      "session_id": "test-session-id",
+      "step": null,
+      "summary": "tool_call: Edit",
+      "ts_ms": 0
+    },
+    {
+      "blob_hash": null,
+      "blob_size": null,
+      "body_json": {
+        "content": "lorem ipsum dolor sit amet consectetur adipiscing elit sed do eiusmod tempor incididunt ut labore et dolore magna aliqua ut enim ad minim veniam lorem ip",
+        "correlate_key": "toolu_000000000000000000000007",
+        "is_error": false,
+        "tool_use_id": "toolu_000000000000000000000007"
+      },
+      "correlates": null,
+      "kind": "tool_result",
+      "session_id": "test-session-id",
+      "step": null,
+      "summary": "tool_result: lorem ipsum dolor sit amet consectetur adipiscing elit sed do eiusmod tempor incididunt ut labore et dolor…",
+      "ts_ms": 0
+    },
+    {
+      "blob_hash": null,
+      "blob_size": null,
+      "body_json": {
+        "text": "lorem ipsum dolor sit amet consectetur a"
+      },
+      "correlates": null,
+      "kind": "agent_message",
+      "session_id": "test-session-id",
+      "step": null,
+      "summary": "lorem ipsum dolor sit amet consectetur a",
+      "ts_ms": 0
+    },
+    {
+      "blob_hash": null,
+      "blob_size": null,
+      "body_json": {
+        "correlate_key": "toolu_000000000000000000000008",
+        "input": {
+          "command": "lorem ipsum dolor sit amet conse"
+        },
+        "name": "Bash"
+      },
+      "correlates": null,
+      "kind": "tool_call",
+      "session_id": "test-session-id",
+      "step": null,
+      "summary": "tool_call: Bash",
+      "ts_ms": 0
+    },
+    {
+      "blob_hash": null,
+      "blob_size": null,
+      "body_json": {
+        "content": "lorem ipsum dolor sit amet cons",
+        "correlate_key": "toolu_000000000000000000000008",
+        "is_error": false,
+        "tool_use_id": "toolu_000000000000000000000008"
+      },
+      "correlates": null,
+      "kind": "tool_result",
+      "session_id": "test-session-id",
+      "step": null,
+      "summary": "tool_result: lorem ipsum dolor sit amet cons",
+      "ts_ms": 0
+    },
+    {
+      "blob_hash": null,
+      "blob_size": null,
+      "body_json": {
+        "text": "lorem ipsum dolor sit amet consectetur adipiscing elit sed do eiusmod tempor incididunt ut labore et dolore magna aliqua ut enim ad minim veniam lorem ipsum dolor sit amet consectetur adipiscing elit sed do eiusmod tempor incididunt ut labore et dolore magna aliqua ut enim ad minim veni"
+      },
+      "correlates": null,
+      "kind": "agent_message",
+      "session_id": "test-session-id",
+      "step": null,
+      "summary": "lorem ipsum dolor sit amet consectetur adipiscing elit sed do eiusmod tempor incididunt ut labore et dolore magna aliqu…",
+      "ts_ms": 0
+    },
+    {
+      "blob_hash": null,
+      "blob_size": null,
+      "body_json": {
+        "text": "lorem ipsum dolor sit amet consectetur adipiscing elit sed do eiusmod tempor inci"
+      },
+      "correlates": null,
+      "kind": "user_message",
+      "session_id": "test-session-id",
+      "step": null,
+      "summary": "lorem ipsum dolor sit amet consectetur adipiscing elit sed do eiusmod tempor inci",
+      "ts_ms": 0
+    },
+    {
+      "blob_hash": null,
+      "blob_size": null,
+      "body_json": {
+        "text": "lorem ipsum dolor sit amet consectetur adipiscing elit sed do eiusmod tempor incididunt"
+      },
+      "correlates": null,
+      "kind": "thinking",
+      "session_id": "test-session-id",
+      "step": null,
+      "summary": "lorem ipsum dolor sit amet consectetur adipiscing elit sed do eiusmod tempor incididunt",
+      "ts_ms": 0
+    },
+    {
+      "blob_hash": null,
+      "blob_size": null,
+      "body_json": {
+        "correlate_key": "toolu_000000000000000000000009",
+        "input": {
+          "command": "lorem ipsum dolor sit amet consectetur adipiscing elit sed do eiusmod tempor incididunt ut labore et d"
+        },
+        "name": "Bash"
+      },
+      "correlates": null,
+      "kind": "tool_call",
+      "session_id": "test-session-id",
+      "step": null,
+      "summary": "tool_call: Bash",
+      "ts_ms": 0
+    },
+    {
+      "blob_hash": null,
+      "blob_size": null,
+      "body_json": {
+        "content": "lorem ipsum dolor sit amet cons",
+        "correlate_key": "toolu_000000000000000000000009",
+        "is_error": false,
+        "tool_use_id": "toolu_000000000000000000000009"
+      },
+      "correlates": null,
+      "kind": "tool_result",
+      "session_id": "test-session-id",
+      "step": null,
+      "summary": "tool_result: lorem ipsum dolor sit amet cons",
+      "ts_ms": 0
+    },
+    {
+      "blob_hash": null,
+      "blob_size": null,
+      "body_json": {
+        "correlate_key": "toolu_000000000000000000000010",
+        "input": {
+          "command": "lorem ipsum dolor sit amet consectetur adipiscing elit sed do eiusmod tempor incididunt ut labore et dolore magna aliqua ut enim ad minim venia"
+        },
+        "name": "Bash"
+      },
+      "correlates": null,
+      "kind": "tool_call",
+      "session_id": "test-session-id",
+      "step": null,
+      "summary": "tool_call: Bash",
+      "ts_ms": 0
+    },
+    {
+      "blob_hash": null,
+      "blob_size": null,
+      "body_json": {
+        "content": "lorem ipsum dolor sit amet consectetur adipiscing elit \nsed do eiusmod tempor incididunt ut labore et dolore magna a\nut enim ad minim veniam lorem ipsum dolor sit ame\nconsectetur adipiscing elit sed do eiusmod tempor inc\nut labore et dolore magna aliqua ut enim ad minim veniam\nlorem ipsum dolor sit amet consectetur adipiscing elit sed do \neiusmod tempor incididunt ut labore et dolore magna aliqua ut",
+        "correlate_key": "toolu_000000000000000000000010",
+        "is_error": false,
+        "tool_use_id": "toolu_000000000000000000000010"
+      },
+      "correlates": null,
+      "kind": "tool_result",
+      "session_id": "test-session-id",
+      "step": null,
+      "summary": "tool_result: lorem ipsum dolor sit amet consectetur adipiscing elit  sed do eiusmod tempor incididunt ut labore et dolo…",
+      "ts_ms": 0
+    },
+    {
+      "blob_hash": null,
+      "blob_size": null,
+      "body_json": {
+        "correlate_key": "toolu_000000000000000000000011",
+        "input": {
+          "file_path": "/home/user/proj/dir1/file3.tsx"
+        },
+        "name": "Read"
+      },
+      "correlates": null,
+      "kind": "tool_call",
+      "session_id": "test-session-id",
+      "step": null,
+      "summary": "tool_call: Read",
+      "ts_ms": 0
+    },
+    {
+      "blob_hash": null,
+      "blob_size": null,
+      "body_json": {
+        "content": "lorem ipsum do\nsi\namet consectetur adipiscing elit sed do eiusm\ntempor incididunt ut labore et dolore ma\naliqua ut enim ad minim veniam lor\nip\ndolor sit amet conse\nadipiscing elit sed do eiusmod tempor incididunt ut l\net dolore magna aliqua ut enim ad minim venia\nlorem ipsum dolor sit amet consectet\nadipiscing elit sed do eiusmod tempor incididunt ut \nlabore et dolore magna aliqua ut enim ad minim veniam lorem ipsum dolor sit amet co\nadip\neli\nsed do eiusmod tempor incidid\nut labore et dolore magna aliqua ut enim ad minim ve\nlorem ipsum dolor sit amet consectetur adipiscing elit sed do ei\ntem\nincididunt ut labore e\ndolore magna aliqua ut enim ad minim veniam lorem ipsum dolor \nsit amet consectetur adipiscing elit sed do eiusmo\ntempor incididunt ut labore et dolore magna aliqua ut enim ad mini\nveniam lore\nips\ndolor sit amet consectetur adipiscing elit sed \ndo eiusmod tempor inci\nut labore et dolore magna al\nut enim ad minim veniam lorem ipsum dolor sit am\nconsectetur adi\nelit sed do eiusmod tempor incididunt ut labore\net dolor\nmagna aliqua ut enim ad m\nven\nlorem ipsum d\nsit amet conse\nadipiscing elit sed do \neiusmod tempor incididunt ut labore et dolore magna aliqua ut enim ad min\nveniam lorem ipsum \ndolor sit amet consectetur adipiscing elit sed do eiusmod tempor incididunt \nut labore et dolore magna aliqu\nut enim ad \nminim ve\nlorem ipsum dolor sit amet consectetur adipiscing elit sed do eiusmod tempor incididunt ut labore et dol\nmagna aliqua ut enim ad minim veniam lorem ipsum dolor sit \namet consectetur adipiscing elit sed do eiusmod tempor incididunt ut labore et d\nmagna aliqua ut e\nad minim veniam lore\nipsum dolor sit amet consectetur adipiscing elit sed do eiusmod tempor in\nut labore et dolore mag\naliqua ut enim ad mi\nveniam lorem ip\ndol\nsit amet consectetur adipiscing elit sed do eiusmod tempor inc\nut labore et dolore magna aliqua ut en\nad minim veniam l\nipsum dolor sit amet consectetur\nadipiscing elit sed do eiusmod te\nincididunt ut labore et dolore magna aliqua ut enim ad minim v\nlorem ipsum dolor sit amet consectetur adipiscing elit sed do eiusmod te\nincididunt ut labore et dolore \nmagna aliqua ut enim ad minim veniam lorem ipsum dolor sit amet consectetur adipiscing elit sed do eiu\ntempor incididunt ut labore et dolore magna aliqua ut enim ad \nminim veniam lorem ipsum dolor sit amet consectetur adipiscing elit sed do eiusmod tempor in\nut labore et dolore\nmagna aliqua ut \nenim ad minim veniam lorem ip\ndolor sit amet cons\nadipiscing elit \nsed do eiusmod te\ninc\nut labore et dolore magna aliqua ut enim ad minim veniam lore\nipsum dolor sit\namet consectetur adipiscing elit sed do eiusmod temp\nincididunt ut labore et dolore\nmagna aliqua ut enim ad minim veniam lor\nipsum dolor sit amet consecte\nadipiscing elit sed do eiusmod tempor incididunt ut labore et dolore magna aliqua ut enim ad minim veniam lorem ipsum dolor sit amet consectetur adipiscing elit sed do eiusmod tempor\nincididunt ut labore et dolore magna aliqua ut enim ad minim\nveniam lorem ipsum dolor sit amet consectetur adipiscing elit sed do eiusmod tempor incidi\nut labore et dolo\nmagna aliqua u\nenim ad minim veniam \nlorem ipsum dolor\nsit amet consec\nadipiscing elit sed do eiusmod\ntempor incididunt ut labore e\ndolore magna aliqua ut enim ad minim veniam lorem ipsum dolor sit amet consectetur adipiscing elit sed do eiusmod tempor incididunt ut labore et dolore magna \naliqua ut enim ad minim veniam lorem ipsum\ndolor sit amet consectetur adipiscing elit sed do eiusmod tempor incididunt ut labore et d\nmagna aliqua ut e\nad minim venia\nlorem ipsum dolor sit amet\nconsectetur adipi\nelit sed do eiusmod \ntempor incididunt ut labore \net dolore magna aliqua ut enim ad minim veniam lorem ipsum dolor sit amet consectetur adipiscing elit sed do eiusmod tempor incididunt ut labore et dolore magna aliqua ut enim ad minim veniam lorem ipsum dolor sit amet consect\nadipiscing elit sed do eiusmod tempor incididunt ut labore et dol\nmagna aliqua u\nenim ad minim veniam lorem ipsum dolor sit amet consectetur ad\nelit sed do eiusmod tempor incididu\nut labore et dolore magna aliqua ut enim ad minim veniam lorem ipsum\ndolor sit amet consec\nadipiscing elit sed do eiusmod tempor incididunt ut labore et dolore ma\naliqua ut enim ad \nminim veniam lorem ipsu\ndolor sit amet con\nadipiscing elit \nsed \ndo eiusmod tempor incididunt \nut labore et dolore magna aliq\nut enim ad minim veniam lorem ipsum dolor sit amet consectetur adipiscing elit sed do eiusmod tempor incididunt ut labore\net dolore magna aliqua ut enim ad minim veniam lorem ipsum dolor\nsit amet consectetur adipiscing elit sed \ndo eiusmod tempor in\nut labore et dolore magna aliqua ut\nenim ad minim veniam lorem ipsum dol\nsit amet consectetur adipiscing elit sed do eiusmod tempor incidi\nut labore et dolore magna aliqua ut enim ad minim veniam lorem ipsum dolor \nsit amet consectetur adipiscing elit sed do eiusmod tempor incididunt ut labore et dolore magna aliqua ut enim ad minim veniam lorem \nipsum dolor sit amet consectetur adipiscing elit sed do eius\ntempor incididunt u\nlabore et dolore magna aliqua ut\nenim ad minim veniam l\nipsum dolor sit ame\nconsectetur adipiscing elit sed do eiusmod tempor incididunt ut labore et dolore magna aliqua \nut enim ad minim ven\nlorem ipsum dolor sit amet consectetur adipiscing elit se\ndo eiusmod tempor incididunt ut lab\net dolore magna aliqua ut enim ad minim venia\nlorem ipsum dolor sit amet consectetur adipiscing elit sed do eiusmod tempor incididunt ut labore et dolore magna aliqua ut enim ad minim veniam lorem ipsum dolor sit amet consectetur adipiscing elit sed do eiusm\ntempor incididunt ut labore et dolore magna aliqua ut enim a\nminim veniam lorem \nipsum dolor sit amet conse\nadipiscing elit sed do\neiusmod tempor incid\nut labore et dolore magna aliqua ut\nenim ad minim veniam lorem ipsum dolor sit amet consectetur adipiscing elit sed do eiusmod tempor incididunt ut labore et dolore magna aliqua ut enim ad minim veniam lorem ipsum dolor sit amet\nconsectetur adipiscing elit sed do eiusmod tempor incididunt\nut labore et dolore\nmagna aliqua ut enim ad minim v\nlorem ipsum dolor sit \namet consectetur adipi\nelit sed do eiusmod \ntempor incididunt \nut labore et\ndolore magna aliq\nut enim\nad mi\nveni",
+        "correlate_key": "toolu_000000000000000000000011",
+        "is_error": false,
+        "tool_use_id": "toolu_000000000000000000000011"
+      },
+      "correlates": null,
+      "kind": "tool_result",
+      "session_id": "test-session-id",
+      "step": null,
+      "summary": "tool_result: lorem ipsum do si amet consectetur adipiscing elit sed do eiusm tempor incididunt ut labore et dolore ma a…",
+      "ts_ms": 0
+    },
+    {
+      "blob_hash": null,
+      "blob_size": null,
+      "body_json": {
+        "text": "lorem ipsum dolor sit amet consectetur adipiscing elit sed do eiusmod tempor incididunt ut labore et dolore magna aliqua ut enim ad minim veniam lorem ipsum dolor sit amet consectetur adipiscing elit sed do eiusmod tempor inc"
+      },
+      "correlates": null,
+      "kind": "agent_message",
+      "session_id": "test-session-id",
+      "step": null,
+      "summary": "lorem ipsum dolor sit amet consectetur adipiscing elit sed do eiusmod tempor incididunt ut labore et dolore magna aliqu…",
+      "ts_ms": 0
+    },
+    {
+      "blob_hash": null,
+      "blob_size": null,
+      "body_json": {
+        "correlate_key": "toolu_000000000000000000000012",
+        "input": {
+          "file_path": "/home/user/proj/dir1/file3.tsx",
+          "new_string": "lorem ipsum dolor sit amet consectetur adipiscing\nelit sed do eiusmod tempor incididunt ut labore et \ndolore magna aliqua ut enim ad minim veniam lorem ipsum dolor sit amet consectet",
+          "old_string": "lorem ipsum dolor sit amet consectetur adipiscing\nelit sed do eiusmod tempor incididunt ut labore et dolore magna aliqua ut enim a",
+          "replace_all": false
+        },
+        "name": "Edit"
+      },
+      "correlates": null,
+      "kind": "tool_call",
+      "session_id": "test-session-id",
+      "step": null,
+      "summary": "tool_call: Edit",
+      "ts_ms": 0
+    },
+    {
+      "blob_hash": null,
+      "blob_size": null,
+      "body_json": {
+        "content": "lorem ipsum dolor sit amet consectetur adipiscing elit sed do eiusmod tempor incididunt ut labore et dolore magna aliqua ut enim ad minim veniam lorem ipsum dolor",
+        "correlate_key": "toolu_000000000000000000000012",
+        "is_error": false,
+        "tool_use_id": "toolu_000000000000000000000012"
+      },
+      "correlates": null,
+      "kind": "tool_result",
+      "session_id": "test-session-id",
+      "step": null,
+      "summary": "tool_result: lorem ipsum dolor sit amet consectetur adipiscing elit sed do eiusmod tempor incididunt ut labore et dolor…",
+      "ts_ms": 0
+    },
+    {
+      "blob_hash": null,
+      "blob_size": null,
+      "body_json": {
+        "text": "lorem ipsum dolor sit amet consectetur adipiscing elit sed do eiusmod tempor incididunt ut labore et dolore magna aliqua ut enim ad minim veniam lo"
+      },
+      "correlates": null,
+      "kind": "thinking",
+      "session_id": "test-session-id",
+      "step": null,
+      "summary": "lorem ipsum dolor sit amet consectetur adipiscing elit sed do eiusmod tempor incididunt ut labore et dolore magna aliqu…",
+      "ts_ms": 0
+    },
+    {
+      "blob_hash": null,
+      "blob_size": null,
+      "body_json": {
+        "correlate_key": "toolu_000000000000000000000013",
+        "input": {
+          "command": "lorem ipsum dolor sit amet conse"
+        },
+        "name": "Bash"
+      },
+      "correlates": null,
+      "kind": "tool_call",
+      "session_id": "test-session-id",
+      "step": null,
+      "summary": "tool_call: Bash",
+      "ts_ms": 0
+    },
+    {
+      "blob_hash": null,
+      "blob_size": null,
+      "body_json": {
+        "content": "lorem ipsum dolor sit amet cons",
+        "correlate_key": "toolu_000000000000000000000013",
+        "is_error": false,
+        "tool_use_id": "toolu_000000000000000000000013"
+      },
+      "correlates": null,
+      "kind": "tool_result",
+      "session_id": "test-session-id",
+      "step": null,
+      "summary": "tool_result: lorem ipsum dolor sit amet cons",
+      "ts_ms": 0
+    },
+    {
+      "blob_hash": null,
+      "blob_size": null,
+      "body_json": {
+        "text": "lorem ipsum dolor sit amet consectetur adipiscing elit sed do eiusmod tempor incididunt ut labore et dolore magna aliqua ut enim ad minim veniam lorem ipsum dolor sit amet consectetur adipiscing elit sed do eiu"
+      },
+      "correlates": null,
+      "kind": "agent_message",
+      "session_id": "test-session-id",
+      "step": null,
+      "summary": "lorem ipsum dolor sit amet consectetur adipiscing elit sed do eiusmod tempor incididunt ut labore et dolore magna aliqu…",
+      "ts_ms": 0
+    },
+    {
+      "blob_hash": null,
+      "blob_size": null,
+      "body_json": {
+        "text": "lorem ipsum dolor sit amet consectetur adipiscing elit sed do eiusmod temp"
+      },
+      "correlates": null,
+      "kind": "user_message",
+      "session_id": "test-session-id",
+      "step": null,
+      "summary": "lorem ipsum dolor sit amet consectetur adipiscing elit sed do eiusmod temp",
+      "ts_ms": 0
+    },
+    {
+      "blob_hash": null,
+      "blob_size": null,
+      "body_json": {
+        "correlate_key": "toolu_000000000000000000000014",
+        "input": {
+          "command": "lorem ipsum dolor sit amet consectetur adipiscing elit sed do eiusmod tempor incididunt"
+        },
+        "name": "Bash"
+      },
+      "correlates": null,
+      "kind": "tool_call",
+      "session_id": "test-session-id",
+      "step": null,
+      "summary": "tool_call: Bash",
+      "ts_ms": 0
+    },
+    {
+      "blob_hash": null,
+      "blob_size": null,
+      "body_json": {
+        "content": "lorem ipsum do\nsit amet consectetur adipiscing elit sed do e\n\ntempor incididunt ut labore et\ndolore magna aliqua ut enim ad minim veniam lorem ipsum dolo\nsit amet consectetur adipiscing elit sed do eiusmod tempor incididunt u\nlabore et dolore magna al\nut enim ad minim veniam lorem ipsu\n\ndolor sit amet c\nadipiscing elit sed do eiusmod tempor incididunt ut labore et do\nmagna aliqua ut enim ad minim \n\nveniam lorem ipsum dolor sit amet consectetur adipiscing elit sed\ndo eiusmod\ntempor incididunt ut labore et dolore ma\naliqua ut enim ad minim venia\nlorem ipsum dolor \nsit amet consectet\nadipiscing elit sed do eiusmod tempor incididunt ut labore et dolore\nmagna aliqua ut enim ad minim veniam lorem ipsum do\nsit amet consectetur adipiscing elit sed do eiusmod tem\nincididunt ut labore et dolore magna aliqua ut enim\nad minim veniam lorem ipsum dolor sit amet consectetur \nadipiscing elit sed do eiusmod tempor incididun\nut labore et dolore magna aliqua ut enim ad\nm\nveniam lorem ipsum dolor sit amet consectetur adip\nelit sed do eiusmod t\nincididunt ut labore et\ndolore magna aliqua u\nenim ad minim veniam lo\nipsum dolor sit ame\nconsectetur adipi\nelit sed do\neiusmod tempor incididunt ut labore et dolore magna aliqua\nut enim ad minim veniam lorem\nipsum dolor sit amet consec\nadipiscing elit sed do eius\ntempor incididunt ut labore et dol\nmagna aliqua ut enim ad minim veniam lorem i\ndolor sit amet consectetur adipisc\nelit sed do eiusmod tempor incididunt ut labore et\ndolore magna aliqua ut enim ad minim veniam lorem ip\ndolor sit amet consectetur adipiscing elit sed do eiusmod tempor incididunt ut la\net\nd\nmagna ali\nut enim ad minim veniam lorem ipsum dolor sit amet co\nadipiscing elit sed do eiusmod tempor incididun\nut labore et dolore magna aliqua ut enim ad minim veni\nlorem ipsum dolor sit amet consectetur adipis\nelit sed do eiusmod tempor incididunt ut labo",
+        "correlate_key": "toolu_000000000000000000000014",
+        "is_error": false,
+        "tool_use_id": "toolu_000000000000000000000014"
+      },
+      "correlates": null,
+      "kind": "tool_result",
+      "session_id": "test-session-id",
+      "step": null,
+      "summary": "tool_result: lorem ipsum do sit amet consectetur adipiscing elit sed do e  tempor incididunt ut labore et dolore magna …",
+      "ts_ms": 0
+    },
+    {
+      "blob_hash": null,
+      "blob_size": null,
+      "body_json": {
+        "correlate_key": "toolu_000000000000000000000015",
+        "input": {
+          "command": "lorem ipsum dolor sit amet consectetur adipiscing elit sed do eiusmod tempor incididun"
+        },
+        "name": "Bash"
+      },
+      "correlates": null,
+      "kind": "tool_call",
+      "session_id": "test-session-id",
+      "step": null,
+      "summary": "tool_call: Bash",
+      "ts_ms": 0
+    },
+    {
+      "blob_hash": null,
+      "blob_size": null,
+      "body_json": {
+        "content": "lorem ipsum do\nsit amet consectetur adipiscing elit sed do e\n\ntempor incididunt ut lab\net dolore magna aliqua ut enim ad minim veniam lore\nipsum dolor sit amet cons\nadipiscing elit sed do eiusmod tempor inci\nut labore et dolore magna aliqua u",
+        "correlate_key": "toolu_000000000000000000000015",
+        "is_error": false,
+        "tool_use_id": "toolu_000000000000000000000015"
+      },
+      "correlates": null,
+      "kind": "tool_result",
+      "session_id": "test-session-id",
+      "step": null,
+      "summary": "tool_result: lorem ipsum do sit amet consectetur adipiscing elit sed do e  tempor incididunt ut lab et dolore magna ali…",
+      "ts_ms": 0
+    },
+    {
+      "blob_hash": null,
+      "blob_size": null,
+      "body_json": {
+        "correlate_key": "toolu_000000000000000000000016",
+        "input": {
+          "command": "lorem ipsum dolor sit amet c\nadipiscing elit sed do eiusmod tempor incid\n\nut labore et dolore magna aliqua ut enim ad minim veniam lorem ipsum \ndolor sit amet consectetur adipiscing elit sed do eiusmod\ntem\nin"
+        },
+        "name": "Bash"
+      },
+      "correlates": null,
+      "kind": "tool_call",
+      "session_id": "test-session-id",
+      "step": null,
+      "summary": "tool_call: Bash",
+      "ts_ms": 0
+    },
+    {
+      "blob_hash": null,
+      "blob_size": null,
+      "body_json": {
+        "content": "lorem ipsum dolor sit amet consectetur adipiscing elit sed\ndo eiusmod tempor incididunt ut la\net dolore magna aliqua ut enim ad minim veniam lo",
+        "correlate_key": "toolu_000000000000000000000016",
+        "is_error": false,
+        "tool_use_id": "toolu_000000000000000000000016"
+      },
+      "correlates": null,
+      "kind": "tool_result",
+      "session_id": "test-session-id",
+      "step": null,
+      "summary": "tool_result: lorem ipsum dolor sit amet consectetur adipiscing elit sed do eiusmod tempor incididunt ut la et dolore ma…",
+      "ts_ms": 0
+    },
+    {
+      "blob_hash": null,
+      "blob_size": null,
+      "body_json": {
+        "text": "lorem ipsum dolor sit amet consectetur a"
+      },
+      "correlates": null,
+      "kind": "agent_message",
+      "session_id": "test-session-id",
+      "step": null,
+      "summary": "lorem ipsum dolor sit amet consectetur a",
+      "ts_ms": 0
+    },
+    {
+      "blob_hash": null,
+      "blob_size": null,
+      "body_json": {
+        "correlate_key": "toolu_000000000000000000000017",
+        "input": {
+          "command": "lorem ipsum dolor si"
+        },
+        "name": "Bash"
+      },
+      "correlates": null,
+      "kind": "tool_call",
+      "session_id": "test-session-id",
+      "step": null,
+      "summary": "tool_call: Bash",
+      "ts_ms": 0
+    },
+    {
+      "blob_hash": null,
+      "blob_size": null,
+      "body_json": {
+        "content": "lorem ipsum dolor sit amet consectetur adipiscing \nelit sed do eiusmod tempor incidi",
+        "correlate_key": "toolu_000000000000000000000017",
+        "is_error": false,
+        "tool_use_id": "toolu_000000000000000000000017"
+      },
+      "correlates": null,
+      "kind": "tool_result",
+      "session_id": "test-session-id",
+      "step": null,
+      "summary": "tool_result: lorem ipsum dolor sit amet consectetur adipiscing  elit sed do eiusmod tempor incidi",
+      "ts_ms": 0
+    },
+    {
+      "blob_hash": null,
+      "blob_size": null,
+      "body_json": {
+        "text": "lorem ipsum dolor sit amet consectetur adipiscing elit sed do eiusmod tempor incidid"
+      },
+      "correlates": null,
+      "kind": "agent_message",
+      "session_id": "test-session-id",
+      "step": null,
+      "summary": "lorem ipsum dolor sit amet consectetur adipiscing elit sed do eiusmod tempor incidid",
+      "ts_ms": 0
+    }
+  ]
+}

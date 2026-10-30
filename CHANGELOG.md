@@ -11,6 +11,16 @@ in CI rather than tracking `latest` until 1.0.
 
 ## [Unreleased]
 
+### Tests — Claude Desktop fixture
+
+- **`hh-core/tests/fixtures/claude-desktop/session.jsonl`**: a sanitized real
+  Claude Desktop (Code tab) session, with `NOTES.md` covering where Desktop
+  writes session data per OS (Linux confirmed; macOS/Windows unverified) and
+  how to tell a Desktop transcript from a CLI one. Wired into
+  `snapshot_claude_desktop_fixture_parse` (insta snapshot of the 51 parsed
+  events) and `tailer_parses_committed_claude_desktop_fixture` (end-to-end
+  through `ClaudeDesktopAdapter`, channel-driven wait, no sleeps).
+
 ### Added — v1.1.0 Stage 2 (migration 0005 + adapter degrade infrastructure, BUG-1)
 
 - **`sessions.adapter_degrade_reason`** column (migration 0005, SRS §5.1,
