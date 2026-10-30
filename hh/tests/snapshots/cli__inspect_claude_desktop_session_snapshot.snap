@@ -1,0 +1,43 @@
+---
+source: hh/tests/cli.rs
+expression: normalized
+---
+ <short-id> ✓ ok · claude-desktop · <duration> · 34 steps · 0 files changed
+ <command>
+
+ STEP  KIND  SUMMARY                                  TIME
+ ----- ----- ---------------------------------------- --------
+ 1     USER  lorem ipsum dolor sit amet consectetur … 00:00:00
+ 2     AGENT lorem ipsum dolor sit amet consectetur … 00:00:00
+ 3     TOOL  tool_call: Bash                          00:00:00
+ 4     AGENT lorem ipsum dolor sit amet consectetur … 00:00:00
+ 5     TOOL  tool_call: Bash                          00:00:00
+ 6     AGENT lorem ipsum dolor sit amet consectetur … 00:00:00
+ 7     AGENT lorem ipsum dolor sit amet consectetur … 00:00:00
+ 8     TOOL  tool_call: Write                         00:00:00
+ 9     TOOL  tool_call: Read                          00:00:00
+ 10    AGENT lorem ipsum dolor sit amet consectetur … 00:00:00
+ 11    TOOL  tool_call: Edit                          00:00:00
+ 12    AGENT lorem ipsum dolor sit amet consectetur … 00:00:00
+ 13    TOOL  tool_call: Edit                          00:00:00
+ 14    TOOL  tool_call: Edit                          00:00:00
+ 15    AGENT lorem ipsum dolor sit amet consectetur a 00:00:00
+ 16    TOOL  tool_call: Bash                          00:00:00
+ 17    AGENT lorem ipsum dolor sit amet consectetur … 00:00:00
+ 18    USER  lorem ipsum dolor sit amet consectetur … 00:00:00
+ 19    AGENT lorem ipsum dolor sit amet consectetur … 00:00:00
+ 20    TOOL  tool_call: Bash                          00:00:00
+ 21    TOOL  tool_call: Bash                          00:00:00
+ 22    TOOL  tool_call: Read                          00:00:00
+ 23    AGENT lorem ipsum dolor sit amet consectetur … 00:00:00
+ 24    TOOL  tool_call: Edit                          00:00:00
+ 25    AGENT lorem ipsum dolor sit amet consectetur … 00:00:00
+ 26    TOOL  tool_call: Bash                          00:00:00
+ 27    AGENT lorem ipsum dolor sit amet consectetur … 00:00:00
+ 28    USER  lorem ipsum dolor sit amet consectetur … 00:00:00
+ 29    TOOL  tool_call: Bash                          00:00:00
+ 30    TOOL  tool_call: Bash                          00:00:00
+ 31    TOOL  tool_call: Bash                          00:00:00
+ 32    AGENT lorem ipsum dolor sit amet consectetur a 00:00:00
+ 33    TOOL  tool_call: Bash                          00:00:00
+ 34    AGENT lorem ipsum dolor sit amet consectetur … 00:00:00

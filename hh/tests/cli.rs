@@ -2819,3 +2819,285 @@ fn at_record_redaction_keeps_secrets_off_disk_entirely() {
         "record-time tokens should be present in recorded events"
     );
 }
+
+// ---------------------------------------------------------------------------
+// Claude Desktop adapter (SRS v1.1.0): end-to-end over the committed fixture
+// ---------------------------------------------------------------------------
+
+/// The `sessionId` every record in the Desktop fixture carries; Desktop names
+/// the transcript file after it (`cliSessionId` in the index record).
+#[cfg(unix)]
+const DESKTOP_CLI_SESSION_ID: &str = "00000000-0000-4000-8000-000000000001";
+
+/// Encode a path the way the adapter's `slugify` does (every non-alphanumeric
+/// ASCII character becomes `-`), to pre-create the slug dir Desktop's embedded
+/// CLI would write into.
+#[cfg(unix)]
+fn claude_slug(path: &Path) -> String {
+    path.to_string_lossy()
+        .chars()
+        .map(|c| if c.is_ascii_alphanumeric() { c } else { '-' })
+        .collect()
+}
+
+/// Record a Claude Desktop session end-to-end from the committed fixture
+/// (`hh-core/tests/fixtures/claude-desktop/session.jsonl`, sanitized from a
+/// real Desktop Code-tab session). There is no Desktop binary to wrap, so the
+/// wrapped command is a shell script that does what Desktop does while a
+/// session runs: it drops the transcript into `$HOME/.claude/projects/<slug>/
+/// <cliSessionId>.jsonl` (with the fixture's sanitized cwd rewritten to the
+/// real work dir) and the index record into
+/// `$XDG_CONFIG_HOME/Claude/claude-code-sessions/<org>/<account>/local_*.json`,
+/// then exits immediately — the adapter's final discovery pass and
+/// drain-to-EOF at stop must pick everything up with no sleep anywhere.
+/// Returns the `hh run` output; the recording persists in `temp.data`.
+#[cfg(unix)]
+fn record_claude_desktop_fixture_session(temp: &Temp) -> std::process::Output {
+    let home = tempfile::tempdir().expect("temp HOME");
+    let work = temp.work.path().to_path_buf();
+    let canonical_work = work.canonicalize().unwrap_or_else(|_| work.clone());
+    let slug = claude_slug(&canonical_work);
+
+    // The adapter requires `~/.claude/projects` to exist at spawn (otherwise it
+    // degrades immediately, as for a machine Claude never ran on). The index
+    // dir hangs off the platform config dir, which `XDG_CONFIG_HOME=$HOME`
+    // makes `$HOME/Claude/claude-code-sessions` on Linux.
+    let projects = home.path().join(".claude").join("projects");
+    let sessions = home.path().join("Claude").join("claude-code-sessions");
+    std::fs::create_dir_all(&projects).expect("pre-create projects dir");
+    std::fs::create_dir_all(&sessions).expect("pre-create sessions dir");
+
+    let staging = home.path().join("staging");
+    std::fs::create_dir_all(&staging).expect("staging dir");
+    let fixture_src = include_str!("../../hh-core/tests/fixtures/claude-desktop/session.jsonl")
+        .replace("/home/user/proj", &canonical_work.to_string_lossy());
+    std::fs::write(staging.join("fixture.jsonl"), fixture_src).expect("write rewritten fixture");
+    let index = serde_json::json!({
+        "sessionId": "local_0f3a9c2e-1d4b-4a7e-9b1c-2e5f6a7b8c9d",
+        "cliSessionId": DESKTOP_CLI_SESSION_ID,
+        "cwd": canonical_work,
+        "originCwd": canonical_work,
+        "title": "lorem ipsum",
+        "titleSource": "ai",
+        "model": "claude-sonnet-5",
+        "permissionMode": "auto",
+        "completedTurns": 3,
+        "isArchived": false,
+        "writtenBranches": ["main"],
+    });
+    std::fs::write(
+        staging.join("index.json"),
+        serde_json::to_vec(&index).expect("index json"),
+    )
+    .expect("write index");
+
+    let script = staging.join("desktop.sh");
+    std::fs::write(
+        &script,
+        format!(
+            "#!/bin/sh\nset -e\n\
+             mkdir -p '{slug_dir}'\n\
+             cp '{staging}/fixture.jsonl' '{slug_dir}/{id}.jsonl'\n\
+             mkdir -p '{sessions}/org-uuid/account-uuid'\n\
+             cp '{staging}/index.json' '{sessions}/org-uuid/account-uuid/local_0f3a9c2e.json'\n\
+             echo desktop-fixture-staged\n",
+            slug_dir = projects.join(&slug).display(),
+            staging = staging.display(),
+            id = DESKTOP_CLI_SESSION_ID,
+            sessions = sessions.display(),
+        ),
+    )
+    .expect("write desktop stand-in script");
+
+    let out = hh()
+        .args(["run", "--adapter", "claude-desktop", "--", "sh"])
+        .arg(&script)
+        .env("HH_DATA_DIR", temp.data.path())
+        .env("HOME", home.path())
+        .env("XDG_CONFIG_HOME", home.path())
+        .current_dir(&work)
+        .stdin(Stdio::null())
+        .output()
+        .expect("hh run should execute");
+    assert!(
+        out.status.success(),
+        "desktop stand-in should exit 0; stderr: {}",
+        String::from_utf8_lossy(&out.stderr)
+    );
+    out
+}
+
+/// `hh list --json` for the single session in `temp`, as a JSON object.
+fn list_single_session(temp: &Temp) -> serde_json::Value {
+    let list = hh()
+        .args(["list", "--json"])
+        .env("HH_DATA_DIR", temp.data.path())
+        .output()
+        .expect("hh list should run");
+    assert!(
+        list.status.success(),
+        "hh list --json failed: {}",
+        String::from_utf8_lossy(&list.stderr)
+    );
+    let parsed: serde_json::Value =
+        serde_json::from_slice(&list.stdout).expect("list --json must be valid JSON");
+    let arr = parsed.as_array().expect("list --json must be an array");
+    assert_eq!(arr.len(), 1, "exactly one session expected: {parsed}");
+    arr[0].clone()
+}
+
+/// Integration over the fixture corpus: `hh run --adapter claude-desktop`
+/// finds the Desktop session through its index record, parses the whole
+/// transcript (the same 51 structured events the hh-core snapshot locks),
+/// reports `agent_kind=claude-desktop` / `adapter_status=active`, and assigns
+/// the expected number of steps.
+#[cfg(unix)]
+#[test]
+fn claude_desktop_adapter_e2e_over_fixture() {
+    let temp = Temp::new();
+    let out = record_claude_desktop_fixture_session(&temp);
+    let stderr = String::from_utf8_lossy(&out.stderr);
+    assert!(
+        !stderr.contains("adapter degraded"),
+        "desktop adapter must not degrade over the fixture: {stderr}"
+    );
+
+    let session = list_single_session(&temp);
+    assert_eq!(session["agent_kind"], "claude-desktop");
+    assert_eq!(session["adapter_status"], "active");
+    assert_eq!(session["adapter_degrade_reason"], serde_json::Value::Null);
+    // The model comes from the transcript's assistant records (last seen wins).
+    let conn = open_db(temp.data.path());
+    let model: Option<String> = conn
+        .query_row("SELECT model FROM sessions", [], |r| r.get(0))
+        .expect("one session row");
+    assert_eq!(model.as_deref(), Some("claude-sonnet-5"));
+
+    let insp = hh()
+        .args(["inspect", "last", "--json"])
+        .env("HH_DATA_DIR", temp.data.path())
+        .output()
+        .expect("hh inspect should run");
+    assert!(
+        insp.status.success(),
+        "hh inspect --json failed: {}",
+        String::from_utf8_lossy(&insp.stderr)
+    );
+    let lines = String::from_utf8_lossy(&insp.stdout);
+    let mut kinds: std::collections::BTreeMap<String, usize> = std::collections::BTreeMap::new();
+    let mut max_step: i64 = 0;
+    for line in lines.lines() {
+        let v: serde_json::Value =
+            serde_json::from_str(line).expect("each NDJSON line is valid JSON");
+        let kind = v["kind"].as_str().unwrap_or("").to_string();
+        *kinds.entry(kind).or_default() += 1;
+        if let Some(step) = v["step"].as_i64() {
+            max_step = max_step.max(step);
+        }
+    }
+    let count = |k: &str| kinds.get(k).copied().unwrap_or(0);
+    assert_eq!(count("user_message"), 3, "three human prompts: {kinds:?}");
+    assert_eq!(count("agent_message"), 9, "nine text blocks: {kinds:?}");
+    assert_eq!(count("thinking"), 5, "five thinking blocks: {kinds:?}");
+    assert_eq!(count("tool_call"), 17, "17 tool_use blocks: {kinds:?}");
+    assert_eq!(count("tool_result"), 17, "17 tool_result blocks: {kinds:?}");
+    assert_eq!(count("error"), 0, "no degrade error event: {kinds:?}");
+    // Steps (FR-3.4): each prompt, text block and thinking block is a step;
+    // each tool_call + its correlated tool_result collapse into one.
+    assert_eq!(
+        session["steps"], 34,
+        "3 prompts + 9 messages + 5 thinking + 17 tool pairs: {session}"
+    );
+    assert_eq!(max_step, 34, "NDJSON step numbers reach the step count");
+}
+
+/// Insta snapshot of `hh inspect last` (human-readable) for a Desktop
+/// session recorded from the fixture. The header's run-specific fields
+/// (short id, wall-clock duration, the stand-in command line) are
+/// normalized; the step table is fully deterministic (fixture timestamps
+/// predate the recording, so every row clamps to `00:00:00`).
+#[cfg(unix)]
+#[test]
+fn inspect_claude_desktop_session_snapshot() {
+    let temp = Temp::new();
+    let _ = record_claude_desktop_fixture_session(&temp);
+    let insp = hh()
+        .args(["inspect", "last"])
+        .env("HH_DATA_DIR", temp.data.path())
+        .env("NO_COLOR", "1")
+        .output()
+        .expect("hh inspect should run");
+    assert!(
+        insp.status.success(),
+        "hh inspect failed: {}",
+        String::from_utf8_lossy(&insp.stderr)
+    );
+    let raw = String::from_utf8_lossy(&insp.stdout);
+    let mut lines = raw.lines();
+    // Header line 1: ` <short-id> <status> · claude-desktop · <dur> · N steps · M files changed`
+    let header = lines.next().unwrap_or_default();
+    let mut parts: Vec<String> = header.split(" · ").map(str::to_string).collect();
+    assert!(parts.len() >= 3, "unexpected header: {header:?}");
+    let id_and_status: Vec<&str> = parts[0].split_whitespace().collect();
+    parts[0] = format!(" <short-id> {}", id_and_status[1..].join(" "));
+    parts[2] = "<duration>".to_string();
+    let mut normalized = parts.join(" · ");
+    normalized.push('\n');
+    // Header line 2: the wrapped command (a temp path).
+    let _command = lines.next();
+    normalized.push_str(" <command>\n");
+    for line in lines {
+        normalized.push_str(line);
+        normalized.push('\n');
+    }
+    insta::assert_snapshot!(normalized);
+}
+
+/// BUG-1: `--adapter claude-desktop` with no Desktop session anywhere does
+/// not silently record `active` with 0 steps. The session degrades through
+/// `AdapterError`: `adapter_status=degraded`, the machine-readable code
+/// `jsonl_not_found` persisted in `adapter_degrade_reason`, and a one-line
+/// stderr warning that names what was searched.
+#[cfg(unix)]
+#[test]
+fn claude_desktop_adapter_degrades_with_code_when_no_session_exists() {
+    let temp = Temp::new();
+    let home = tempfile::tempdir().expect("temp HOME");
+    // Both directories exist but hold no Desktop session for this cwd.
+    std::fs::create_dir_all(home.path().join(".claude").join("projects")).unwrap();
+    let sessions = home.path().join("Claude").join("claude-code-sessions");
+    std::fs::create_dir_all(&sessions).unwrap();
+
+    let out = hh()
+        .args(["run", "--adapter", "claude-desktop", "--", "true"])
+        .env("HH_DATA_DIR", temp.data.path())
+        .env("HOME", home.path())
+        .env("XDG_CONFIG_HOME", home.path())
+        .current_dir(temp.work.path())
+        .stdin(Stdio::null())
+        .output()
+        .expect("hh run should execute");
+    assert!(
+        out.status.success(),
+        "a degraded adapter is a warning, not a failure (exit 0): {}",
+        String::from_utf8_lossy(&out.stderr)
+    );
+    let stderr = String::from_utf8_lossy(&out.stderr);
+    assert!(
+        stderr.contains("adapter degraded: jsonl_not_found:"),
+        "stderr must carry the degrade code: {stderr}"
+    );
+    assert!(
+        stderr.contains("no Claude Desktop session found for cwd="),
+        "stderr must say what was looked for: {stderr}"
+    );
+    assert!(
+        stderr.contains(&sessions.display().to_string()),
+        "stderr must name the index dir that was searched: {stderr}"
+    );
+
+    let session = list_single_session(&temp);
+    assert_eq!(session["agent_kind"], "claude-desktop");
+    assert_eq!(session["adapter_status"], "degraded");
+    assert_eq!(session["adapter_degrade_reason"], "jsonl_not_found");
+}

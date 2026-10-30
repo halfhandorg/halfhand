@@ -269,8 +269,10 @@ pub fn is_claude_code(command: &[String]) -> bool {
 }
 
 /// True if the command's program basename is `claude-desktop` (stripping a
-/// Windows `.exe`). Claude Desktop uses the same JSONL session format as Claude
-/// Code, so the adapter reuses the same tailer.
+/// Windows `.exe`). Kept for backward compatibility of auto-detection: Claude
+/// Desktop is a GUI app that is not launched this way, so in practice the
+/// adapter is selected with `hh run --adapter claude-desktop` and finds the
+/// session from Desktop's own index (see [`ClaudeDesktopAdapter`]).
 #[must_use]
 pub fn is_claude_desktop(command: &[String]) -> bool {
     let prog = command.first().map_or("", String::as_str);
@@ -399,7 +401,11 @@ fn run_claude_tailer(ctx: AdapterContext, tx: mpsc::Sender<Event>) -> AdapterOut
         file.display()
     ));
     let mut acc = OutcomeAcc::default();
-    let stats = tail_file(&file, &projects, &ctx, &tx, &start, &mut acc);
+    let mode = TailMode {
+        rotate_dir: Some(slug_dir),
+        drain_on_stop: false,
+    };
+    let stats = tail_file(&file, &mode, &ctx, &tx, &start, &mut acc);
     if !stats.read_ok {
         return degraded_with_error(
             &AdapterError::PermissionDenied {
@@ -417,39 +423,49 @@ fn run_claude_tailer(ctx: AdapterContext, tx: mpsc::Sender<Event>) -> AdapterOut
         stats.lines_seen, stats.records_parsed, stats.events_produced, stats.first_parse_error
     ));
     if stats.events_produced == 0 {
-        // Found and read a transcript, but no user/assistant records converted
-        // to events. Distinct from "could not locate" — the file existed but
-        // yielded nothing. Most common cause: a format drift the parser no
-        // longer recognizes (jsonl_schema_drift), or every line failed JSON
-        // parsing (jsonl_parse_error). The first parse error (if any) tells
-        // which; a total absence of parse errors with 0 events points at
-        // schema drift (the JSON parsed but no recognized records).
-        let code = if let Some((line, msg)) = stats.first_parse_error.as_ref() {
-            AdapterError::JsonlParseError {
-                line: *line,
-                msg: msg.clone(),
-            }
-        } else {
-            AdapterError::JsonlSchemaDrift {
-                field: "type".into(),
-            }
-        };
-        let first_err = stats
-            .first_parse_error
-            .as_ref()
-            .map(|(n, msg)| format!("; first parse error at line {n}: {msg}"))
-            .unwrap_or_default();
-        return degraded_with_error(
-            &code,
-            format!(
-                "jsonl found ({}) but 0 records parsed (read {} line(s){first_err}); \
-                 run `hh doctor` to check the Claude Code transcript format",
-                file.display(),
-                stats.lines_seen,
-            ),
+        return zero_events_degrade(
+            &stats,
+            "jsonl found",
+            &file,
+            "run `hh doctor` to check the Claude Code transcript format",
         );
     }
     acc.finish(AdapterStatus::Active)
+}
+
+/// The degrade for "found and read a transcript, but no user/assistant
+/// records converted to events". Distinct from "could not locate" — the file
+/// existed but yielded nothing. Most common cause: a format drift the parser
+/// no longer recognizes (`jsonl_schema_drift`), or every line failed JSON
+/// parsing (`jsonl_parse_error`). The first parse error (if any) tells which;
+/// a total absence of parse errors with 0 events points at schema drift (the
+/// JSON parsed but no recognized records). `what` names the transcript for
+/// the reason string (e.g. `"jsonl found"`), `hint` is the trailing
+/// suggested fix.
+fn zero_events_degrade(stats: &TailStats, what: &str, file: &Path, hint: &str) -> AdapterOutcome {
+    let code = if let Some((line, msg)) = stats.first_parse_error.as_ref() {
+        AdapterError::JsonlParseError {
+            line: *line,
+            msg: msg.clone(),
+        }
+    } else {
+        AdapterError::JsonlSchemaDrift {
+            field: "type".into(),
+        }
+    };
+    let first_err = stats
+        .first_parse_error
+        .as_ref()
+        .map(|(n, msg)| format!("; first parse error at line {n}: {msg}"))
+        .unwrap_or_default();
+    degraded_with_error(
+        &code,
+        format!(
+            "{what} ({}) but 0 records parsed (read {} line(s){first_err}); {hint}",
+            file.display(),
+            stats.lines_seen,
+        ),
+    )
 }
 
 /// Build a [`Degraded`](AdapterStatus::Degraded) outcome carrying both a
@@ -672,40 +688,45 @@ fn locate_transcript(
         // Collect all candidates that match cwd in this poll cycle. BUG-1.3:
         // if >1 match, pick the newest by mtime and log a WARN rather than
         // silently taking the first in directory-iteration order.
-        let mut matches: Vec<(PathBuf, i64)> = Vec::new();
-        // Primary: a NEW transcript in the expected slug dir whose cwd matches.
-        if slug_dir.is_dir() {
-            for f in new_jsonl_in(&slug_dir, &preexisting) {
-                if rejected.contains(&f) {
-                    continue;
-                }
-                diag.new_candidates.insert(f.clone());
-                match first_record_cwd_state(&f, cwd) {
-                    CwdState::Matches => {
-                        let mtime = file_mtime_ms(&f);
-                        matches.push((f, mtime));
-                    }
-                    CwdState::Different => {
-                        diag.cwd_mismatches.push(f.clone());
-                        rejected.insert(f);
-                    }
-                    CwdState::Directory => {
-                        diag.directories.push(f.clone());
-                        rejected.insert(f);
-                    }
-                    CwdState::None => {} // not yet written; keep polling
-                }
+        let mut matches =
+            scan_new_transcripts(projects, &slug_dir, cwd, &preexisting, &mut rejected, diag);
+        if !matches.is_empty() {
+            // BUG-1.3: pick the newest by mtime. Sort descending and take first.
+            matches.sort_by_key(|(_, m)| std::cmp::Reverse(*m));
+            if matches.len() > 1 {
+                warn(&format!(
+                    "claude adapter: {} candidate transcript(s) matched cwd; \
+                     selecting the newest: {}",
+                    matches.len(),
+                    matches[0].0.display()
+                ));
             }
+            return Some(matches[0].0.clone());
         }
-        // Fallback: slug encoding may differ from Claude's; scan every project dir
-        // for a NEW transcript matching cwd. Cheap in practice — new files appear
-        // only when a session starts, and rejected/non-matching ones are cached.
-        for f in new_jsonl_under(projects, &preexisting) {
+        std::thread::sleep(APPEAR_POLL);
+    }
+}
+
+/// One discovery pass (the body of [`locate_transcript`]'s poll loop, shared
+/// with the Claude Desktop fallback scan): every NEW `*.jsonl` under
+/// `projects` whose first cwd-bearing record matches `cwd`, as
+/// `(path, mtime_ms)`. Candidates confirmed to belong to a different cwd (or
+/// that are directories) are added to `rejected` and never re-checked; files
+/// with no cwd yet are left for the next pass (they are still being written).
+/// `diag` accumulates what was seen for the degrade reason.
+fn scan_new_transcripts(
+    projects: &Path,
+    slug_dir: &Path,
+    cwd: &Path,
+    preexisting: &std::collections::HashSet<PathBuf>,
+    rejected: &mut std::collections::HashSet<PathBuf>,
+    diag: &mut DiscoveryDiag,
+) -> Vec<(PathBuf, i64)> {
+    let mut matches: Vec<(PathBuf, i64)> = Vec::new();
+    // Primary: a NEW transcript in the expected slug dir whose cwd matches.
+    if slug_dir.is_dir() {
+        for f in new_jsonl_in(slug_dir, preexisting) {
             if rejected.contains(&f) {
-                continue;
-            }
-            // Skip candidates already collected from the slug dir pass.
-            if matches.iter().any(|(p, _)| p == &f) {
                 continue;
             }
             diag.new_candidates.insert(f.clone());
@@ -722,24 +743,39 @@ fn locate_transcript(
                     diag.directories.push(f.clone());
                     rejected.insert(f);
                 }
-                CwdState::None => {}
+                CwdState::None => {} // not yet written; keep polling
             }
         }
-        if !matches.is_empty() {
-            // BUG-1.3: pick the newest by mtime. Sort descending and take first.
-            matches.sort_by_key(|(_, m)| std::cmp::Reverse(*m));
-            if matches.len() > 1 {
-                warn(&format!(
-                    "claude adapter: {} candidate transcript(s) matched cwd; \
-                     selecting the newest: {}",
-                    matches.len(),
-                    matches[0].0.display()
-                ));
-            }
-            return Some(matches[0].0.clone());
-        }
-        std::thread::sleep(APPEAR_POLL);
     }
+    // Fallback: slug encoding may differ from Claude's; scan every project dir
+    // for a NEW transcript matching cwd. Cheap in practice — new files appear
+    // only when a session starts, and rejected/non-matching ones are cached.
+    for f in new_jsonl_under(projects, preexisting) {
+        if rejected.contains(&f) {
+            continue;
+        }
+        // Skip candidates already collected from the slug dir pass.
+        if matches.iter().any(|(p, _)| p == &f) {
+            continue;
+        }
+        diag.new_candidates.insert(f.clone());
+        match first_record_cwd_state(&f, cwd) {
+            CwdState::Matches => {
+                let mtime = file_mtime_ms(&f);
+                matches.push((f, mtime));
+            }
+            CwdState::Different => {
+                diag.cwd_mismatches.push(f.clone());
+                rejected.insert(f);
+            }
+            CwdState::Directory => {
+                diag.directories.push(f.clone());
+                rejected.insert(f);
+            }
+            CwdState::None => {}
+        }
+    }
+    matches
 }
 
 /// The newest `*.jsonl` in `dir` by mtime, with a small slack window so a file
@@ -897,13 +933,12 @@ fn first_record_cwd_state(file: &Path, session_cwd: &Path) -> CwdState {
 /// first parse error + line count) — instead of claiming active with 0 events.
 fn tail_file(
     file: &Path,
-    projects: &Path,
+    mode: &TailMode,
     ctx: &AdapterContext,
     tx: &mpsc::Sender<Event>,
     start: &Instant,
     acc: &mut OutcomeAcc,
 ) -> TailStats {
-    let slug_dir = projects.join(slugify(&ctx.cwd));
     let mut current = file.to_path_buf();
     let mut stats = TailStats::default();
     let mut reader = match std::fs::File::open(&current) {
@@ -923,7 +958,11 @@ fn tail_file(
                 // trailing partial (no newline yet) for the next grow.
                 drain_complete_lines(&mut buf, &mut line, ctx, tx, start, acc, &mut stats);
                 // Rotation: a newer .jsonl appeared in the slug dir?
-                if let Some(newer) = rotate_to_newer(&slug_dir, &current, ctx.started_at_unix_ms) {
+                if let Some(newer) = mode
+                    .rotate_dir
+                    .as_deref()
+                    .and_then(|d| rotate_to_newer(d, &current, ctx.started_at_unix_ms))
+                {
                     debug(&format!(
                         "claude adapter: rotating to newer transcript {}",
                         newer.display()
@@ -948,9 +987,38 @@ fn tail_file(
             Err(_) => break,
         }
     }
+    if mode.drain_on_stop {
+        // The agent outlives the recording (Claude Desktop keeps running after
+        // the wrapped command exits), so read whatever the transcript holds at
+        // stop time to EOF. Bounded by the file's current size — no polling.
+        loop {
+            match reader.read_until(b'\n', &mut line) {
+                Ok(0) => break,
+                Ok(_n) => {
+                    drain_complete_lines(&mut buf, &mut line, ctx, tx, start, acc, &mut stats);
+                }
+                Err(e) if e.kind() == std::io::ErrorKind::Interrupted => {}
+                Err(_) => break,
+            }
+        }
+    }
     // Final flush of any complete trailing line on stop.
     drain_complete_lines(&mut buf, &mut line, ctx, tx, start, acc, &mut stats);
     stats
+}
+
+/// How [`tail_file`] behaves at EOF and at stop. The Claude Code adapter
+/// rotates to a newer transcript in the slug dir and stops as soon as the
+/// child exits; the Claude Desktop adapter is pinned to one transcript (the
+/// index record names it) and drains it to EOF at stop, because Desktop keeps
+/// writing after the wrapped command ends.
+#[derive(Debug, Default, Clone)]
+struct TailMode {
+    /// Directory to watch for a newer `*.jsonl` to rotate to; `None` disables
+    /// rotation.
+    rotate_dir: Option<PathBuf>,
+    /// Read the transcript to EOF once the stop flag is observed.
+    drain_on_stop: bool,
 }
 
 /// Move the just-read `line` bytes into `buf`, then parse every complete
@@ -1065,10 +1133,42 @@ fn rotate_to_newer(slug_dir: &Path, current: &Path, started_at_unix_ms: i64) -> 
 // Claude Desktop adapter
 // ---------------------------------------------------------------------------
 
-/// The Claude Desktop adapter: same JSONL format as Claude Code
-/// (`~/.claude/projects/<slug>/*.jsonl`), so it reuses the same tailer and
-/// parser. The only difference is the `AgentKind` reported to the session row
-/// (`claude-desktop` vs `claude-code`), so `hh list` distinguishes them.
+/// The Claude Desktop adapter (SRS v1.1.0; `hh run --adapter claude-desktop`).
+///
+/// Claude Desktop's Code tab embeds a Claude Code CLI binary, so its transcript
+/// is **the same JSONL** Claude Code writes, in the same place
+/// (`~/.claude/projects/<cwd-slug>/<cliSessionId>.jsonl`): same `user` /
+/// `assistant` records, same content blocks. The adapter therefore reuses
+/// [`parse_record`] unchanged (the committed fixture under
+/// `tests/fixtures/claude-desktop/` proves it; see its `NOTES.md`). What
+/// differs is **discovery** — there is no `claude-desktop` command to wrap,
+/// so the transcript cannot be found from argv:
+///
+/// 1. **Index record (primary).** Desktop writes one
+///    `local_<uuid>.json` per session under its Electron config dir
+///    ([`claude_desktop_sessions_dir`]), carrying `cwd` and `cliSessionId`.
+///    The adapter polls that directory for a record whose `cwd` is the
+///    session cwd (or under it) and that is either new since the recording
+///    started or modified after it (an active, resumed session), skipping
+///    archived records and ones with a `deleted_<uuid>` tombstone, then tails
+///    `projects/<slug(cwd)>/<cliSessionId>.jsonl` (falling back to a scan of
+///    every project dir for that file name when the slug differs, e.g.
+///    worktree sessions).
+/// 2. **Entrypoint-tagged transcript (fallback).** If the index dir is
+///    missing or holds nothing for this cwd, a NEW transcript under
+///    `~/.claude/projects` matching cwd is accepted only when its first
+///    `entrypoint`-bearing record says `"claude-desktop"`; a terminal
+///    `claude` session in the same directory (`entrypoint: "cli"`) is
+///    rejected with a reason pointing at `--adapter claude-code`.
+///
+/// Because Desktop outlives the wrapped command, the tailer drains the
+/// transcript to EOF when the recording stops instead of cutting off at the
+/// last poll, and never rotates away from the indexed file.
+///
+/// Explicit selection with no Desktop session found degrades through
+/// [`AdapterError`] (`jsonl_not_found` / `discovery_ambiguous`) with a
+/// one-line reason naming the directories that were searched (BUG-1); it
+/// never reports `active` with zero steps.
 #[derive(Debug, Clone)]
 pub struct ClaudeDesktopAdapter;
 
@@ -1077,16 +1177,633 @@ impl Adapter for ClaudeDesktopAdapter {
         AgentKind::ClaudeDesktop
     }
 
-    #[allow(clippy::unused_self)]
+    #[allow(clippy::unused_self)] // stateless; the `Box<Self>` receiver exists for `Box<dyn Adapter>` dispatch
     fn spawn(self: Box<Self>, ctx: AdapterContext) -> std::io::Result<AdapterHandle> {
         let (tx, rx) = mpsc::channel::<Event>();
         let outcome = std::thread::Builder::new()
             .name("hh-claude-desktop-adapter".into())
-            .spawn(move || run_claude_tailer(ctx, tx))?;
+            .spawn(move || run_claude_desktop_tailer(ctx, tx))?;
         Ok(AdapterHandle {
             events: rx,
             outcome,
         })
+    }
+}
+
+/// Where Claude Desktop keeps its per-session index records
+/// (`claude-code-sessions/<orgUuid>/<accountUuid>/local_<uuid>.json`),
+/// resolved from the platform config dir Electron's `app.getPath('userData')`
+/// maps to:
+///
+/// | OS      | Path                                                         | Status      |
+/// |---------|--------------------------------------------------------------|-------------|
+/// | Linux   | `$XDG_CONFIG_HOME/Claude` or `~/.config/Claude`              | confirmed   |
+/// | macOS   | `~/Library/Application Support/Claude`                       | unverified  |
+/// | Windows | `%APPDATA%\Claude`                                           | unverified  |
+///
+/// `None` when no home directory can be determined. Public so `hh doctor`
+/// and the docs can name the exact location that was probed.
+#[must_use]
+pub fn claude_desktop_sessions_dir() -> Option<PathBuf> {
+    let base = directories::BaseDirs::new()?;
+    Some(
+        base.config_dir()
+            .join("Claude")
+            .join("claude-code-sessions"),
+    )
+}
+
+/// Slack applied when deciding whether a pre-existing Desktop index record
+/// is "active": a record modified within this window before the recording
+/// started still qualifies (clock skew; a session opened just before
+/// `hh run`).
+const DESKTOP_INDEX_SLACK_MS: i64 = 5_000;
+
+/// The fields of a Desktop session index record (`local_<uuid>.json`) that
+/// discovery needs. Untrusted input: parsed leniently, never panics.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) struct DesktopIndexRecord {
+    /// `cliSessionId`: the UUID that names the transcript file.
+    pub cli_session_id: String,
+    /// `cwd` (or `originCwd` when `cwd` is absent): selects the slug dir.
+    pub cwd: PathBuf,
+    /// `isArchived`: an archived session is never tailed.
+    pub is_archived: bool,
+}
+
+/// Parse a Desktop index record from its raw bytes. Returns `None` for
+/// anything that is not a JSON object with a string `cliSessionId` and a
+/// string `cwd`/`originCwd`. The `cliSessionId` is used as a file name, so
+/// anything but `[A-Za-z0-9_-]` is rejected (no path traversal from a
+/// crafted record). Fuzzed by `fuzz/fuzz_targets/claude_desktop_index.rs`.
+pub(crate) fn parse_desktop_index(bytes: &[u8]) -> Option<DesktopIndexRecord> {
+    let value: serde_json::Value = serde_json::from_slice(bytes).ok()?;
+    let obj = value.as_object()?;
+    let cli_session_id = obj.get("cliSessionId")?.as_str()?;
+    if cli_session_id.is_empty()
+        || !cli_session_id
+            .chars()
+            .all(|c| c.is_ascii_alphanumeric() || c == '-' || c == '_')
+    {
+        return None;
+    }
+    let cwd = obj
+        .get("cwd")
+        .and_then(|c| c.as_str())
+        .or_else(|| obj.get("originCwd").and_then(|c| c.as_str()))?;
+    if cwd.is_empty() {
+        return None;
+    }
+    let is_archived = obj
+        .get("isArchived")
+        .and_then(serde_json::Value::as_bool)
+        .unwrap_or(false);
+    Some(DesktopIndexRecord {
+        cli_session_id: cli_session_id.to_string(),
+        cwd: PathBuf::from(cwd),
+        is_archived,
+    })
+}
+
+/// The `entrypoint` a transcript record carries (`"claude-desktop"` for
+/// Desktop's Code tab, `"cli"` for a terminal `claude`), if any.
+pub(crate) fn record_entrypoint(value: &serde_json::Value) -> Option<&str> {
+    value.get("entrypoint").and_then(|e| e.as_str())
+}
+
+/// The first `entrypoint` found in `file`, or `None` if no record carries one
+/// yet (brand-new transcript) or the file cannot be read. Best-effort, like
+/// [`first_record_cwd_state`].
+fn transcript_entrypoint(file: &Path) -> Option<String> {
+    let content = std::fs::read_to_string(file).ok()?;
+    for line in content.lines() {
+        let line = line.trim();
+        if line.is_empty() {
+            continue;
+        }
+        let Ok(v) = serde_json::from_str::<serde_json::Value>(line) else {
+            continue;
+        };
+        if let Some(e) = record_entrypoint(&v) {
+            return Some(e.to_string());
+        }
+    }
+    None
+}
+
+/// What Desktop discovery saw, for the `HH_DEBUG` trace and the degrade
+/// reason. Pure data; [`locate_desktop_transcript`] mutates it as it polls.
+#[derive(Default)]
+struct DesktopDiag {
+    /// The index dir that was probed (`None` when no config dir resolves).
+    sessions_dir: Option<PathBuf>,
+    /// Whether that dir existed at any point during discovery.
+    sessions_dir_exists: bool,
+    /// Index records that parsed and named a *different* cwd (NEW since start
+    /// — the "candidates appeared but none were ours" signal).
+    index_new_other_cwd: usize,
+    /// Index records for this cwd that were archived.
+    index_archived: usize,
+    /// Index records for this cwd with a `deleted_<uuid>` tombstone.
+    index_deleted: usize,
+    /// Index records that did not parse (not JSON, missing fields).
+    index_malformed: usize,
+    /// Index records for this cwd whose transcript never appeared:
+    /// `(index file name, expected transcript path)`.
+    transcript_missing: Vec<(String, PathBuf)>,
+    /// Fallback transcripts for this cwd rejected because their entrypoint
+    /// was not `claude-desktop`: `(file, entrypoint)`.
+    not_desktop: Vec<(PathBuf, String)>,
+    /// The projects-dir scan diagnostics (shared with the Claude Code path).
+    base: DiscoveryDiag,
+}
+
+/// The tailer thread body for [`ClaudeDesktopAdapter`]: resolve the Desktop
+/// index dir from the platform config dir, then run
+/// [`run_claude_desktop_tailer_with`].
+#[allow(clippy::needless_pass_by_value)] // ctx/tx are owned for the thread's lifetime (mirrors run_claude_tailer).
+fn run_claude_desktop_tailer(ctx: AdapterContext, tx: mpsc::Sender<Event>) -> AdapterOutcome {
+    let sessions_dir = claude_desktop_sessions_dir();
+    run_claude_desktop_tailer_with(ctx, tx, sessions_dir, None)
+}
+
+/// [`run_claude_desktop_tailer`] with the index dir injected (tests point it
+/// at a temp dir without touching `HOME`/`XDG_CONFIG_HOME`) and an optional
+/// latch that fires once the "pre-existing files" snapshot has been taken —
+/// so a test can write its fixture *after* the snapshot deterministically,
+/// with no sleep (BUG-4). Production passes `None` for the latch.
+#[allow(clippy::needless_pass_by_value)] // ctx/tx are owned for the thread's lifetime (mirrors run_claude_tailer).
+fn run_claude_desktop_tailer_with(
+    ctx: AdapterContext,
+    tx: mpsc::Sender<Event>,
+    sessions_dir: Option<PathBuf>,
+    snapshot_taken: Option<mpsc::Sender<()>>,
+) -> AdapterOutcome {
+    let Some(projects) = ctx.projects_dir.clone().or_else(claude_projects_dir) else {
+        return degraded_with_error(
+            &AdapterError::JsonlNotFound,
+            "no ~/.claude/projects directory found (HOME unset?): Claude Desktop's embedded \
+             CLI writes its transcripts there; run `hh doctor` to diagnose",
+        );
+    };
+    if !projects.is_dir() {
+        return degraded_with_error(
+            &AdapterError::JsonlNotFound,
+            format!(
+                "projects directory does not exist: {} — Claude Desktop's embedded CLI writes \
+                 its transcripts there, so no Desktop Code-tab session has run on this machine \
+                 yet; run `hh doctor` to diagnose",
+                projects.display()
+            ),
+        );
+    }
+    let slug = slugify(&ctx.cwd);
+    let slug_dir = projects.join(&slug);
+    debug(&format!(
+        "claude-desktop adapter: projects_dir={}, sessions_dir={}, slug={slug}, session cwd={}, started_at_unix_ms={}",
+        projects.display(),
+        sessions_dir
+            .as_ref()
+            .map_or_else(|| "(none)".to_string(), |p| p.display().to_string()),
+        ctx.cwd.display(),
+        ctx.started_at_unix_ms
+    ));
+    let mut diag = DesktopDiag {
+        sessions_dir: sessions_dir.clone(),
+        base: DiscoveryDiag {
+            projects: Some(projects.clone()),
+            slug: Some(slug),
+            slug_dir: Some(slug_dir),
+            cwd: Some(ctx.cwd.clone()),
+            ..Default::default()
+        },
+        ..Default::default()
+    };
+    let start = Instant::now();
+    let Some(file) = locate_desktop_transcript(
+        &projects,
+        sessions_dir.as_deref(),
+        &ctx.cwd,
+        ctx.started_at_unix_ms,
+        &ctx.stop,
+        snapshot_taken.as_ref(),
+        &mut diag,
+    ) else {
+        return desktop_discovery_failure(&diag);
+    };
+    debug(&format!(
+        "claude-desktop adapter: selected transcript {}",
+        file.display()
+    ));
+    let mut acc = OutcomeAcc::default();
+    // Pinned to the indexed transcript (no rotation); drained to EOF at stop
+    // because Desktop keeps running after the wrapped command exits.
+    let mode = TailMode {
+        rotate_dir: None,
+        drain_on_stop: true,
+    };
+    let stats = tail_file(&file, &mode, &ctx, &tx, &start, &mut acc);
+    if !stats.read_ok {
+        return degraded_with_error(
+            &AdapterError::PermissionDenied {
+                path: file.display().to_string(),
+            },
+            format!(
+                "found the Claude Desktop transcript at {} but could not read it (open/read \
+                 failed); run `hh doctor` to check file permissions",
+                file.display(),
+            ),
+        );
+    }
+    debug(&format!(
+        "claude-desktop adapter: tail done: lines_seen={}, records_parsed={}, events_produced={}, first_parse_error={:?}",
+        stats.lines_seen, stats.records_parsed, stats.events_produced, stats.first_parse_error
+    ));
+    if stats.events_produced == 0 {
+        return zero_events_degrade(
+            &stats,
+            "Claude Desktop transcript found",
+            &file,
+            "if you sent no prompt before the recording ended this is expected, otherwise run \
+             `HH_DEBUG=1 hh run --adapter claude-desktop …` and file an issue with the trace",
+        );
+    }
+    acc.finish(AdapterStatus::Active)
+}
+
+/// The degraded outcome for a failed Desktop discovery, with the `HH_DEBUG`
+/// trace. Mirrors the Claude Code code mapping (BUG-1.3): something appeared
+/// but none of it was ours → `discovery_ambiguous`; nothing at all (or only an
+/// indexed session whose transcript never showed up) → `jsonl_not_found`.
+fn desktop_discovery_failure(diag: &DesktopDiag) -> AdapterOutcome {
+    debug(&format!(
+        "claude-desktop adapter: discovery failed: sessions_dir_exists={}, index_other_cwd={}, \
+         index_archived={}, index_deleted={}, index_malformed={}, transcript_missing={}, \
+         not_desktop={}, new_candidates={}",
+        diag.sessions_dir_exists,
+        diag.index_new_other_cwd,
+        diag.index_archived,
+        diag.index_deleted,
+        diag.index_malformed,
+        diag.transcript_missing.len(),
+        diag.not_desktop.len(),
+        diag.base.new_candidates.len()
+    ));
+    let code = if diag.transcript_missing.is_empty()
+        && (diag.index_new_other_cwd > 0
+            || !diag.not_desktop.is_empty()
+            || !diag.base.cwd_mismatches.is_empty())
+    {
+        AdapterError::DiscoveryAmbiguous
+    } else {
+        AdapterError::JsonlNotFound
+    };
+    degraded_with_error(&code, desktop_locate_failure_reason(diag))
+}
+
+/// Locate the transcript of the Claude Desktop session running in `cwd`.
+/// See [`ClaudeDesktopAdapter`] for the two-tier rule (index record, then
+/// entrypoint-tagged transcript). Polls until the stop flag is set, then
+/// makes **one more pass**: Desktop may have written the files right as the
+/// wrapped command exited, and the recording should still pick them up.
+/// Returns `None` if nothing qualifies.
+#[allow(clippy::too_many_arguments)] // discovery inputs are all distinct; bundling them in a struct would only move the arity
+#[allow(clippy::too_many_lines)] // one linear poll loop; splitting it would scatter the candidate bookkeeping
+fn locate_desktop_transcript(
+    projects: &Path,
+    sessions_dir: Option<&Path>,
+    cwd: &Path,
+    started_at_unix_ms: i64,
+    stop: &std::sync::Arc<AtomicBool>,
+    snapshot_taken: Option<&mpsc::Sender<()>>,
+    diag: &mut DesktopDiag,
+) -> Option<PathBuf> {
+    let slug_dir = projects.join(slugify(cwd));
+    let preexisting = snapshot_all_jsonl(projects);
+    let preexisting_index = sessions_dir.map(snapshot_index_records).unwrap_or_default();
+    if let Some(latch) = snapshot_taken {
+        let _ = latch.send(());
+    }
+    // Fallback-scan candidates confirmed to be someone else's (never re-checked).
+    let mut rejected: std::collections::HashSet<PathBuf> = std::collections::HashSet::new();
+    // Index records that can never qualify (other cwd, archived, deleted, malformed).
+    let mut rejected_index: std::collections::HashSet<PathBuf> = std::collections::HashSet::new();
+    // `cliSessionId`s the index marked archived or deleted: the index is the
+    // ground truth, so tier 2 must not pick their transcripts up either.
+    let mut excluded_ids: std::collections::HashSet<String> = std::collections::HashSet::new();
+    // Index records for this cwd whose transcript has not appeared yet (deduped
+    // into `diag.transcript_missing`; re-checked every pass).
+    let mut missing_noted: std::collections::HashSet<PathBuf> = std::collections::HashSet::new();
+    let mut final_pass = false;
+
+    loop {
+        if stop.load(Ordering::Acquire) {
+            final_pass = true;
+        }
+        let mut matches: Vec<(PathBuf, i64)> = Vec::new();
+
+        // Tier 1: Desktop's own index records.
+        if let Some(sd) = sessions_dir {
+            if sd.is_dir() {
+                diag.sessions_dir_exists = true;
+                for idx in index_records_under(sd) {
+                    if rejected_index.contains(&idx) {
+                        continue;
+                    }
+                    let Some(rec) = std::fs::read(&idx)
+                        .ok()
+                        .and_then(|b| parse_desktop_index(&b))
+                    else {
+                        // Unreadable or malformed: Desktop may still be writing
+                        // it, so only count it (and give up on it) once it has
+                        // existed since before this pass began.
+                        if preexisting_index.contains(&idx) {
+                            diag.index_malformed += 1;
+                            rejected_index.insert(idx);
+                        }
+                        continue;
+                    };
+                    if !(rec.cwd == cwd || rec.cwd.starts_with(cwd)) {
+                        if !preexisting_index.contains(&idx) {
+                            diag.index_new_other_cwd += 1;
+                        }
+                        rejected_index.insert(idx);
+                        continue;
+                    }
+                    if rec.is_archived {
+                        diag.index_archived += 1;
+                        excluded_ids.insert(rec.cli_session_id);
+                        rejected_index.insert(idx);
+                        continue;
+                    }
+                    if desktop_tombstone_exists(&idx) {
+                        diag.index_deleted += 1;
+                        excluded_ids.insert(rec.cli_session_id);
+                        rejected_index.insert(idx);
+                        continue;
+                    }
+                    let is_new = !preexisting_index.contains(&idx);
+                    let mtime = file_mtime_ms(&idx);
+                    if !is_new && mtime < started_at_unix_ms - DESKTOP_INDEX_SLACK_MS {
+                        // A pre-existing, idle session for this cwd. Desktop
+                        // rewrites the record when the session is used, so
+                        // keep re-checking its mtime rather than rejecting it.
+                        continue;
+                    }
+                    match resolve_desktop_transcript(projects, &rec) {
+                        Some(t) => matches.push((t, mtime)),
+                        None => {
+                            if missing_noted.insert(idx.clone()) {
+                                let name = idx
+                                    .file_name()
+                                    .map(|f| f.to_string_lossy().to_string())
+                                    .unwrap_or_default();
+                                let expected = projects
+                                    .join(slugify(&rec.cwd))
+                                    .join(format!("{}.jsonl", rec.cli_session_id));
+                                diag.transcript_missing.push((name, expected));
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
+        // Tier 2: a NEW transcript for this cwd tagged `entrypoint: claude-desktop`.
+        if matches.is_empty() {
+            for (f, mtime) in scan_new_transcripts(
+                projects,
+                &slug_dir,
+                cwd,
+                &preexisting,
+                &mut rejected,
+                &mut diag.base,
+            ) {
+                let stem = f
+                    .file_stem()
+                    .map(|st| st.to_string_lossy().to_string())
+                    .unwrap_or_default();
+                if excluded_ids.contains(&stem) {
+                    rejected.insert(f);
+                    continue;
+                }
+                match transcript_entrypoint(&f) {
+                    Some(e) if e == "claude-desktop" => matches.push((f, mtime)),
+                    Some(other) => {
+                        diag.not_desktop.push((f.clone(), other));
+                        rejected.insert(f);
+                    }
+                    None => {} // no entrypoint-bearing record yet; keep polling
+                }
+            }
+        }
+
+        if !matches.is_empty() {
+            matches.sort_by_key(|(_, m)| std::cmp::Reverse(*m));
+            if matches.len() > 1 {
+                warn(&format!(
+                    "claude-desktop adapter: {} Desktop session(s) matched cwd; \
+                     selecting the most recently active: {}",
+                    matches.len(),
+                    matches[0].0.display()
+                ));
+            }
+            return Some(matches[0].0.clone());
+        }
+        if final_pass {
+            return None;
+        }
+        std::thread::sleep(APPEAR_POLL);
+    }
+}
+
+/// Every `local_*.json` index record under `sessions_dir`
+/// (`<orgUuid>/<accountUuid>/local_<uuid>.json`). Unreadable directories
+/// yield nothing.
+fn index_records_under(sessions_dir: &Path) -> Vec<PathBuf> {
+    let mut out = Vec::new();
+    let Ok(orgs) = std::fs::read_dir(sessions_dir) else {
+        return out;
+    };
+    for org in orgs.flatten() {
+        let org_path = org.path();
+        if !org_path.is_dir() {
+            continue;
+        }
+        let Ok(accounts) = std::fs::read_dir(&org_path) else {
+            continue;
+        };
+        for account in accounts.flatten() {
+            let account_path = account.path();
+            if !account_path.is_dir() {
+                continue;
+            }
+            let Ok(entries) = std::fs::read_dir(&account_path) else {
+                continue;
+            };
+            for e in entries.flatten() {
+                let p = e.path();
+                let is_index = p
+                    .file_name()
+                    .and_then(|f| f.to_str())
+                    .is_some_and(|f| f.starts_with("local_"))
+                    && p.extension()
+                        .is_some_and(|ext| ext.eq_ignore_ascii_case("json"));
+                if is_index && p.is_file() {
+                    out.push(p);
+                }
+            }
+        }
+    }
+    out
+}
+
+/// Snapshot every index record path at session start (the "pre-existing"
+/// set; see [`locate_desktop_transcript`]).
+fn snapshot_index_records(sessions_dir: &Path) -> std::collections::HashSet<PathBuf> {
+    index_records_under(sessions_dir).into_iter().collect()
+}
+
+/// True if a `deleted_<uuid>` tombstone sits next to the `local_<uuid>.json`
+/// index record at `idx` (Desktop marks a deleted session that way rather
+/// than removing the record).
+fn desktop_tombstone_exists(idx: &Path) -> bool {
+    let Some(stem) = idx.file_stem().and_then(|s| s.to_str()) else {
+        return false;
+    };
+    let Some(uuid) = stem.strip_prefix("local_") else {
+        return false;
+    };
+    idx.with_file_name(format!("deleted_{uuid}")).is_file()
+}
+
+/// The transcript file an index record points at:
+/// `projects/<slug(cwd)>/<cliSessionId>.jsonl`, or — when the slug differs
+/// (worktree sessions, slug-rule drift) — that file name under any project
+/// dir. `None` while the transcript has not been created yet.
+fn resolve_desktop_transcript(projects: &Path, rec: &DesktopIndexRecord) -> Option<PathBuf> {
+    let name = format!("{}.jsonl", rec.cli_session_id);
+    let direct = projects.join(slugify(&rec.cwd)).join(&name);
+    if direct.is_file() {
+        return Some(direct);
+    }
+    let dirs = std::fs::read_dir(projects).ok()?;
+    for d in dirs.flatten() {
+        let candidate = d.path().join(&name);
+        if candidate.is_file() {
+            return Some(candidate);
+        }
+    }
+    None
+}
+
+/// The one-line, actionable reason for a failed Desktop discovery: names the
+/// index dir and projects dir that were searched, says what was found there
+/// and why it did not qualify, and tells the user what to do.
+fn desktop_locate_failure_reason(diag: &DesktopDiag) -> String {
+    use std::fmt::Write as _;
+    let cwd = diag
+        .base
+        .cwd
+        .as_ref()
+        .map_or_else(|| "(unknown)".to_string(), |p| p.display().to_string());
+    let projects = diag
+        .base
+        .projects
+        .as_ref()
+        .map_or_else(|| "(unknown)".to_string(), |p| p.display().to_string());
+    let mut s = format!(
+        "no Claude Desktop session found for cwd={cwd}: {}",
+        desktop_index_summary(diag)
+    );
+    if !diag.transcript_missing.is_empty() {
+        let names: Vec<String> = diag
+            .transcript_missing
+            .iter()
+            .take(3)
+            .map(|(name, expected)| format!("{name} → {}", expected.display()))
+            .collect();
+        let _ = write!(
+            s,
+            "; {} indexed session(s) for this directory had no transcript yet ({})",
+            diag.transcript_missing.len(),
+            names.join(", ")
+        );
+    }
+    let _ = write!(
+        s,
+        "; no new transcript tagged entrypoint=claude-desktop appeared under {projects}"
+    );
+    if !diag.not_desktop.is_empty() {
+        let names: Vec<String> = diag
+            .not_desktop
+            .iter()
+            .take(3)
+            .map(|(p, e)| {
+                format!(
+                    "{} (entrypoint={e})",
+                    p.file_name()
+                        .map(|f| f.to_string_lossy().to_string())
+                        .unwrap_or_default()
+                )
+            })
+            .collect();
+        let _ = write!(
+            s,
+            "; {} transcript(s) for this directory belonged to a terminal `claude` session \
+             ({}) — record those with `hh run -- claude` instead",
+            diag.not_desktop.len(),
+            names.join(", ")
+        );
+    }
+    s.push_str(
+        ". Start (or send a prompt in) a Claude Desktop Code-tab session in this directory \
+         while `hh run --adapter claude-desktop` is running; run `hh doctor` to diagnose.",
+    );
+    s
+}
+
+/// The index-dir clause of [`desktop_locate_failure_reason`]: what Desktop's
+/// session index held (or that it was missing / could not be resolved).
+fn desktop_index_summary(diag: &DesktopDiag) -> String {
+    use std::fmt::Write as _;
+    match (&diag.sessions_dir, diag.sessions_dir_exists) {
+        (Some(dir), true) => {
+            let mut s = format!(
+                "Desktop's session index {} had no active session for this directory before \
+                 the recording ended",
+                dir.display()
+            );
+            let mut notes: Vec<String> = Vec::new();
+            if diag.index_new_other_cwd > 0 {
+                notes.push(format!(
+                    "{} new session(s) were for other directories",
+                    diag.index_new_other_cwd
+                ));
+            }
+            if diag.index_archived > 0 {
+                notes.push(format!("{} archived", diag.index_archived));
+            }
+            if diag.index_deleted > 0 {
+                notes.push(format!("{} deleted", diag.index_deleted));
+            }
+            if diag.index_malformed > 0 {
+                notes.push(format!("{} unreadable", diag.index_malformed));
+            }
+            if !notes.is_empty() {
+                let _ = write!(s, " ({})", notes.join(", "));
+            }
+            s
+        }
+        (Some(dir), false) => format!(
+            "Desktop's session index {} does not exist (is Claude Desktop installed? \
+             expected under ~/.config/Claude on Linux, ~/Library/Application Support/Claude \
+             on macOS, %APPDATA%\\Claude on Windows)",
+            dir.display()
+        ),
+        (None, _) => "no platform config directory could be resolved (HOME unset?), so \
+                      Desktop's session index could not be probed"
+            .to_string(),
     }
 }
 
@@ -2517,7 +3234,10 @@ fn file_mtime_ms(path: &Path) -> i64 {
 /// public API.
 #[cfg(feature = "fuzzing")]
 pub mod fuzzing {
-    use super::{parse_codex_record, parse_gemini_record, parse_record, BlobStore};
+    use super::{
+        parse_codex_record, parse_desktop_index, parse_gemini_record, parse_record,
+        record_entrypoint, BlobStore,
+    };
     use std::sync::OnceLock;
 
     /// A blob store rooted in a process-unique temp dir, reused across fuzz
@@ -2546,6 +3266,31 @@ pub mod fuzzing {
             return;
         };
         let _ = parse_record(&value, "fuzz-session", 0, blobs());
+    }
+
+    /// Mirrors the Claude Desktop tailer's per-line path, which is the Claude
+    /// Code path ([`fuzz_parse_line`]: UTF-8 validate → trim → JSON parse →
+    /// [`parse_record`]) plus the `entrypoint` probe Desktop discovery runs on
+    /// a candidate transcript ([`record_entrypoint`]). Must never panic.
+    pub fn fuzz_parse_desktop_line(bytes: &[u8]) {
+        let Ok(s) = std::str::from_utf8(bytes) else {
+            return;
+        };
+        let s = s.trim();
+        if s.is_empty() {
+            return;
+        }
+        let Ok(value) = serde_json::from_str::<serde_json::Value>(s) else {
+            return;
+        };
+        let _ = record_entrypoint(&value);
+        let _ = parse_record(&value, "fuzz-session", 0, blobs());
+    }
+
+    /// Mirrors Desktop discovery's read of a `local_<uuid>.json` index record
+    /// ([`parse_desktop_index`] on the raw file bytes). Must never panic.
+    pub fn fuzz_parse_desktop_index(bytes: &[u8]) {
+        let _ = parse_desktop_index(bytes);
     }
 
     /// Mirrors the Codex CLI tailer's per-line path: UTF-8 validate → trim →
@@ -3195,6 +3940,527 @@ mod tests {
     /// Number of events the pure parser produces from the Desktop fixture;
     /// locked by `snapshot_claude_desktop_fixture_parse`.
     const DESKTOP_FIXTURE_EVENTS: usize = 51;
+
+    // -----------------------------------------------------------------------
+    // Claude Desktop discovery (SRS v1.1.0; BUG-1 degrade paths, BUG-4 no sleeps)
+    // -----------------------------------------------------------------------
+
+    /// The `sessionId` every record in the Desktop fixture carries, which is
+    /// also the transcript's file stem (`cliSessionId` in the index record).
+    const DESKTOP_CLI_SESSION_ID: &str = "00000000-0000-4000-8000-000000000001";
+    /// The sanitized cwd every record in the Desktop fixture carries.
+    const DESKTOP_FIXTURE_CWD: &str = "/home/user/proj";
+    const DESKTOP_FIXTURE: &str = include_str!("../../tests/fixtures/claude-desktop/session.jsonl");
+
+    /// A running Desktop tailer under test.
+    struct DesktopHarness {
+        events: mpsc::Receiver<Event>,
+        outcome: JoinHandle<AdapterOutcome>,
+        stop: std::sync::Arc<AtomicBool>,
+        /// `<home>/.claude/projects` (pre-created, empty).
+        projects: PathBuf,
+    }
+
+    impl DesktopHarness {
+        /// Set the stop flag and join the tailer, returning its outcome plus
+        /// every event it produced (channel EOF — no sleeps).
+        fn stop_and_join(self) -> (AdapterOutcome, Vec<Event>) {
+            self.stop.store(true, Ordering::Release);
+            let outcome = self.outcome.join().expect("tailer thread");
+            let events = drain(&self.events);
+            (outcome, events)
+        }
+    }
+
+    /// Spawn the Desktop tailer against a temp home with the index dir
+    /// injected, and block on the tailer's "snapshot taken" latch so the test
+    /// writes its fixture strictly *after* the pre-existing-files snapshot —
+    /// deterministic "new since start" semantics with no sleep (BUG-4).
+    fn spawn_desktop_tailer(
+        home: &Path,
+        cwd: &Path,
+        sessions_dir: Option<PathBuf>,
+    ) -> DesktopHarness {
+        let projects = home.join(".claude").join("projects");
+        std::fs::create_dir_all(&projects).unwrap();
+        let stop = std::sync::Arc::new(AtomicBool::new(false));
+        let blobs = std::sync::Arc::new(BlobStore::new(home.join("blobs")));
+        let ctx = AdapterContext {
+            session_id: SID.to_string(),
+            started_at_unix_ms: STARTED,
+            cwd: cwd.to_path_buf(),
+            command: vec!["bash".into()],
+            blobs,
+            stop: std::sync::Arc::clone(&stop),
+            projects_dir: Some(projects.clone()),
+        };
+        let (tx, events) = mpsc::channel::<Event>();
+        let (latch_tx, latch_rx) = mpsc::channel::<()>();
+        let outcome = std::thread::spawn(move || {
+            run_claude_desktop_tailer_with(ctx, tx, sessions_dir, Some(latch_tx))
+        });
+        latch_rx
+            .recv_timeout(Duration::from_secs(10))
+            .expect("tailer takes its snapshot promptly");
+        DesktopHarness {
+            events,
+            outcome,
+            stop,
+            projects,
+        }
+    }
+
+    /// Write a Desktop index record (`<org>/<account>/local_<uuid>.json`)
+    /// shaped like the ones `NOTES.md` documents. Returns its path.
+    fn write_desktop_index(
+        sessions_dir: &Path,
+        local_uuid: &str,
+        cwd: &str,
+        cli_session_id: &str,
+        archived: bool,
+    ) -> PathBuf {
+        let dir = sessions_dir.join("org-uuid").join("account-uuid");
+        std::fs::create_dir_all(&dir).unwrap();
+        let path = dir.join(format!("local_{local_uuid}.json"));
+        let record = serde_json::json!({
+            "sessionId": format!("local_{local_uuid}"),
+            "cliSessionId": cli_session_id,
+            "cwd": cwd,
+            "originCwd": cwd,
+            "title": "lorem ipsum",
+            "titleSource": "ai",
+            "model": "claude-sonnet-5",
+            "effort": "high",
+            "permissionMode": "auto",
+            "completedTurns": 3,
+            "isArchived": archived,
+            "writtenBranches": ["main"],
+        });
+        std::fs::write(&path, serde_json::to_vec(&record).unwrap()).unwrap();
+        path
+    }
+
+    /// Assert the event mix the Desktop fixture is known to produce (the same
+    /// counts `tailer_parses_committed_claude_desktop_fixture` locks).
+    fn assert_desktop_fixture_events(events: &[Event]) {
+        assert_eq!(events.len(), DESKTOP_FIXTURE_EVENTS);
+        let count = |k: EventKind| events.iter().filter(|e| e.kind == k).count();
+        assert_eq!(count(EventKind::UserMessage), 3);
+        assert_eq!(count(EventKind::ToolCall), 17);
+        assert_eq!(count(EventKind::ToolResult), 17);
+        assert_eq!(count(EventKind::Thinking), 5);
+        assert_eq!(count(EventKind::AgentMessage), 9);
+    }
+
+    /// Tier 1: the index record names the transcript; the adapter tails
+    /// `projects/<slug(cwd)>/<cliSessionId>.jsonl` and yields the fixture's
+    /// events with `Active` status.
+    #[test]
+    fn desktop_discovers_transcript_via_index_record() {
+        let home = tempfile::TempDir::new().unwrap();
+        let sessions = home
+            .path()
+            .join("config")
+            .join("Claude")
+            .join("claude-code-sessions");
+        let cwd = Path::new(DESKTOP_FIXTURE_CWD);
+        let h = spawn_desktop_tailer(home.path(), cwd, Some(sessions.clone()));
+        write_desktop_index(
+            &sessions,
+            "aaaa",
+            DESKTOP_FIXTURE_CWD,
+            DESKTOP_CLI_SESSION_ID,
+            false,
+        );
+        let slug_dir = h.projects.join(slugify(cwd));
+        std::fs::create_dir_all(&slug_dir).unwrap();
+        write_transcript(
+            &slug_dir,
+            &format!("{DESKTOP_CLI_SESSION_ID}.jsonl"),
+            DESKTOP_FIXTURE,
+        );
+        let mut events = collect_n(&h.events, DESKTOP_FIXTURE_EVENTS, Duration::from_secs(10));
+        let (outcome, rest) = h.stop_and_join();
+        events.extend(rest);
+        assert_desktop_fixture_events(&events);
+        assert_eq!(outcome.status, AdapterStatus::Active);
+        assert_eq!(outcome.degrade_reason, None);
+        assert_eq!(outcome.model.as_deref(), Some("claude-sonnet-5"));
+        assert!(outcome.usage_json.is_some());
+    }
+
+    /// Tier 1, slug drift: the transcript lives under a project dir whose
+    /// name is not `slugify(cwd)` (a worktree session). The index record's
+    /// `cliSessionId` still resolves it by file name.
+    #[test]
+    fn desktop_index_resolves_transcript_under_a_different_slug_dir() {
+        let home = tempfile::TempDir::new().unwrap();
+        let sessions = home.path().join("Claude").join("claude-code-sessions");
+        let cwd = Path::new(DESKTOP_FIXTURE_CWD);
+        let h = spawn_desktop_tailer(home.path(), cwd, Some(sessions.clone()));
+        write_desktop_index(
+            &sessions,
+            "bbbb",
+            DESKTOP_FIXTURE_CWD,
+            DESKTOP_CLI_SESSION_ID,
+            false,
+        );
+        let worktree_dir = h
+            .projects
+            .join("-home-user-proj--claude-worktrees-work-abc123");
+        std::fs::create_dir_all(&worktree_dir).unwrap();
+        write_transcript(
+            &worktree_dir,
+            &format!("{DESKTOP_CLI_SESSION_ID}.jsonl"),
+            DESKTOP_FIXTURE,
+        );
+        let mut events = collect_n(&h.events, DESKTOP_FIXTURE_EVENTS, Duration::from_secs(10));
+        let (outcome, rest) = h.stop_and_join();
+        events.extend(rest);
+        assert_desktop_fixture_events(&events);
+        assert_eq!(outcome.status, AdapterStatus::Active);
+    }
+
+    /// Tier 1 never tails an archived session or one with a `deleted_<uuid>`
+    /// tombstone, even when their transcripts exist — and the degrade reason
+    /// says so (BUG-1: specific, not "could not locate").
+    #[test]
+    fn desktop_skips_archived_and_deleted_index_records() {
+        let home = tempfile::TempDir::new().unwrap();
+        let sessions = home.path().join("Claude").join("claude-code-sessions");
+        let cwd = Path::new(DESKTOP_FIXTURE_CWD);
+        let h = spawn_desktop_tailer(home.path(), cwd, Some(sessions.clone()));
+        let slug_dir = h.projects.join(slugify(cwd));
+        std::fs::create_dir_all(&slug_dir).unwrap();
+        write_transcript(
+            &slug_dir,
+            &format!("{DESKTOP_CLI_SESSION_ID}.jsonl"),
+            DESKTOP_FIXTURE,
+        );
+        write_desktop_index(
+            &sessions,
+            "arch",
+            DESKTOP_FIXTURE_CWD,
+            DESKTOP_CLI_SESSION_ID,
+            true,
+        );
+        let deleted = write_desktop_index(
+            &sessions,
+            "gone",
+            DESKTOP_FIXTURE_CWD,
+            DESKTOP_CLI_SESSION_ID,
+            false,
+        );
+        std::fs::write(deleted.with_file_name("deleted_gone"), b"1752800000000").unwrap();
+        let (outcome, events) = h.stop_and_join();
+        assert_eq!(events.len(), 0, "no events expected");
+        assert_eq!(outcome.status, AdapterStatus::Degraded);
+        let reason = outcome.degrade_reason.as_deref().unwrap_or("");
+        assert_eq!(
+            adapter_degrade_code(Some(reason)),
+            Some("jsonl_not_found"),
+            "{reason}"
+        );
+        assert!(reason.contains("1 archived"), "{reason}");
+        assert!(reason.contains("1 deleted"), "{reason}");
+    }
+
+    /// Tier 2: with no index dir at all (Desktop installed somewhere we do not
+    /// know about), a NEW transcript for this cwd tagged
+    /// `entrypoint: "claude-desktop"` is accepted.
+    #[test]
+    fn desktop_fallback_accepts_entrypoint_tagged_transcript_without_index() {
+        let home = tempfile::TempDir::new().unwrap();
+        let cwd = Path::new(DESKTOP_FIXTURE_CWD);
+        let h = spawn_desktop_tailer(home.path(), cwd, None);
+        let slug_dir = h.projects.join(slugify(cwd));
+        std::fs::create_dir_all(&slug_dir).unwrap();
+        write_transcript(
+            &slug_dir,
+            &format!("{DESKTOP_CLI_SESSION_ID}.jsonl"),
+            DESKTOP_FIXTURE,
+        );
+        let mut events = collect_n(&h.events, DESKTOP_FIXTURE_EVENTS, Duration::from_secs(10));
+        let (outcome, rest) = h.stop_and_join();
+        events.extend(rest);
+        assert_desktop_fixture_events(&events);
+        assert_eq!(outcome.status, AdapterStatus::Active);
+    }
+
+    /// Tier 2 rejects a terminal `claude` transcript (`entrypoint: "cli"`) in
+    /// the same cwd: the degrade is `discovery_ambiguous` (something appeared,
+    /// none of it was a Desktop session), names the entrypoint, points at
+    /// `hh run -- claude`, and says the index dir did not exist.
+    #[test]
+    fn desktop_fallback_rejects_terminal_cli_transcript() {
+        let home = tempfile::TempDir::new().unwrap();
+        let sessions = home.path().join("nonexistent").join("claude-code-sessions");
+        let cwd = Path::new(DESKTOP_FIXTURE_CWD);
+        let h = spawn_desktop_tailer(home.path(), cwd, Some(sessions.clone()));
+        let slug_dir = h.projects.join(slugify(cwd));
+        std::fs::create_dir_all(&slug_dir).unwrap();
+        // The Claude Code fixture: cwd=/home/user/proj, entrypoint=cli.
+        write_transcript(
+            &slug_dir,
+            "cli-session.jsonl",
+            include_str!("../../tests/fixtures/claude-code/current-format.jsonl"),
+        );
+        let (outcome, events) = h.stop_and_join();
+        assert_eq!(events.len(), 0, "no events expected");
+        assert_eq!(outcome.status, AdapterStatus::Degraded);
+        let reason = outcome.degrade_reason.as_deref().unwrap_or("");
+        assert_eq!(
+            adapter_degrade_code(Some(reason)),
+            Some("discovery_ambiguous"),
+            "{reason}"
+        );
+        assert!(reason.contains("entrypoint=cli"), "{reason}");
+        assert!(reason.contains("hh run -- claude"), "{reason}");
+        assert!(reason.contains("does not exist"), "{reason}");
+        assert!(reason.contains(&sessions.display().to_string()), "{reason}");
+    }
+
+    /// BUG-1: explicit `--adapter claude-desktop` with no Desktop session at
+    /// all degrades through `AdapterError` with the `jsonl_not_found` code and
+    /// an actionable reason — never `active` with 0 steps.
+    #[test]
+    fn desktop_degrades_with_jsonl_not_found_when_nothing_appears() {
+        let home = tempfile::TempDir::new().unwrap();
+        let sessions = home.path().join("Claude").join("claude-code-sessions");
+        std::fs::create_dir_all(&sessions).unwrap();
+        let cwd = Path::new("/home/user/other");
+        let h = spawn_desktop_tailer(home.path(), cwd, Some(sessions.clone()));
+        let (outcome, events) = h.stop_and_join();
+        assert_eq!(events.len(), 0, "no events expected");
+        assert_eq!(outcome.status, AdapterStatus::Degraded);
+        let reason = outcome.degrade_reason.as_deref().unwrap_or("");
+        assert_eq!(
+            adapter_degrade_code(Some(reason)),
+            Some("jsonl_not_found"),
+            "{reason}"
+        );
+        let msg = adapter_degrade_message(Some(reason)).unwrap_or("");
+        assert!(
+            msg.starts_with("no Claude Desktop session found for cwd=/home/user/other"),
+            "{msg}"
+        );
+        assert!(msg.contains(&sessions.display().to_string()), "{msg}");
+        assert!(msg.contains("hh run --adapter claude-desktop"), "{msg}");
+        assert!(msg.contains("hh doctor"), "{msg}");
+    }
+
+    /// An index record for this cwd whose transcript never appears degrades
+    /// as `jsonl_not_found` and names both the record and the path that was
+    /// expected, so the user can see exactly what was looked for.
+    #[test]
+    fn desktop_index_without_transcript_names_the_expected_path() {
+        let home = tempfile::TempDir::new().unwrap();
+        let sessions = home.path().join("Claude").join("claude-code-sessions");
+        let cwd = Path::new(DESKTOP_FIXTURE_CWD);
+        let h = spawn_desktop_tailer(home.path(), cwd, Some(sessions.clone()));
+        write_desktop_index(
+            &sessions,
+            "cccc",
+            DESKTOP_FIXTURE_CWD,
+            DESKTOP_CLI_SESSION_ID,
+            false,
+        );
+        let expected = h
+            .projects
+            .join(slugify(cwd))
+            .join(format!("{DESKTOP_CLI_SESSION_ID}.jsonl"));
+        let (outcome, _) = h.stop_and_join();
+        assert_eq!(outcome.status, AdapterStatus::Degraded);
+        let reason = outcome.degrade_reason.as_deref().unwrap_or("");
+        assert_eq!(
+            adapter_degrade_code(Some(reason)),
+            Some("jsonl_not_found"),
+            "{reason}"
+        );
+        assert!(reason.contains("local_cccc.json"), "{reason}");
+        assert!(reason.contains(&expected.display().to_string()), "{reason}");
+    }
+
+    /// An index record for a *different* directory is not ours: a new one
+    /// appearing (and nothing for our cwd) is the "candidates appeared but
+    /// none matched" case → `discovery_ambiguous`, counted in the reason.
+    #[test]
+    fn desktop_index_for_other_cwd_is_ambiguous_not_missing() {
+        let home = tempfile::TempDir::new().unwrap();
+        let sessions = home.path().join("Claude").join("claude-code-sessions");
+        let cwd = Path::new(DESKTOP_FIXTURE_CWD);
+        let h = spawn_desktop_tailer(home.path(), cwd, Some(sessions.clone()));
+        write_desktop_index(
+            &sessions,
+            "dddd",
+            "/home/user/elsewhere",
+            DESKTOP_CLI_SESSION_ID,
+            false,
+        );
+        let (outcome, _) = h.stop_and_join();
+        let reason = outcome.degrade_reason.as_deref().unwrap_or("");
+        assert_eq!(
+            adapter_degrade_code(Some(reason)),
+            Some("discovery_ambiguous"),
+            "{reason}"
+        );
+        assert!(
+            reason.contains("1 new session(s) were for other directories"),
+            "{reason}"
+        );
+    }
+
+    /// Desktop outlives the wrapped command: when the stop flag is set right
+    /// after the files land (before any poll could run), the final discovery
+    /// pass still finds the session and the tailer drains the transcript to
+    /// EOF — every event is captured, with no timing dependence.
+    #[test]
+    fn desktop_drains_transcript_written_at_stop() {
+        let home = tempfile::TempDir::new().unwrap();
+        let sessions = home.path().join("Claude").join("claude-code-sessions");
+        let cwd = Path::new(DESKTOP_FIXTURE_CWD);
+        let h = spawn_desktop_tailer(home.path(), cwd, Some(sessions.clone()));
+        let slug_dir = h.projects.join(slugify(cwd));
+        std::fs::create_dir_all(&slug_dir).unwrap();
+        write_transcript(
+            &slug_dir,
+            &format!("{DESKTOP_CLI_SESSION_ID}.jsonl"),
+            DESKTOP_FIXTURE,
+        );
+        write_desktop_index(
+            &sessions,
+            "eeee",
+            DESKTOP_FIXTURE_CWD,
+            DESKTOP_CLI_SESSION_ID,
+            false,
+        );
+        let (outcome, events) = h.stop_and_join();
+        assert_desktop_fixture_events(&events);
+        assert_eq!(outcome.status, AdapterStatus::Active);
+    }
+
+    /// A pre-existing index record (written *before* the tailer's snapshot)
+    /// still qualifies when it is recent — a Desktop session opened just
+    /// before `hh run` is the common case, and Desktop rewrites the record as
+    /// the session is used.
+    #[test]
+    fn desktop_recent_preexisting_index_record_qualifies() {
+        let home = tempfile::TempDir::new().unwrap();
+        let sessions = home.path().join("Claude").join("claude-code-sessions");
+        let cwd = Path::new(DESKTOP_FIXTURE_CWD);
+        let projects = home.path().join(".claude").join("projects");
+        let slug_dir = projects.join(slugify(cwd));
+        std::fs::create_dir_all(&slug_dir).unwrap();
+        write_transcript(
+            &slug_dir,
+            &format!("{DESKTOP_CLI_SESSION_ID}.jsonl"),
+            DESKTOP_FIXTURE,
+        );
+        write_desktop_index(
+            &sessions,
+            "ffff",
+            DESKTOP_FIXTURE_CWD,
+            DESKTOP_CLI_SESSION_ID,
+            false,
+        );
+        // Spawn *after* the files exist: both are "pre-existing" to the
+        // tailer. STARTED is in the past relative to the files' mtime, so the
+        // index record counts as active.
+        let h = spawn_desktop_tailer(home.path(), cwd, Some(sessions));
+        let mut events = collect_n(&h.events, DESKTOP_FIXTURE_EVENTS, Duration::from_secs(10));
+        let (outcome, rest) = h.stop_and_join();
+        events.extend(rest);
+        assert_desktop_fixture_events(&events);
+        assert_eq!(outcome.status, AdapterStatus::Active);
+    }
+
+    #[test]
+    fn parse_desktop_index_accepts_a_real_shaped_record() {
+        let rec = parse_desktop_index(
+            br#"{"sessionId":"local_abc","cliSessionId":"00000000-0000-4000-8000-000000000001",
+                "cwd":"/home/me/proj","originCwd":"/home/me/proj","title":"t","isArchived":false}"#,
+        )
+        .expect("parses");
+        assert_eq!(rec.cli_session_id, "00000000-0000-4000-8000-000000000001");
+        assert_eq!(rec.cwd, PathBuf::from("/home/me/proj"));
+        assert!(!rec.is_archived);
+    }
+
+    #[test]
+    fn parse_desktop_index_falls_back_to_origin_cwd_and_reads_archived() {
+        let rec = parse_desktop_index(
+            br#"{"cliSessionId":"abc-123","originCwd":"/w","isArchived":true}"#,
+        )
+        .expect("parses");
+        assert_eq!(rec.cwd, PathBuf::from("/w"));
+        assert!(rec.is_archived);
+    }
+
+    /// Untrusted input: never panics, returns `None` for anything unusable,
+    /// and refuses a `cliSessionId` that could escape the projects dir.
+    #[test]
+    fn parse_desktop_index_rejects_malformed_and_unsafe_records() {
+        for bad in [
+            &b""[..],
+            b"not json",
+            b"null",
+            b"[]",
+            b"\"string\"",
+            br#"{"cwd":"/w"}"#,
+            br#"{"cliSessionId":"","cwd":"/w"}"#,
+            br#"{"cliSessionId":42,"cwd":"/w"}"#,
+            br#"{"cliSessionId":"abc"}"#,
+            br#"{"cliSessionId":"abc","cwd":""}"#,
+            br#"{"cliSessionId":"../../etc/passwd","cwd":"/w"}"#,
+            br#"{"cliSessionId":"a/b","cwd":"/w"}"#,
+            br#"{"cliSessionId":"a\\b","cwd":"/w"}"#,
+            br#"{"cliSessionId":"a b","cwd":"/w"}"#,
+            b"\xff\xfe{",
+        ] {
+            assert_eq!(
+                parse_desktop_index(bad),
+                None,
+                "{}",
+                String::from_utf8_lossy(bad)
+            );
+        }
+    }
+
+    #[test]
+    fn record_entrypoint_reads_the_field_or_none() {
+        assert_eq!(
+            record_entrypoint(&rec(r#"{"type":"user","entrypoint":"claude-desktop"}"#)),
+            Some("claude-desktop")
+        );
+        assert_eq!(
+            record_entrypoint(&rec(r#"{"type":"user","entrypoint":"cli"}"#)),
+            Some("cli")
+        );
+        assert_eq!(record_entrypoint(&rec(r#"{"type":"user"}"#)), None);
+        assert_eq!(record_entrypoint(&rec(r#"{"entrypoint":7}"#)), None);
+        assert_eq!(record_entrypoint(&rec("[]")), None);
+    }
+
+    /// The index dir hangs off the platform config dir (Electron's
+    /// `userData`); whatever the platform, it ends in
+    /// `Claude/claude-code-sessions`.
+    #[test]
+    fn claude_desktop_sessions_dir_has_the_documented_shape() {
+        let Some(dir) = claude_desktop_sessions_dir() else {
+            // No home directory in this environment: nothing to check.
+            return;
+        };
+        assert_eq!(
+            dir.file_name().and_then(|f| f.to_str()),
+            Some("claude-code-sessions")
+        );
+        assert_eq!(
+            dir.parent()
+                .and_then(|p| p.file_name())
+                .and_then(|f| f.to_str()),
+            Some("Claude")
+        );
+    }
 
     #[test]
     fn tailer_finds_file_late() {

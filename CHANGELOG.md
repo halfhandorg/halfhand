@@ -11,6 +11,50 @@ in CI rather than tracking `latest` until 1.0.
 
 ## [Unreleased]
 
+### Fixed — Claude Desktop adapter records structured steps (SRS v1.1.0, BUG-1)
+
+- **`hh run --adapter claude-desktop` now finds the Desktop session.** The
+  1.0.0 adapter was a stub that only engaged for a binary literally named
+  `claude-desktop` and otherwise ran the Claude Code tailer; since Desktop is
+  a GUI app that is never launched that way, Desktop runs recorded no
+  structured steps. Discovery now follows where Desktop actually writes
+  session data (documented from a real capture in
+  `hh-core/tests/fixtures/claude-desktop/NOTES.md`): the per-session index
+  record under Desktop's config dir
+  (`claude-code-sessions/<org>/<account>/local_<uuid>.json`, resolved per OS
+  from the platform config dir — Linux confirmed, macOS/Windows paths
+  unverified) names the transcript
+  (`~/.claude/projects/<cwd-slug>/<cliSessionId>.jsonl`), with a fallback to a
+  new transcript for the cwd tagged `entrypoint: "claude-desktop"`. Archived
+  and deleted sessions are skipped; a terminal `claude` session in the same
+  directory is rejected with a reason pointing at `hh run -- claude`. The
+  transcript is read to EOF when the recording stops (Desktop outlives the
+  wrapped command). Recording recipe: `hh run --adapter claude-desktop --
+  $SHELL`, exit the shell to finish — see `docs/adapters.md`.
+- **Degrade path (BUG-1):** explicit `--adapter claude-desktop` with no
+  Desktop session routes through `AdapterError` (`jsonl_not_found`, or
+  `discovery_ambiguous` when sessions appeared but none were for this cwd)
+  with a one-line reason naming the index dir and projects dir that were
+  searched and what was found there; never `active` with 0 steps.
+- The transcript format is identical to Claude Code's (verified against the
+  fixture: same `user`/`assistant` records and content blocks; the extra
+  Desktop record types are ignored by the existing parser), so the parser is
+  reused unchanged. New fuzz targets `claude_desktop_jsonl` (parser +
+  entrypoint probe) and `claude_desktop_index` (index-record parser, which
+  also rejects a `cliSessionId` that could escape the projects dir) are
+  registered in `fuzz/`, the nightly fuzz matrix and `just fuzz-all`.
+- Tests: hh-core discovery tests for every tier and degrade (channel/latch
+  synchronized, no sleeps — BUG-4); `hh` end-to-end over the fixture corpus
+  asserting 34 steps and the event-kind mix, an insta snapshot of `hh inspect`
+  for a Desktop session, and a degrade-path test asserting
+  `adapter_degrade_reason = jsonl_not_found`.
+- Docs: `docs/adapters.md` gains a "Recording a Claude Desktop session"
+  section with the per-OS path table and detection column fix; README and
+  `RELEASE_NOTES_1.0.0.md` no longer claim Desktop is auto-detected. `hh run
+  --help` gains a Desktop example. Additive only: `is_claude_desktop` and the
+  `claude-desktop` basename rule still work; no CLI, `--json`, schema or
+  exit-code change.
+
 ### Security
 
 - **zstd 0.13 → 0.14** (`zstd` 0.14.3, `zstd-safe` 8.2.0, `zstd-sys` 2.1.2):

@@ -8,9 +8,9 @@
 fuzz target seconds="300":
     cargo +nightly fuzz run {{target}} -- -max_total_time={{seconds}}
 
-# Fuzz all five targets sequentially, `seconds` each (default 300s = 5 min).
+# Fuzz all ten targets sequentially, `seconds` each (default 300s = 5 min).
 fuzz-all seconds="300":
-    for t in claude_jsonl codex_jsonl gemini_jsonl mcp_frame import_bundle config_toml blob_decompress redact_detect; do \
+    for t in claude_jsonl claude_desktop_jsonl claude_desktop_index codex_jsonl gemini_jsonl mcp_frame import_bundle config_toml blob_decompress redact_detect; do \
         echo "=== $t ==="; \
         cargo +nightly fuzz run $t -- -max_total_time={{seconds}} || exit 1; \
     done
