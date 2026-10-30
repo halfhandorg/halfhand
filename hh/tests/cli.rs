@@ -2829,6 +2829,22 @@ fn at_record_redaction_keeps_secrets_off_disk_entirely() {
 #[cfg(unix)]
 const DESKTOP_CLI_SESSION_ID: &str = "00000000-0000-4000-8000-000000000001";
 
+/// Where the adapter resolves Desktop's session index for a temp `home` used
+/// as both `HOME` and `XDG_CONFIG_HOME`: the platform config dir
+/// (`~/Library/Application Support` on macOS, `$XDG_CONFIG_HOME` elsewhere)
+/// plus `Claude/claude-code-sessions`.
+#[cfg(unix)]
+fn desktop_sessions_dir_for(home: &Path) -> PathBuf {
+    if cfg!(target_os = "macos") {
+        home.join("Library")
+            .join("Application Support")
+            .join("Claude")
+            .join("claude-code-sessions")
+    } else {
+        home.join("Claude").join("claude-code-sessions")
+    }
+}
+
 /// Encode a path the way the adapter's `slugify` does (every non-alphanumeric
 /// ASCII character becomes `-`), to pre-create the slug dir Desktop's embedded
 /// CLI would write into.
@@ -2860,10 +2876,9 @@ fn record_claude_desktop_fixture_session(temp: &Temp) -> std::process::Output {
 
     // The adapter requires `~/.claude/projects` to exist at spawn (otherwise it
     // degrades immediately, as for a machine Claude never ran on). The index
-    // dir hangs off the platform config dir, which `XDG_CONFIG_HOME=$HOME`
-    // makes `$HOME/Claude/claude-code-sessions` on Linux.
+    // dir hangs off the platform config dir (see `desktop_sessions_dir_for`).
     let projects = home.path().join(".claude").join("projects");
-    let sessions = home.path().join("Claude").join("claude-code-sessions");
+    let sessions = desktop_sessions_dir_for(home.path());
     std::fs::create_dir_all(&projects).expect("pre-create projects dir");
     std::fs::create_dir_all(&sessions).expect("pre-create sessions dir");
 
@@ -3065,7 +3080,7 @@ fn claude_desktop_adapter_degrades_with_code_when_no_session_exists() {
     let home = tempfile::tempdir().expect("temp HOME");
     // Both directories exist but hold no Desktop session for this cwd.
     std::fs::create_dir_all(home.path().join(".claude").join("projects")).unwrap();
-    let sessions = home.path().join("Claude").join("claude-code-sessions");
+    let sessions = desktop_sessions_dir_for(home.path());
     std::fs::create_dir_all(&sessions).unwrap();
 
     let out = hh()
