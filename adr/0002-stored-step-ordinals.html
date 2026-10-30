@@ -1,0 +1,314 @@
+<!DOCTYPE HTML>
+<html lang="en" class="light" dir="ltr">
+    <head>
+        <!-- Book generated using mdBook -->
+        <meta charset="UTF-8">
+        <title>ADR 0002: stored step ordinals - Halfhand</title>
+
+
+        <!-- Custom HTML head -->
+        
+        <meta name="description" content="">
+        <meta name="viewport" content="width=device-width, initial-scale=1">
+        <meta name="theme-color" content="#ffffff">
+
+        <link rel="icon" href="../favicon.svg">
+        <link rel="shortcut icon" href="../favicon.png">
+        <link rel="stylesheet" href="../css/variables.css">
+        <link rel="stylesheet" href="../css/general.css">
+        <link rel="stylesheet" href="../css/chrome.css">
+        <link rel="stylesheet" href="../css/print.css" media="print">
+
+        <!-- Fonts -->
+        <link rel="stylesheet" href="../FontAwesome/css/font-awesome.css">
+        <link rel="stylesheet" href="../fonts/fonts.css">
+
+        <!-- Highlight.js Stylesheets -->
+        <link rel="stylesheet" href="../highlight.css">
+        <link rel="stylesheet" href="../tomorrow-night.css">
+        <link rel="stylesheet" href="../ayu-highlight.css">
+
+        <!-- Custom theme stylesheets -->
+
+    </head>
+    <body class="sidebar-visible no-js">
+    <div id="body-container">
+        <!-- Provide site root to javascript -->
+        <script>
+            var path_to_root = "../";
+            var default_theme = window.matchMedia("(prefers-color-scheme: dark)").matches ? "navy" : "light";
+        </script>
+
+        <!-- Work around some values being stored in localStorage wrapped in quotes -->
+        <script>
+            try {
+                var theme = localStorage.getItem('mdbook-theme');
+                var sidebar = localStorage.getItem('mdbook-sidebar');
+
+                if (theme.startsWith('"') && theme.endsWith('"')) {
+                    localStorage.setItem('mdbook-theme', theme.slice(1, theme.length - 1));
+                }
+
+                if (sidebar.startsWith('"') && sidebar.endsWith('"')) {
+                    localStorage.setItem('mdbook-sidebar', sidebar.slice(1, sidebar.length - 1));
+                }
+            } catch (e) { }
+        </script>
+
+        <!-- Set the theme before any content is loaded, prevents flash -->
+        <script>
+            var theme;
+            try { theme = localStorage.getItem('mdbook-theme'); } catch(e) { }
+            if (theme === null || theme === undefined) { theme = default_theme; }
+            var html = document.querySelector('html');
+            html.classList.remove('light')
+            html.classList.add(theme);
+            var body = document.querySelector('body');
+            body.classList.remove('no-js')
+            body.classList.add('js');
+        </script>
+
+        <input type="checkbox" id="sidebar-toggle-anchor" class="hidden">
+
+        <!-- Hide / unhide sidebar before it is displayed -->
+        <script>
+            var body = document.querySelector('body');
+            var sidebar = null;
+            var sidebar_toggle = document.getElementById("sidebar-toggle-anchor");
+            if (document.body.clientWidth >= 1080) {
+                try { sidebar = localStorage.getItem('mdbook-sidebar'); } catch(e) { }
+                sidebar = sidebar || 'visible';
+            } else {
+                sidebar = 'hidden';
+            }
+            sidebar_toggle.checked = sidebar === 'visible';
+            body.classList.remove('sidebar-visible');
+            body.classList.add("sidebar-" + sidebar);
+        </script>
+
+        <nav id="sidebar" class="sidebar" aria-label="Table of contents">
+            <div class="sidebar-scrollbox">
+                <ol class="chapter"><li class="chapter-item expanded "><a href="../index.html"><strong aria-hidden="true">1.</strong> Introduction</a></li><li class="chapter-item expanded affix "><li class="part-title">Getting started</li><li class="chapter-item expanded "><a href="../quickstart.html"><strong aria-hidden="true">2.</strong> Quickstart</a></li><li class="chapter-item expanded "><a href="../recording.html"><strong aria-hidden="true">3.</strong> Recording</a></li><li class="chapter-item expanded "><a href="../replay-inspect.html"><strong aria-hidden="true">4.</strong> Replay & Inspect</a></li><li class="chapter-item expanded "><a href="../search.html"><strong aria-hidden="true">5.</strong> Search</a></li><li class="chapter-item expanded affix "><li class="part-title">Security</li><li class="chapter-item expanded "><a href="../redaction.html"><strong aria-hidden="true">6.</strong> Redaction</a></li><li class="chapter-item expanded "><a href="../redaction-design.html"><strong aria-hidden="true">7.</strong> Redaction design</a></li><li class="chapter-item expanded "><a href="../security.html"><strong aria-hidden="true">8.</strong> Security policy</a></li><li class="chapter-item expanded affix "><li class="part-title">Sharing & maintenance</li><li class="chapter-item expanded "><a href="../export-import.html"><strong aria-hidden="true">9.</strong> Export & import</a></li><li class="chapter-item expanded "><a href="../gc.html"><strong aria-hidden="true">10.</strong> Garbage collection</a></li><li class="chapter-item expanded "><a href="../doctor.html"><strong aria-hidden="true">11.</strong> Doctor</a></li><li class="chapter-item expanded "><a href="../stats.html"><strong aria-hidden="true">12.</strong> Stats</a></li><li class="chapter-item expanded affix "><li class="part-title">Reference</li><li class="chapter-item expanded "><a href="../adapters.html"><strong aria-hidden="true">13.</strong> Adapters</a></li><li class="chapter-item expanded "><a href="../mcp-proxy.html"><strong aria-hidden="true">14.</strong> MCP proxy</a></li><li class="chapter-item expanded "><a href="../json.html"><strong aria-hidden="true">15.</strong> JSON reference</a></li><li class="chapter-item expanded "><a href="../completions.html"><strong aria-hidden="true">16.</strong> Shell completions & man page</a></li><li class="chapter-item expanded "><a href="../stability.html"><strong aria-hidden="true">17.</strong> Stability policy</a></li><li class="chapter-item expanded "><a href="../performance.html"><strong aria-hidden="true">18.</strong> Performance</a></li><li class="chapter-item expanded affix "><li class="part-title">Appendices</li><li class="chapter-item expanded "><a href="../faq.html"><strong aria-hidden="true">19.</strong> FAQ</a></li><li class="chapter-item expanded "><a href="../1.0-definition-of-done.html"><strong aria-hidden="true">20.</strong> 1.0 definition of done</a></li><li class="chapter-item expanded "><a href="../manual-qa.html"><strong aria-hidden="true">21.</strong> Manual QA</a></li><li class="chapter-item expanded "><a href="../adr/0001-threads-vs-tokio.html"><strong aria-hidden="true">22.</strong> Architecture decision records</a></li><li><ol class="section"><li class="chapter-item expanded "><a href="../adr/0001-threads-vs-tokio.html"><strong aria-hidden="true">22.1.</strong> ADR 0001: threads vs tokio</a></li><li class="chapter-item expanded "><a href="../adr/0002-stored-step-ordinals.html" class="active"><strong aria-hidden="true">22.2.</strong> ADR 0002: stored step ordinals</a></li><li class="chapter-item expanded "><a href="../adr/0003-fts-index-strategy.html"><strong aria-hidden="true">22.3.</strong> ADR 0003: FTS index strategy</a></li></ol></li></ol>
+            </div>
+            <div id="sidebar-resize-handle" class="sidebar-resize-handle">
+                <div class="sidebar-resize-indicator"></div>
+            </div>
+        </nav>
+
+        <!-- Track and set sidebar scroll position -->
+        <script>
+            var sidebarScrollbox = document.querySelector('#sidebar .sidebar-scrollbox');
+            sidebarScrollbox.addEventListener('click', function(e) {
+                if (e.target.tagName === 'A') {
+                    sessionStorage.setItem('sidebar-scroll', sidebarScrollbox.scrollTop);
+                }
+            }, { passive: true });
+            var sidebarScrollTop = sessionStorage.getItem('sidebar-scroll');
+            sessionStorage.removeItem('sidebar-scroll');
+            if (sidebarScrollTop) {
+                // preserve sidebar scroll position when navigating via links within sidebar
+                sidebarScrollbox.scrollTop = sidebarScrollTop;
+            } else {
+                // scroll sidebar to current active section when navigating via "next/previous chapter" buttons
+                var activeSection = document.querySelector('#sidebar .active');
+                if (activeSection) {
+                    activeSection.scrollIntoView({ block: 'center' });
+                }
+            }
+        </script>
+
+        <div id="page-wrapper" class="page-wrapper">
+
+            <div class="page">
+                                <div id="menu-bar-hover-placeholder"></div>
+                <div id="menu-bar" class="menu-bar sticky">
+                    <div class="left-buttons">
+                        <label id="sidebar-toggle" class="icon-button" for="sidebar-toggle-anchor" title="Toggle Table of Contents" aria-label="Toggle Table of Contents" aria-controls="sidebar">
+                            <i class="fa fa-bars"></i>
+                        </label>
+                        <button id="theme-toggle" class="icon-button" type="button" title="Change theme" aria-label="Change theme" aria-haspopup="true" aria-expanded="false" aria-controls="theme-list">
+                            <i class="fa fa-paint-brush"></i>
+                        </button>
+                        <ul id="theme-list" class="theme-popup" aria-label="Themes" role="menu">
+                            <li role="none"><button role="menuitem" class="theme" id="light">Light</button></li>
+                            <li role="none"><button role="menuitem" class="theme" id="rust">Rust</button></li>
+                            <li role="none"><button role="menuitem" class="theme" id="coal">Coal</button></li>
+                            <li role="none"><button role="menuitem" class="theme" id="navy">Navy</button></li>
+                            <li role="none"><button role="menuitem" class="theme" id="ayu">Ayu</button></li>
+                        </ul>
+                        <button id="search-toggle" class="icon-button" type="button" title="Search. (Shortkey: s)" aria-label="Toggle Searchbar" aria-expanded="false" aria-keyshortcuts="S" aria-controls="searchbar">
+                            <i class="fa fa-search"></i>
+                        </button>
+                    </div>
+
+                    <h1 class="menu-title">Halfhand</h1>
+
+                    <div class="right-buttons">
+                        <a href="../print.html" title="Print this book" aria-label="Print this book">
+                            <i id="print-button" class="fa fa-print"></i>
+                        </a>
+                        <a href="https://github.com/halfhandorg/halfhand" title="Git repository" aria-label="Git repository">
+                            <i id="git-repository-button" class="fa fa-github"></i>
+                        </a>
+                        <a href="https://github.com/halfhandorg/halfhand/edit/main/docs/./adr/0002-stored-step-ordinals.md" title="Suggest an edit" aria-label="Suggest an edit">
+                            <i id="git-edit-button" class="fa fa-edit"></i>
+                        </a>
+
+                    </div>
+                </div>
+
+                <div id="search-wrapper" class="hidden">
+                    <form id="searchbar-outer" class="searchbar-outer">
+                        <input type="search" id="searchbar" name="searchbar" placeholder="Search this book ..." aria-controls="searchresults-outer" aria-describedby="searchresults-header">
+                    </form>
+                    <div id="searchresults-outer" class="searchresults-outer hidden">
+                        <div id="searchresults-header" class="searchresults-header"></div>
+                        <ul id="searchresults">
+                        </ul>
+                    </div>
+                </div>
+
+                <!-- Apply ARIA attributes after the sidebar and the sidebar toggle button are added to the DOM -->
+                <script>
+                    document.getElementById('sidebar-toggle').setAttribute('aria-expanded', sidebar === 'visible');
+                    document.getElementById('sidebar').setAttribute('aria-hidden', sidebar !== 'visible');
+                    Array.from(document.querySelectorAll('#sidebar a')).forEach(function(link) {
+                        link.setAttribute('tabIndex', sidebar === 'visible' ? 0 : -1);
+                    });
+                </script>
+
+                <div id="content" class="content">
+                    <main>
+                        <h1 id="adr-0002-store-step-ordinals-at-finalize-not-derive-them-at-read-time"><a class="header" href="#adr-0002-store-step-ordinals-at-finalize-not-derive-them-at-read-time">ADR-0002: Store step ordinals at finalize (not derive them at read time)</a></h1>
+<ul>
+<li><strong>Status:</strong> Accepted</li>
+<li><strong>Date:</strong> 2026-07-06</li>
+<li><strong>Deciders:</strong> Halfhand engineering</li>
+<li><strong>SRS context:</strong> FR-3.4 (step assignment: 1-based ordinals, <code>terminal_output</code>
+excluded, a <code>tool_result</code> shares its <code>tool_call</code>'s step). ADR-0001 states the
+project's general "derived at read time" stance for view-layer values; this
+ADR records a deliberate exception for <code>events.step</code>.</li>
+</ul>
+<h2 id="context"><a class="header" href="#context">Context</a></h2>
+<p>FR-3.4 requires every step-bearing event to carry a 1-based ordinal, with
+<code>tool_result</code> sharing its correlated <code>tool_call</code>'s ordinal. Two designs were
+available:</p>
+<ul>
+<li><strong>A. Derive at read time.</strong> <code>hh replay</code>/<code>hh inspect</code>/<code>hh list</code> compute step
+numbers on the fly from <code>(ts_ms, id, correlates)</code> whenever a session is read.
+<code>events.step</code> would not exist as a stored column.</li>
+<li><strong>B. Store at finalize.</strong> Run the FR-3.4 pass once, when a session's writer
+has flushed and closed, and persist the result in <code>events.step</code> (already
+present in the schema). Self-heal on <code>Store::open</code> for the sessions that
+never got a chance to finalize cleanly.</li>
+</ul>
+<h2 id="decision"><a class="header" href="#decision">Decision</a></h2>
+<p>We choose <strong>B: store the ordinals</strong>, computed by a pure pass
+(<code>hh_core::step::assign_steps</code>) over <code>EventRow</code>s and written back in one
+transaction via <code>Store::assign_steps</code>.</p>
+<h2 id="justification"><a class="header" href="#justification">Justification</a></h2>
+<ol>
+<li><strong>Session-row counts need <code>step</code> as a column.</strong> <code>hh list</code>/<code>hh inspect</code>
+report a step count and a files-changed count per session without replaying
+the whole event stream. <code>COUNT(DISTINCT step) WHERE step IS NOT NULL</code> is a
+single indexed aggregate; deriving it at read time would mean re-running the
+FR-3.4 pass (a full table scan + correlation resolution) just to print a
+number in <code>hh list</code>.</li>
+<li><strong>The correlation pass is O(n) but not free, and it is reused.</strong> <code>hh replay</code>, <code>hh inspect</code>, and <code>hh list</code> all want step numbers; recomputing the
+same pass in three call sites — or a shared read-time helper re-run on every
+invocation — costs more than computing it once and writing it down.</li>
+<li><strong>Idempotent by construction.</strong> The pass is pure
+(<code>assign_steps_pass(&amp;mut [EventRow])</code>) and deterministic given
+<code>(ts_ms, id, correlates, kind)</code>; re-running it (e.g. on self-heal) always
+converges to the same assignment, so "store vs. derive" is not a
+correctness trade — it is purely a caching decision with no staleness risk
+as long as every code path that appends events also re-runs the pass before
+the session is considered readable.</li>
+<li><strong>Crash / cross-process races are bounded, not eliminated, by design.</strong>
+<code>hh run</code> runs the pass at finalize (writer flushed + joined, no intra-process
+contention). A crashed <code>hh run</code> leaves <code>step IS NULL</code> on unfinalized
+sessions; <code>Store::open</code> self-heals by re-running the pass for any session
+with a NULL-stepped semantic event before the caller can read further
+(<code>heal_steps</code>, called after <code>mark_stale_interrupted</code>). This mirrors the
+already-accepted FR-1.7 "reconcile on next open" pattern.</li>
+</ol>
+<h2 id="consequences"><a class="header" href="#consequences">Consequences</a></h2>
+<ul>
+<li><code>events.step</code> is authoritative once set; nothing derives it independently.
+<code>Store::list_sessions</code>/<code>session_step_count</code> compute
+<code>COUNT(DISTINCT step) WHERE step IS NOT NULL</code>, which is correct under the
+FR-3.4 sharing rule (a <code>tool_call</code>+<code>tool_result</code> pair is one step, one
+distinct value) — the prior <code>COUNT(*) WHERE kind != 'terminal_output'</code> query
+over-counted shared steps and has been replaced.</li>
+<li><strong>Attached <code>hh mcp-proxy</code> late events are a known v0.1 limitation.</strong> The
+proxy runs <code>assign_steps</code> best-effort on its own attached session at exit
+(so MCP events usually get ordinals immediately), but if the parent <code>hh run</code>
+finalizes concurrently and the proxy's write loses the race, the affected
+events keep <code>step = NULL</code> until the next <code>hh</code> invocation's self-heal. No data
+is lost — only the ordinal is deferred. This is a cross-process race the
+child proxy process cannot join against; documented in <code>docs/mcp-proxy.md</code>
+and the plan's deviations list rather than solved with cross-process locking
+(out of proportion for a display-ordinal race).</li>
+<li><code>Store::open</code> does one extra <code>SELECT DISTINCT session_id</code> probe on every
+invocation (<code>heal_steps</code>); this is a cheap, usually-empty scan and is the
+price of the self-heal guarantee.</li>
+</ul>
+<h2 id="srs-deviation-flagged"><a class="header" href="#srs-deviation-flagged">SRS deviation flagged</a></h2>
+<p>ADR-0001 (and the general engineering-standards framing) leans toward "derive
+at read time" for view-layer values not backed by a requirement to persist
+them. <code>events.step</code> is schema-backed (SRS §4.1 already has the column) and
+FR-3.4 does not mandate either storage strategy, so this is a deviation from
+the project's general read-time-derivation instinct, not from an explicit SRS
+requirement — recorded here per CLAUDE.md's "flag deviations explicitly."</p>
+
+                    </main>
+
+                    <nav class="nav-wrapper" aria-label="Page navigation">
+                        <!-- Mobile navigation buttons -->
+                            <a rel="prev" href="../adr/0001-threads-vs-tokio.html" class="mobile-nav-chapters previous" title="Previous chapter" aria-label="Previous chapter" aria-keyshortcuts="Left">
+                                <i class="fa fa-angle-left"></i>
+                            </a>
+
+                            <a rel="next prefetch" href="../adr/0003-fts-index-strategy.html" class="mobile-nav-chapters next" title="Next chapter" aria-label="Next chapter" aria-keyshortcuts="Right">
+                                <i class="fa fa-angle-right"></i>
+                            </a>
+
+                        <div style="clear: both"></div>
+                    </nav>
+                </div>
+            </div>
+
+            <nav class="nav-wide-wrapper" aria-label="Page navigation">
+                    <a rel="prev" href="../adr/0001-threads-vs-tokio.html" class="nav-chapters previous" title="Previous chapter" aria-label="Previous chapter" aria-keyshortcuts="Left">
+                        <i class="fa fa-angle-left"></i>
+                    </a>
+
+                    <a rel="next prefetch" href="../adr/0003-fts-index-strategy.html" class="nav-chapters next" title="Next chapter" aria-label="Next chapter" aria-keyshortcuts="Right">
+                        <i class="fa fa-angle-right"></i>
+                    </a>
+            </nav>
+
+        </div>
+
+
+
+
+        <script>
+            window.playground_copyable = true;
+        </script>
+
+
+        <script src="../elasticlunr.min.js"></script>
+        <script src="../mark.min.js"></script>
+        <script src="../searcher.js"></script>
+
+        <script src="../clipboard.min.js"></script>
+        <script src="../highlight.js"></script>
+        <script src="../book.js"></script>
+
+        <!-- Custom JS scripts -->
+
+
+    </div>
+    </body>
+</html>

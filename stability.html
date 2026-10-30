@@ -1,0 +1,356 @@
+<!DOCTYPE HTML>
+<html lang="en" class="light" dir="ltr">
+    <head>
+        <!-- Book generated using mdBook -->
+        <meta charset="UTF-8">
+        <title>Stability policy - Halfhand</title>
+
+
+        <!-- Custom HTML head -->
+        
+        <meta name="description" content="">
+        <meta name="viewport" content="width=device-width, initial-scale=1">
+        <meta name="theme-color" content="#ffffff">
+
+        <link rel="icon" href="favicon.svg">
+        <link rel="shortcut icon" href="favicon.png">
+        <link rel="stylesheet" href="css/variables.css">
+        <link rel="stylesheet" href="css/general.css">
+        <link rel="stylesheet" href="css/chrome.css">
+        <link rel="stylesheet" href="css/print.css" media="print">
+
+        <!-- Fonts -->
+        <link rel="stylesheet" href="FontAwesome/css/font-awesome.css">
+        <link rel="stylesheet" href="fonts/fonts.css">
+
+        <!-- Highlight.js Stylesheets -->
+        <link rel="stylesheet" href="highlight.css">
+        <link rel="stylesheet" href="tomorrow-night.css">
+        <link rel="stylesheet" href="ayu-highlight.css">
+
+        <!-- Custom theme stylesheets -->
+
+    </head>
+    <body class="sidebar-visible no-js">
+    <div id="body-container">
+        <!-- Provide site root to javascript -->
+        <script>
+            var path_to_root = "";
+            var default_theme = window.matchMedia("(prefers-color-scheme: dark)").matches ? "navy" : "light";
+        </script>
+
+        <!-- Work around some values being stored in localStorage wrapped in quotes -->
+        <script>
+            try {
+                var theme = localStorage.getItem('mdbook-theme');
+                var sidebar = localStorage.getItem('mdbook-sidebar');
+
+                if (theme.startsWith('"') && theme.endsWith('"')) {
+                    localStorage.setItem('mdbook-theme', theme.slice(1, theme.length - 1));
+                }
+
+                if (sidebar.startsWith('"') && sidebar.endsWith('"')) {
+                    localStorage.setItem('mdbook-sidebar', sidebar.slice(1, sidebar.length - 1));
+                }
+            } catch (e) { }
+        </script>
+
+        <!-- Set the theme before any content is loaded, prevents flash -->
+        <script>
+            var theme;
+            try { theme = localStorage.getItem('mdbook-theme'); } catch(e) { }
+            if (theme === null || theme === undefined) { theme = default_theme; }
+            var html = document.querySelector('html');
+            html.classList.remove('light')
+            html.classList.add(theme);
+            var body = document.querySelector('body');
+            body.classList.remove('no-js')
+            body.classList.add('js');
+        </script>
+
+        <input type="checkbox" id="sidebar-toggle-anchor" class="hidden">
+
+        <!-- Hide / unhide sidebar before it is displayed -->
+        <script>
+            var body = document.querySelector('body');
+            var sidebar = null;
+            var sidebar_toggle = document.getElementById("sidebar-toggle-anchor");
+            if (document.body.clientWidth >= 1080) {
+                try { sidebar = localStorage.getItem('mdbook-sidebar'); } catch(e) { }
+                sidebar = sidebar || 'visible';
+            } else {
+                sidebar = 'hidden';
+            }
+            sidebar_toggle.checked = sidebar === 'visible';
+            body.classList.remove('sidebar-visible');
+            body.classList.add("sidebar-" + sidebar);
+        </script>
+
+        <nav id="sidebar" class="sidebar" aria-label="Table of contents">
+            <div class="sidebar-scrollbox">
+                <ol class="chapter"><li class="chapter-item expanded "><a href="index.html"><strong aria-hidden="true">1.</strong> Introduction</a></li><li class="chapter-item expanded affix "><li class="part-title">Getting started</li><li class="chapter-item expanded "><a href="quickstart.html"><strong aria-hidden="true">2.</strong> Quickstart</a></li><li class="chapter-item expanded "><a href="recording.html"><strong aria-hidden="true">3.</strong> Recording</a></li><li class="chapter-item expanded "><a href="replay-inspect.html"><strong aria-hidden="true">4.</strong> Replay & Inspect</a></li><li class="chapter-item expanded "><a href="search.html"><strong aria-hidden="true">5.</strong> Search</a></li><li class="chapter-item expanded affix "><li class="part-title">Security</li><li class="chapter-item expanded "><a href="redaction.html"><strong aria-hidden="true">6.</strong> Redaction</a></li><li class="chapter-item expanded "><a href="redaction-design.html"><strong aria-hidden="true">7.</strong> Redaction design</a></li><li class="chapter-item expanded "><a href="security.html"><strong aria-hidden="true">8.</strong> Security policy</a></li><li class="chapter-item expanded affix "><li class="part-title">Sharing & maintenance</li><li class="chapter-item expanded "><a href="export-import.html"><strong aria-hidden="true">9.</strong> Export & import</a></li><li class="chapter-item expanded "><a href="gc.html"><strong aria-hidden="true">10.</strong> Garbage collection</a></li><li class="chapter-item expanded "><a href="doctor.html"><strong aria-hidden="true">11.</strong> Doctor</a></li><li class="chapter-item expanded "><a href="stats.html"><strong aria-hidden="true">12.</strong> Stats</a></li><li class="chapter-item expanded affix "><li class="part-title">Reference</li><li class="chapter-item expanded "><a href="adapters.html"><strong aria-hidden="true">13.</strong> Adapters</a></li><li class="chapter-item expanded "><a href="mcp-proxy.html"><strong aria-hidden="true">14.</strong> MCP proxy</a></li><li class="chapter-item expanded "><a href="json.html"><strong aria-hidden="true">15.</strong> JSON reference</a></li><li class="chapter-item expanded "><a href="completions.html"><strong aria-hidden="true">16.</strong> Shell completions & man page</a></li><li class="chapter-item expanded "><a href="stability.html" class="active"><strong aria-hidden="true">17.</strong> Stability policy</a></li><li class="chapter-item expanded "><a href="performance.html"><strong aria-hidden="true">18.</strong> Performance</a></li><li class="chapter-item expanded affix "><li class="part-title">Appendices</li><li class="chapter-item expanded "><a href="faq.html"><strong aria-hidden="true">19.</strong> FAQ</a></li><li class="chapter-item expanded "><a href="1.0-definition-of-done.html"><strong aria-hidden="true">20.</strong> 1.0 definition of done</a></li><li class="chapter-item expanded "><a href="manual-qa.html"><strong aria-hidden="true">21.</strong> Manual QA</a></li><li class="chapter-item expanded "><a href="adr/0001-threads-vs-tokio.html"><strong aria-hidden="true">22.</strong> Architecture decision records</a></li><li><ol class="section"><li class="chapter-item expanded "><a href="adr/0001-threads-vs-tokio.html"><strong aria-hidden="true">22.1.</strong> ADR 0001: threads vs tokio</a></li><li class="chapter-item expanded "><a href="adr/0002-stored-step-ordinals.html"><strong aria-hidden="true">22.2.</strong> ADR 0002: stored step ordinals</a></li><li class="chapter-item expanded "><a href="adr/0003-fts-index-strategy.html"><strong aria-hidden="true">22.3.</strong> ADR 0003: FTS index strategy</a></li></ol></li></ol>
+            </div>
+            <div id="sidebar-resize-handle" class="sidebar-resize-handle">
+                <div class="sidebar-resize-indicator"></div>
+            </div>
+        </nav>
+
+        <!-- Track and set sidebar scroll position -->
+        <script>
+            var sidebarScrollbox = document.querySelector('#sidebar .sidebar-scrollbox');
+            sidebarScrollbox.addEventListener('click', function(e) {
+                if (e.target.tagName === 'A') {
+                    sessionStorage.setItem('sidebar-scroll', sidebarScrollbox.scrollTop);
+                }
+            }, { passive: true });
+            var sidebarScrollTop = sessionStorage.getItem('sidebar-scroll');
+            sessionStorage.removeItem('sidebar-scroll');
+            if (sidebarScrollTop) {
+                // preserve sidebar scroll position when navigating via links within sidebar
+                sidebarScrollbox.scrollTop = sidebarScrollTop;
+            } else {
+                // scroll sidebar to current active section when navigating via "next/previous chapter" buttons
+                var activeSection = document.querySelector('#sidebar .active');
+                if (activeSection) {
+                    activeSection.scrollIntoView({ block: 'center' });
+                }
+            }
+        </script>
+
+        <div id="page-wrapper" class="page-wrapper">
+
+            <div class="page">
+                                <div id="menu-bar-hover-placeholder"></div>
+                <div id="menu-bar" class="menu-bar sticky">
+                    <div class="left-buttons">
+                        <label id="sidebar-toggle" class="icon-button" for="sidebar-toggle-anchor" title="Toggle Table of Contents" aria-label="Toggle Table of Contents" aria-controls="sidebar">
+                            <i class="fa fa-bars"></i>
+                        </label>
+                        <button id="theme-toggle" class="icon-button" type="button" title="Change theme" aria-label="Change theme" aria-haspopup="true" aria-expanded="false" aria-controls="theme-list">
+                            <i class="fa fa-paint-brush"></i>
+                        </button>
+                        <ul id="theme-list" class="theme-popup" aria-label="Themes" role="menu">
+                            <li role="none"><button role="menuitem" class="theme" id="light">Light</button></li>
+                            <li role="none"><button role="menuitem" class="theme" id="rust">Rust</button></li>
+                            <li role="none"><button role="menuitem" class="theme" id="coal">Coal</button></li>
+                            <li role="none"><button role="menuitem" class="theme" id="navy">Navy</button></li>
+                            <li role="none"><button role="menuitem" class="theme" id="ayu">Ayu</button></li>
+                        </ul>
+                        <button id="search-toggle" class="icon-button" type="button" title="Search. (Shortkey: s)" aria-label="Toggle Searchbar" aria-expanded="false" aria-keyshortcuts="S" aria-controls="searchbar">
+                            <i class="fa fa-search"></i>
+                        </button>
+                    </div>
+
+                    <h1 class="menu-title">Halfhand</h1>
+
+                    <div class="right-buttons">
+                        <a href="print.html" title="Print this book" aria-label="Print this book">
+                            <i id="print-button" class="fa fa-print"></i>
+                        </a>
+                        <a href="https://github.com/halfhandorg/halfhand" title="Git repository" aria-label="Git repository">
+                            <i id="git-repository-button" class="fa fa-github"></i>
+                        </a>
+                        <a href="https://github.com/halfhandorg/halfhand/edit/main/docs/./stability.md" title="Suggest an edit" aria-label="Suggest an edit">
+                            <i id="git-edit-button" class="fa fa-edit"></i>
+                        </a>
+
+                    </div>
+                </div>
+
+                <div id="search-wrapper" class="hidden">
+                    <form id="searchbar-outer" class="searchbar-outer">
+                        <input type="search" id="searchbar" name="searchbar" placeholder="Search this book ..." aria-controls="searchresults-outer" aria-describedby="searchresults-header">
+                    </form>
+                    <div id="searchresults-outer" class="searchresults-outer hidden">
+                        <div id="searchresults-header" class="searchresults-header"></div>
+                        <ul id="searchresults">
+                        </ul>
+                    </div>
+                </div>
+
+                <!-- Apply ARIA attributes after the sidebar and the sidebar toggle button are added to the DOM -->
+                <script>
+                    document.getElementById('sidebar-toggle').setAttribute('aria-expanded', sidebar === 'visible');
+                    document.getElementById('sidebar').setAttribute('aria-hidden', sidebar !== 'visible');
+                    Array.from(document.querySelectorAll('#sidebar a')).forEach(function(link) {
+                        link.setAttribute('tabIndex', sidebar === 'visible' ? 0 : -1);
+                    });
+                </script>
+
+                <div id="content" class="content">
+                    <main>
+                        <h1 id="stability"><a class="header" href="#stability">Stability</a></h1>
+<p>Halfhand is heading to <code>1.0.0</code>. This document is the promise <code>1.0.0</code> makes and
+every release after it keeps: what's frozen, what's allowed to grow, and what
+has to go through a deprecation cycle instead of just changing. It formalizes
+the "backward compatibility is a feature" rule from <code>CLAUDE.md</code>'s v1.0.0
+addendum.</p>
+<p>Everything here applies from <code>1.0.0</code> onward. Before <code>1.0.0</code> (the current
+<code>0.1.x-beta</code> series), the on-disk and JSON schemas may still move faster than
+this policy allows — pin a beta version in CI rather than tracking <code>latest</code>
+until <code>1.0.0</code> ships (see <code>README.md</code>).</p>
+<h2 id="a-cli-flags-subcommands-exit-codes"><a class="header" href="#a-cli-flags-subcommands-exit-codes">(a) CLI: flags, subcommands, exit codes</a></h2>
+<ul>
+<li>
+<p>Every documented subcommand, flag, and its current default behavior is
+stable. New subcommands and new flags are always additive — they may be
+added freely, never as a reason to change what an existing invocation does.</p>
+</li>
+<li>
+<p><strong>Removing</strong> a subcommand or flag, or changing what an existing flag
+combination does, requires a deprecation cycle: at least one minor release
+where the old behavior still works but prints a warning (via
+<code>hh_core::warn_deprecated</code>, the standard one-line stderr format — see
+<code>hh-core/src/deprecation.rs</code>), before it can be removed in a later minor
+release. Halfhand does not do major-version-only removals within the CLI —
+a deprecation warning must have shipped first, full stop.</p>
+</li>
+<li>
+<p>Exit codes are part of the contract, tested by
+<code>hh/tests/cli_conformance.rs</code>:</p>
+<div class="table-wrapper"><table><thead><tr><th>Code</th><th>Meaning</th><th>Where</th></tr></thead><tbody>
+<tr><td><code>0</code></td><td>success</td><td>every command on success</td></tr>
+<tr><td><code>1</code></td><td>generic error</td><td>any other failure (including a refused irreversible action, e.g. <code>hh redact</code>/<code>hh export --no-redact</code> refusing a non-interactive confirmation)</td></tr>
+<tr><td><code>2</code></td><td>usage error</td><td>clap's own flag/argument parsing (unknown flag, missing required arg)</td></tr>
+<tr><td><code>3</code></td><td>session not found</td><td>any subcommand that resolves a session id/<code>last</code> argument and fails to</td></tr>
+<tr><td><code>4</code></td><td>redaction/policy block</td><td><code>hh scan</code> exiting with findings — the one place this code is used today, so CI can gate on <code>hh scan --all</code></td></tr>
+</tbody></table>
+</div>
+<p>New exit codes may be added for new commands; an existing code's meaning
+for an existing command never changes.</p>
+</li>
+<li>
+<p><code>--help</code> output (both <code>hh --help</code> and every <code>hh &lt;sub&gt; --help</code>) is
+snapshot-tested (<code>hh/tests/cli_conformance.rs</code>); wording may improve, but a
+documented flag or subcommand does not silently disappear from it.</p>
+</li>
+</ul>
+<h2 id="b---json"><a class="header" href="#b---json">(b) <code>--json</code></a></h2>
+<ul>
+<li><code>schema</code> is frozen at <strong><code>2</code></strong> for the 1.0 series. See <code>docs/json.md</code> for
+the full field-by-field reference and the diff from <code>schema:1</code>.</li>
+<li>Additive changes — a new field, a new possible value for an existing
+field (e.g. a new <code>agent_kind</code>), a new <code>body</code> shape for an event kind — do
+<strong>not</strong> bump <code>schema</code>. They're documented in <code>docs/json.md</code> as they land.
+A documented field is always present once schema <code>2</code> documents it (never
+conditionally omitted); consumers must ignore fields and enum values they
+don't recognize rather than error.</li>
+<li>A field is never removed, renamed, or retyped within <code>schema:2</code>. That kind
+of change ships as a new <code>schema</code> value with both shapes documented side
+by side in <code>docs/json.md</code>, gated behind a major version of <code>hh</code>.</li>
+<li><code>hh-core::event::JSON_SCHEMA_VERSION</code> is the single constant every
+JSON-emitting call site reads <code>schema</code> from (session objects, event/step
+objects, and the <code>doctor</code>/<code>gc</code>/<code>stats</code>/<code>scan</code>/<code>export</code> objects) — one
+counter for the whole family, not one per command.</li>
+</ul>
+<h2 id="c-on-disk-database"><a class="header" href="#c-on-disk-database">(c) On-disk database</a></h2>
+<ul>
+<li>Migrations are forward-only and applied automatically, idempotently, on
+every <code>Store::open</code> (<code>hh-core/src/migrations.rs</code>, DR-1). There is no
+down-migration and none is planned.</li>
+<li>Any <code>1.x</code> release of <code>hh</code> can open and correctly read a database written
+by any earlier <code>1.x</code> release. A migration only ever adds (a table, a
+column, an index) — see <code>hh-core/src/migrations.rs</code>'s own module doc: "the
+v1.0.0 addendum permits additive schema changes … without a deprecation
+cycle; a <em>breaking</em> change to an existing table must go through
+STABILITY.md's policy instead." No migration under this policy breaks that
+promise; if one ever needs to, it requires a major version of <code>hh</code> and an
+explicit, documented migration path (e.g. <code>hh export --bundle</code> on the old
+version, <code>hh import</code> on the new one) — not a silent schema break.</li>
+<li><code>hh.db</code> <strong>remains directly queryable</strong> with <code>sqlite3</code> (DR-2) — that
+transparency isn't going away. But the SQL schema itself (table/column
+names, types, indexes) is <em>not</em> frozen the way <code>--json</code> is: migrations may
+still reshape it release to release. <strong>The supported programmatic
+interface is <code>--json</code> and <code>hh export</code> bundles, not raw SQL</strong> — build
+tooling against those, and treat direct <code>hh.db</code> queries as a debugging/
+power-user affordance, not an API.</li>
+</ul>
+<h2 id="d-msrv"><a class="header" href="#d-msrv">(d) MSRV</a></h2>
+<ul>
+<li>The minimum supported Rust version is stated once, in the workspace
+<code>Cargo.toml</code> (<code>rust-version.workspace = true</code> in <code>hh-core</code>/<code>hh-record</code>/
+<code>hh</code>; currently <code>1.75</code>).</li>
+<li>An MSRV bump only happens in a <strong>minor</strong> release, never a patch release,
+and is called out in <code>CHANGELOG.md</code>.</li>
+</ul>
+<h2 id="e-hh-core-semver-policy"><a class="header" href="#e-hh-core-semver-policy">(e) <code>hh-core</code> semver policy</a></h2>
+<ul>
+<li><code>hh-core</code>'s public Rust API (types, functions, trait, including the
+<code>Adapter</code> trait new adapters implement) follows semver for real: additive
+changes are always fine; a breaking change to a <code>1.x</code> <code>hh-core</code> requires a
+major version.</li>
+<li>This is enforced in CI today, ahead of the crate ever being published:
+<code>.github/workflows/ci.yml</code>'s <code>semver-checks</code> job runs
+<code>cargo semver-checks check-release -p hh-core --baseline-rev origin/main --release-type minor</code> on every PR — <code>--release-type minor</code> means
+"additions are fine, breakage is not," exactly this policy. The one
+standing exclusion (<code>--exclude enum_marked_non_exhaustive</code>) covers enums
+that predate the <code>#[non_exhaustive]</code> convention and were marked as a
+one-time cleanup, not a recurring allowance.</li>
+<li>Growth-prone public types (<code>SessionRow</code>, <code>Config</code>, the error enums,
+<code>AgentKind</code>, …) are <code>#[non_exhaustive]</code> specifically so a new field or
+variant stays additive under that check instead of registering as a
+break. New public types added after <code>1.0.0</code> should default to
+<code>#[non_exhaustive]</code> unless there's a specific reason a caller needs
+exhaustive matching or construction.</li>
+</ul>
+<h2 id="what-this-document-does-not-cover"><a class="header" href="#what-this-document-does-not-cover">What this document does not cover</a></h2>
+<ul>
+<li>The replay TUI's keybindings and rendered layout, and <code>hh export --html</code>'s
+page — these are user experience, not a machine-readable contract, and can
+keep improving without a deprecation cycle.</li>
+<li><code>hh.db</code>'s SQL schema shape (see (c) above) — deliberately not frozen.</li>
+<li>Anything under <code>docs/adr/</code> — architecture decisions, not compatibility
+promises.</li>
+</ul>
+
+                    </main>
+
+                    <nav class="nav-wrapper" aria-label="Page navigation">
+                        <!-- Mobile navigation buttons -->
+                            <a rel="prev" href="completions.html" class="mobile-nav-chapters previous" title="Previous chapter" aria-label="Previous chapter" aria-keyshortcuts="Left">
+                                <i class="fa fa-angle-left"></i>
+                            </a>
+
+                            <a rel="next prefetch" href="performance.html" class="mobile-nav-chapters next" title="Next chapter" aria-label="Next chapter" aria-keyshortcuts="Right">
+                                <i class="fa fa-angle-right"></i>
+                            </a>
+
+                        <div style="clear: both"></div>
+                    </nav>
+                </div>
+            </div>
+
+            <nav class="nav-wide-wrapper" aria-label="Page navigation">
+                    <a rel="prev" href="completions.html" class="nav-chapters previous" title="Previous chapter" aria-label="Previous chapter" aria-keyshortcuts="Left">
+                        <i class="fa fa-angle-left"></i>
+                    </a>
+
+                    <a rel="next prefetch" href="performance.html" class="nav-chapters next" title="Next chapter" aria-label="Next chapter" aria-keyshortcuts="Right">
+                        <i class="fa fa-angle-right"></i>
+                    </a>
+            </nav>
+
+        </div>
+
+
+
+
+        <script>
+            window.playground_copyable = true;
+        </script>
+
+
+        <script src="elasticlunr.min.js"></script>
+        <script src="mark.min.js"></script>
+        <script src="searcher.js"></script>
+
+        <script src="clipboard.min.js"></script>
+        <script src="highlight.js"></script>
+        <script src="book.js"></script>
+
+        <!-- Custom JS scripts -->
+
+
+    </div>
+    </body>
+</html>

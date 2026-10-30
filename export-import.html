@@ -1,0 +1,391 @@
+<!DOCTYPE HTML>
+<html lang="en" class="light" dir="ltr">
+    <head>
+        <!-- Book generated using mdBook -->
+        <meta charset="UTF-8">
+        <title>Export &amp; import - Halfhand</title>
+
+
+        <!-- Custom HTML head -->
+        
+        <meta name="description" content="">
+        <meta name="viewport" content="width=device-width, initial-scale=1">
+        <meta name="theme-color" content="#ffffff">
+
+        <link rel="icon" href="favicon.svg">
+        <link rel="shortcut icon" href="favicon.png">
+        <link rel="stylesheet" href="css/variables.css">
+        <link rel="stylesheet" href="css/general.css">
+        <link rel="stylesheet" href="css/chrome.css">
+        <link rel="stylesheet" href="css/print.css" media="print">
+
+        <!-- Fonts -->
+        <link rel="stylesheet" href="FontAwesome/css/font-awesome.css">
+        <link rel="stylesheet" href="fonts/fonts.css">
+
+        <!-- Highlight.js Stylesheets -->
+        <link rel="stylesheet" href="highlight.css">
+        <link rel="stylesheet" href="tomorrow-night.css">
+        <link rel="stylesheet" href="ayu-highlight.css">
+
+        <!-- Custom theme stylesheets -->
+
+    </head>
+    <body class="sidebar-visible no-js">
+    <div id="body-container">
+        <!-- Provide site root to javascript -->
+        <script>
+            var path_to_root = "";
+            var default_theme = window.matchMedia("(prefers-color-scheme: dark)").matches ? "navy" : "light";
+        </script>
+
+        <!-- Work around some values being stored in localStorage wrapped in quotes -->
+        <script>
+            try {
+                var theme = localStorage.getItem('mdbook-theme');
+                var sidebar = localStorage.getItem('mdbook-sidebar');
+
+                if (theme.startsWith('"') && theme.endsWith('"')) {
+                    localStorage.setItem('mdbook-theme', theme.slice(1, theme.length - 1));
+                }
+
+                if (sidebar.startsWith('"') && sidebar.endsWith('"')) {
+                    localStorage.setItem('mdbook-sidebar', sidebar.slice(1, sidebar.length - 1));
+                }
+            } catch (e) { }
+        </script>
+
+        <!-- Set the theme before any content is loaded, prevents flash -->
+        <script>
+            var theme;
+            try { theme = localStorage.getItem('mdbook-theme'); } catch(e) { }
+            if (theme === null || theme === undefined) { theme = default_theme; }
+            var html = document.querySelector('html');
+            html.classList.remove('light')
+            html.classList.add(theme);
+            var body = document.querySelector('body');
+            body.classList.remove('no-js')
+            body.classList.add('js');
+        </script>
+
+        <input type="checkbox" id="sidebar-toggle-anchor" class="hidden">
+
+        <!-- Hide / unhide sidebar before it is displayed -->
+        <script>
+            var body = document.querySelector('body');
+            var sidebar = null;
+            var sidebar_toggle = document.getElementById("sidebar-toggle-anchor");
+            if (document.body.clientWidth >= 1080) {
+                try { sidebar = localStorage.getItem('mdbook-sidebar'); } catch(e) { }
+                sidebar = sidebar || 'visible';
+            } else {
+                sidebar = 'hidden';
+            }
+            sidebar_toggle.checked = sidebar === 'visible';
+            body.classList.remove('sidebar-visible');
+            body.classList.add("sidebar-" + sidebar);
+        </script>
+
+        <nav id="sidebar" class="sidebar" aria-label="Table of contents">
+            <div class="sidebar-scrollbox">
+                <ol class="chapter"><li class="chapter-item expanded "><a href="index.html"><strong aria-hidden="true">1.</strong> Introduction</a></li><li class="chapter-item expanded affix "><li class="part-title">Getting started</li><li class="chapter-item expanded "><a href="quickstart.html"><strong aria-hidden="true">2.</strong> Quickstart</a></li><li class="chapter-item expanded "><a href="recording.html"><strong aria-hidden="true">3.</strong> Recording</a></li><li class="chapter-item expanded "><a href="replay-inspect.html"><strong aria-hidden="true">4.</strong> Replay & Inspect</a></li><li class="chapter-item expanded "><a href="search.html"><strong aria-hidden="true">5.</strong> Search</a></li><li class="chapter-item expanded affix "><li class="part-title">Security</li><li class="chapter-item expanded "><a href="redaction.html"><strong aria-hidden="true">6.</strong> Redaction</a></li><li class="chapter-item expanded "><a href="redaction-design.html"><strong aria-hidden="true">7.</strong> Redaction design</a></li><li class="chapter-item expanded "><a href="security.html"><strong aria-hidden="true">8.</strong> Security policy</a></li><li class="chapter-item expanded affix "><li class="part-title">Sharing & maintenance</li><li class="chapter-item expanded "><a href="export-import.html" class="active"><strong aria-hidden="true">9.</strong> Export & import</a></li><li class="chapter-item expanded "><a href="gc.html"><strong aria-hidden="true">10.</strong> Garbage collection</a></li><li class="chapter-item expanded "><a href="doctor.html"><strong aria-hidden="true">11.</strong> Doctor</a></li><li class="chapter-item expanded "><a href="stats.html"><strong aria-hidden="true">12.</strong> Stats</a></li><li class="chapter-item expanded affix "><li class="part-title">Reference</li><li class="chapter-item expanded "><a href="adapters.html"><strong aria-hidden="true">13.</strong> Adapters</a></li><li class="chapter-item expanded "><a href="mcp-proxy.html"><strong aria-hidden="true">14.</strong> MCP proxy</a></li><li class="chapter-item expanded "><a href="json.html"><strong aria-hidden="true">15.</strong> JSON reference</a></li><li class="chapter-item expanded "><a href="completions.html"><strong aria-hidden="true">16.</strong> Shell completions & man page</a></li><li class="chapter-item expanded "><a href="stability.html"><strong aria-hidden="true">17.</strong> Stability policy</a></li><li class="chapter-item expanded "><a href="performance.html"><strong aria-hidden="true">18.</strong> Performance</a></li><li class="chapter-item expanded affix "><li class="part-title">Appendices</li><li class="chapter-item expanded "><a href="faq.html"><strong aria-hidden="true">19.</strong> FAQ</a></li><li class="chapter-item expanded "><a href="1.0-definition-of-done.html"><strong aria-hidden="true">20.</strong> 1.0 definition of done</a></li><li class="chapter-item expanded "><a href="manual-qa.html"><strong aria-hidden="true">21.</strong> Manual QA</a></li><li class="chapter-item expanded "><a href="adr/0001-threads-vs-tokio.html"><strong aria-hidden="true">22.</strong> Architecture decision records</a></li><li><ol class="section"><li class="chapter-item expanded "><a href="adr/0001-threads-vs-tokio.html"><strong aria-hidden="true">22.1.</strong> ADR 0001: threads vs tokio</a></li><li class="chapter-item expanded "><a href="adr/0002-stored-step-ordinals.html"><strong aria-hidden="true">22.2.</strong> ADR 0002: stored step ordinals</a></li><li class="chapter-item expanded "><a href="adr/0003-fts-index-strategy.html"><strong aria-hidden="true">22.3.</strong> ADR 0003: FTS index strategy</a></li></ol></li></ol>
+            </div>
+            <div id="sidebar-resize-handle" class="sidebar-resize-handle">
+                <div class="sidebar-resize-indicator"></div>
+            </div>
+        </nav>
+
+        <!-- Track and set sidebar scroll position -->
+        <script>
+            var sidebarScrollbox = document.querySelector('#sidebar .sidebar-scrollbox');
+            sidebarScrollbox.addEventListener('click', function(e) {
+                if (e.target.tagName === 'A') {
+                    sessionStorage.setItem('sidebar-scroll', sidebarScrollbox.scrollTop);
+                }
+            }, { passive: true });
+            var sidebarScrollTop = sessionStorage.getItem('sidebar-scroll');
+            sessionStorage.removeItem('sidebar-scroll');
+            if (sidebarScrollTop) {
+                // preserve sidebar scroll position when navigating via links within sidebar
+                sidebarScrollbox.scrollTop = sidebarScrollTop;
+            } else {
+                // scroll sidebar to current active section when navigating via "next/previous chapter" buttons
+                var activeSection = document.querySelector('#sidebar .active');
+                if (activeSection) {
+                    activeSection.scrollIntoView({ block: 'center' });
+                }
+            }
+        </script>
+
+        <div id="page-wrapper" class="page-wrapper">
+
+            <div class="page">
+                                <div id="menu-bar-hover-placeholder"></div>
+                <div id="menu-bar" class="menu-bar sticky">
+                    <div class="left-buttons">
+                        <label id="sidebar-toggle" class="icon-button" for="sidebar-toggle-anchor" title="Toggle Table of Contents" aria-label="Toggle Table of Contents" aria-controls="sidebar">
+                            <i class="fa fa-bars"></i>
+                        </label>
+                        <button id="theme-toggle" class="icon-button" type="button" title="Change theme" aria-label="Change theme" aria-haspopup="true" aria-expanded="false" aria-controls="theme-list">
+                            <i class="fa fa-paint-brush"></i>
+                        </button>
+                        <ul id="theme-list" class="theme-popup" aria-label="Themes" role="menu">
+                            <li role="none"><button role="menuitem" class="theme" id="light">Light</button></li>
+                            <li role="none"><button role="menuitem" class="theme" id="rust">Rust</button></li>
+                            <li role="none"><button role="menuitem" class="theme" id="coal">Coal</button></li>
+                            <li role="none"><button role="menuitem" class="theme" id="navy">Navy</button></li>
+                            <li role="none"><button role="menuitem" class="theme" id="ayu">Ayu</button></li>
+                        </ul>
+                        <button id="search-toggle" class="icon-button" type="button" title="Search. (Shortkey: s)" aria-label="Toggle Searchbar" aria-expanded="false" aria-keyshortcuts="S" aria-controls="searchbar">
+                            <i class="fa fa-search"></i>
+                        </button>
+                    </div>
+
+                    <h1 class="menu-title">Halfhand</h1>
+
+                    <div class="right-buttons">
+                        <a href="print.html" title="Print this book" aria-label="Print this book">
+                            <i id="print-button" class="fa fa-print"></i>
+                        </a>
+                        <a href="https://github.com/halfhandorg/halfhand" title="Git repository" aria-label="Git repository">
+                            <i id="git-repository-button" class="fa fa-github"></i>
+                        </a>
+                        <a href="https://github.com/halfhandorg/halfhand/edit/main/docs/./export-import.md" title="Suggest an edit" aria-label="Suggest an edit">
+                            <i id="git-edit-button" class="fa fa-edit"></i>
+                        </a>
+
+                    </div>
+                </div>
+
+                <div id="search-wrapper" class="hidden">
+                    <form id="searchbar-outer" class="searchbar-outer">
+                        <input type="search" id="searchbar" name="searchbar" placeholder="Search this book ..." aria-controls="searchresults-outer" aria-describedby="searchresults-header">
+                    </form>
+                    <div id="searchresults-outer" class="searchresults-outer hidden">
+                        <div id="searchresults-header" class="searchresults-header"></div>
+                        <ul id="searchresults">
+                        </ul>
+                    </div>
+                </div>
+
+                <!-- Apply ARIA attributes after the sidebar and the sidebar toggle button are added to the DOM -->
+                <script>
+                    document.getElementById('sidebar-toggle').setAttribute('aria-expanded', sidebar === 'visible');
+                    document.getElementById('sidebar').setAttribute('aria-hidden', sidebar !== 'visible');
+                    Array.from(document.querySelectorAll('#sidebar a')).forEach(function(link) {
+                        link.setAttribute('tabIndex', sidebar === 'visible' ? 0 : -1);
+                    });
+                </script>
+
+                <div id="content" class="content">
+                    <main>
+                        <h1 id="hh-export--hh-import--hh-replay---web"><a class="header" href="#hh-export--hh-import--hh-replay---web"><code>hh export</code> / <code>hh import</code> / <code>hh replay --web</code></a></h1>
+<p>Three ways to move a session off the recording machine:</p>
+<div class="table-wrapper"><table><thead><tr><th>Goal</th><th>Command</th></tr></thead><tbody>
+<tr><td>Machine-readable JSON (<code>jq</code>-friendly)</td><td><code>hh export [session]</code></td></tr>
+<tr><td>A portable archive you can <code>hh import</code> elsewhere</td><td><code>hh export [session] --bundle -o FILE</code></td></tr>
+<tr><td>A page to share/open in a browser</td><td><code>hh export [session] --html -o FILE</code>, or <code>hh replay [session] --web</code></td></tr>
+</tbody></table>
+</div>
+<p>All three are <strong>redacted by default</strong> — see <a href="redaction.html"><code>docs/redaction.md</code></a>.
+<code>--no-redact</code> requires an interactive typed confirmation and is refused on a
+non-TTY stdin; there is no bypass flag, so a script can never exfiltrate a raw
+session by accident.</p>
+<pre><code>$ hh export last --bundle -o session.hh
+✓ Exported session a1b2c3 → session.hh (bundle, redacted)
+
+$ hh import session.hh
+✓ Imported session f9e8d7 (from a1b2c3) · 12 steps · hh replay f9e8d7
+
+$ hh replay last --web
+✓ Exported session a1b2c3 → /tmp/hh-replay-a1b2c3.html (html, redacted) — open it in a browser
+</code></pre>
+<h2 id="the-bundle-format---bundle"><a class="header" href="#the-bundle-format---bundle">The bundle format (<code>--bundle</code>)</a></h2>
+<p>A <code>.hh</code> file is a single <strong>zstd-compressed tar</strong>:</p>
+<pre><code>manifest.json     format_version, hh_version, the session block, integrity hashes
+events.ndjson     one compact JSON object per event, seq-indexed
+blobs/&lt;h2&gt;/&lt;hash&gt; raw content for every blob any event or file_change references
+</code></pre>
+<p>Only the outer tar stream is compressed — blobs are stored raw inside it (no
+double compression). Building it twice from an unchanged session produces
+<strong>byte-identical bytes</strong>: tar entries are added in a fixed order (manifest,
+events, then blobs sorted ascending by hash) with fixed mtime/uid/gid/mode,
+and the manifest carries no wall-clock field.</p>
+<h3 id="manifestjson"><a class="header" href="#manifestjson"><code>manifest.json</code></a></h3>
+<pre><code class="language-jsonc">{
+  "format_version": 1,
+  "hh_version": "0.1.0-beta.1 (abc1234)",
+  "session": { /* the hh list --json session object, see docs/json.md */ },
+  "integrity": {
+    "events_blake3": "&lt;hex&gt;",       // BLAKE3 of events.ndjson's bytes
+    "event_count": 12,
+    "blobs": [ { "hash": "&lt;hex&gt;", "size": 481 }, ... ]
+  }
+}
+</code></pre>
+<p><code>hh import</code> rejects a bundle whose <code>format_version</code> is newer than the highest
+version that build of <code>hh</code> understands, with an actionable "upgrade hh"
+message. Same-or-older versions of format <code>1</code> are accepted (the only version
+that exists today).</p>
+<h3 id="eventsndjson"><a class="header" href="#eventsndjson"><code>events.ndjson</code></a></h3>
+<p>One line per event, in the session's original <code>(ts_ms, id)</code> order. DB row ids
+don't survive import, so events are addressed by position (<code>seq</code>, 0-based)
+instead, and <code>correlates</code> becomes <code>correlates_seq</code>:</p>
+<pre><code class="language-jsonc">{
+  "seq": 3,
+  "ts_ms": 1204,
+  "kind": "tool_result",
+  "step": 2,
+  "correlates_seq": 2,
+  "summary": "tool_result: ok",
+  "body": { "content": "file.txt", "is_error": false },
+  "blob_hash": null,
+  "blob_size": null,
+  "file_change": null
+}
+</code></pre>
+<p><code>body</code> is exactly as stored — unlike <code>hh inspect --json</code>'s event object, it
+is <strong>not</strong> blob-overflow-resolved, so a large payload may still carry the
+<code>{"overflow": true, "blob_hash": "...", ...}</code> envelope; the referenced blob
+is always present under <code>blobs/</code> in that case.</p>
+<h3 id="blobs"><a class="header" href="#blobs">Blobs</a></h3>
+<p>Every hash any event's <code>blob_hash</code> or <code>file_change.before_hash</code>/<code>after_hash</code>
+references is packed under <code>blobs/&lt;hash[0..2]&gt;/&lt;hash&gt;</code>, content-addressed and
+BLAKE3-verified on import. This is the one thing plain <code>hh export</code> (no
+<code>--bundle</code>) cannot carry: its JSON only ever includes hash <em>references</em> for
+file changes, never the bytes.</p>
+<h3 id="redaction-and-hash-remapping"><a class="header" href="#redaction-and-hash-remapping">Redaction and hash remapping</a></h3>
+<p>Redaction (when enabled) runs over the session block, every event, and every
+referenced blob's content — the same chokepoint plain <code>hh export</code>/<code>hh export --html</code> use. If redacting a blob's content changes its hash, every reference
+to the old hash (the event's <code>blob_hash</code>, a <code>file_change</code>'s
+<code>before_hash</code>/<code>after_hash</code>, or an embedded <code>blob_hash</code> inside an unresolved
+overflow envelope) is rewritten to the new one before the bundle is built —
+nothing in the bundle ever points at a hash that isn't in it.</p>
+<h2 id="hh-import"><a class="header" href="#hh-import"><code>hh import</code></a></h2>
+<pre><code>hh import FILE
+</code></pre>
+<p>Validates the bundle end to end before touching the store: zstd
+decompression is bounded (defense against a hostile/corrupt frame), every
+tar entry must match the allow-list above (a symlink/hardlink/unexpected
+path is refused), every blob's content is BLAKE3-verified against its
+filename, <code>events.ndjson</code>'s digest is checked against the manifest, and
+every hash any event references must be present among the bundle's blobs.
+Each failure mode reports precisely what's wrong — not one generic "corrupt
+bundle" message.</p>
+<p>On success, the session is imported under a <strong>brand-new local id</strong> — the
+bundle's <code>format_version</code> and content-addressing mean imports are always
+additive, never overwrite an existing session. The original session id is
+recorded in the new session's <code>imported_from</code> field (<code>hh list --json</code> /
+<code>hh inspect --json</code>; see <a href="json.html"><code>docs/json.md</code></a>) so you can trace where it
+came from. Blobs are written content-addressed, so importing a bundle whose
+blobs already exist locally (e.g. re-importing, or two sessions sharing a
+file snapshot) is a no-op for those blobs.</p>
+<p><code>hh import</code> does <strong>not</strong> re-run redaction — it trusts the bundle's existing
+redaction state, whatever <code>hh export</code> produced (redacted by default, or
+<code>--no-redact</code> if the exporter explicitly confirmed that).</p>
+<h3 id="exit-codes"><a class="header" href="#exit-codes">Exit codes</a></h3>
+<div class="table-wrapper"><table><thead><tr><th>Code</th><th>Meaning</th></tr></thead><tbody>
+<tr><td><code>0</code></td><td>Import succeeded.</td></tr>
+<tr><td><code>1</code></td><td>The file couldn't be read, the bundle failed validation, or the import transaction failed.</td></tr>
+<tr><td><code>2</code></td><td>Usage error (clap).</td></tr>
+</tbody></table>
+</div>
+<p>There is no dedicated "corrupt bundle" exit code in Halfhand's documented
+contract (<code>0</code>/<code>1</code>/<code>2</code>/<code>3</code>/<code>4</code>); a corrupt or invalid bundle is a generic <code>1</code>,
+by design — this is called out explicitly rather than left as an oversight.</p>
+<h2 id="the-html-replay-page---html-hh-replay---web"><a class="header" href="#the-html-replay-page---html-hh-replay---web">The HTML replay page (<code>--html</code>, <code>hh replay --web</code>)</a></h2>
+<p><code>hh export --html</code> (and its sugar, <code>hh replay --web</code>) produce a <strong>single
+self-contained HTML file</strong>: inline CSS/JS, zero network requests, no CDN, no
+telemetry, safe to open from <code>file://</code> or host anywhere.</p>
+<ul>
+<li><strong>Header</strong>: session id, status, agent kind, command, cwd, and (if
+applicable) which session it was imported from.</li>
+<li><strong>Timeline</strong>: every step-bearing event, clickable. <code>terminal_output</code> is
+elided — this mirrors the replay TUI's default and keeps the page a step
+report, not a byte-faithful terminal transcript.</li>
+<li><strong>Detail pane</strong>: plain text for text-bearing events, pretty-printed JSON
+for structured events, and a real diff view for file changes (hunks are
+precomputed server-side, so the page never implements a diff algorithm).</li>
+<li><strong>Keyboard nav</strong>: <code>j</code>/<code>k</code> (and arrow keys) move the selected step.</li>
+<li><strong>Theme</strong>: dark by default, with a toggle button for light — not tied to
+the OS <code>prefers-color-scheme</code>.</li>
+</ul>
+<h3 id="how-the-page-stays-safe"><a class="header" href="#how-the-page-stays-safe">How the page stays safe</a></h3>
+<p>Session content is untrusted input to this page (it's whatever the recorded
+agent/tool output happened to contain). The whole payload is embedded once,
+inside a single <code>&lt;script type="application/json" id="hh-data"&gt;</code> tag, with
+every <code>&lt;</code>/<code>&gt;</code>/<code>&amp;</code> replaced by its <code>\uXXXX</code> escape first — that makes a
+<code>&lt;/script&gt;</code> sequence structurally impossible to smuggle in, regardless of
+content. The page's hand-written JS reads that tag's <code>textContent</code> (never
+<code>innerHTML</code>), <code>JSON.parse</code>s it, and builds every other DOM node with
+<code>createElement</code>/<code>textContent</code>. Nothing recorded is ever assigned to
+<code>innerHTML</code>, so nothing recorded can ever be interpreted as markup — a
+<code>&lt;script&gt;</code> tag or <code>onerror=</code> attribute in a summary, a tool result, or a
+diff line renders as inert text, never as live HTML.</p>
+<h3 id="hh-replay---web"><a class="header" href="#hh-replay---web"><code>hh replay --web</code></a></h3>
+<p>Sugar for the common "just let me look at this in a browser" case:</p>
+<pre><code>hh replay [session] --web
+</code></pre>
+<p>Builds the same redacted HTML page <code>hh export --html</code> would, writes it to
+<code>$TMPDIR/hh-replay-&lt;short_id&gt;.html</code>, and prints the path. Needs no
+terminal (unlike plain <code>hh replay</code>, which opens the interactive TUI and
+requires one). Does <strong>not</strong> open a browser or start a server — v1 is
+print-the-path only; piping the path to <code>open</code>/<code>xdg-open</code> yourself is a
+one-liner if you want that.</p>
+<h2 id="see-also"><a class="header" href="#see-also">See also</a></h2>
+<ul>
+<li><a href="redaction.html"><code>docs/redaction.md</code></a> / <a href="redaction-design.html"><code>docs/redaction-design.md</code></a> — the redaction pipeline every export path shares.</li>
+<li><a href="json.html"><code>docs/json.md</code></a> — the session/event object shapes referenced above.</li>
+</ul>
+
+                    </main>
+
+                    <nav class="nav-wrapper" aria-label="Page navigation">
+                        <!-- Mobile navigation buttons -->
+                            <a rel="prev" href="security.html" class="mobile-nav-chapters previous" title="Previous chapter" aria-label="Previous chapter" aria-keyshortcuts="Left">
+                                <i class="fa fa-angle-left"></i>
+                            </a>
+
+                            <a rel="next prefetch" href="gc.html" class="mobile-nav-chapters next" title="Next chapter" aria-label="Next chapter" aria-keyshortcuts="Right">
+                                <i class="fa fa-angle-right"></i>
+                            </a>
+
+                        <div style="clear: both"></div>
+                    </nav>
+                </div>
+            </div>
+
+            <nav class="nav-wide-wrapper" aria-label="Page navigation">
+                    <a rel="prev" href="security.html" class="nav-chapters previous" title="Previous chapter" aria-label="Previous chapter" aria-keyshortcuts="Left">
+                        <i class="fa fa-angle-left"></i>
+                    </a>
+
+                    <a rel="next prefetch" href="gc.html" class="nav-chapters next" title="Next chapter" aria-label="Next chapter" aria-keyshortcuts="Right">
+                        <i class="fa fa-angle-right"></i>
+                    </a>
+            </nav>
+
+        </div>
+
+
+
+
+        <script>
+            window.playground_copyable = true;
+        </script>
+
+
+        <script src="elasticlunr.min.js"></script>
+        <script src="mark.min.js"></script>
+        <script src="searcher.js"></script>
+
+        <script src="clipboard.min.js"></script>
+        <script src="highlight.js"></script>
+        <script src="book.js"></script>
+
+        <!-- Custom JS scripts -->
+
+
+    </div>
+    </body>
+</html>

@@ -1,0 +1,27 @@
+# mdbook configuration for the Halfhand docs site.
+#
+# Source root is `docs/` itself (`src = "."`), so the existing `docs/*.md` and
+# `docs/adr/*.md` files are rendered in place — no moves, which preserves the
+# `docs/<name>.md` paths referenced from doc-comments across the codebase, the
+# CHANGELOG, ARCHITECTURE.md, and the SRS (93 references). New book-only pages
+# (quickstart, faq, adapters, …) live alongside them; repo-root policy docs
+# (STABILITY.md, SECURITY.md) are pulled in with `{{#include ../…}}`.
+#
+# Published to GitHub Pages (gh-pages branch) by
+# `.github/workflows/docs.yml` on release tags and on push to main (preview).
+# Site URL: https://halfhandorg.github.io/halfhand/
+
+[book]
+title = "Halfhand"
+authors = ["Saadman Rafat"]
+language = "en"
+multilingual = false
+src = "."
+
+[output.html]
+git-repository-url = "https://github.com/halfhandorg/halfhand"
+edit-url-template = "https://github.com/halfhandorg/halfhand/edit/main/docs/{path}"
+site-url = "/halfhand/"
+no-section-label = false
+
+# Keep the default (HTML) output only. No linkchecker/pdf to avoid extra deps.
