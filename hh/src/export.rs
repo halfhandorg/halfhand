@@ -799,7 +799,7 @@ mod tests {
             .find(|e| e["kind"] == "file_change")
             .expect("file_change event present");
         let hunks = fc["diff"]["hunks"].as_array().unwrap();
-        assert!(!hunks.is_empty());
+        assert_ne!(hunks.as_slice(), [] as [serde_json::Value; 0]);
         assert!(hunks[0]["lines"]
             .as_array()
             .unwrap()

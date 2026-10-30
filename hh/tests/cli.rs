@@ -351,7 +351,7 @@ fn run_records_generic_session_with_terminal_and_file_changes() {
         "unexpected change_kind: {change_kind}"
     );
     let after_hash = after_hash.expect("text file should have an after_hash");
-    assert!(!after_hash.is_empty());
+    assert_ne!(after_hash, "");
 
     // The after_hash references a real blob row (content was stored).
     let blob_refcount: i64 = conn
@@ -2598,7 +2598,7 @@ fn export_bundle_then_import_round_trips_and_stays_redacted() {
         "export epilogue names the format: {epilogue}"
     );
     let bundle_bytes = std::fs::read(&bundle_path).unwrap();
-    assert!(!bundle_bytes.is_empty());
+    assert_ne!(bundle_bytes, [] as [u8; 0]);
     assert!(
         !bundle_bytes
             .windows(FAKE_AWS_KEY.len())

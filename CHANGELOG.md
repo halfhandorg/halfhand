@@ -11,6 +11,32 @@ in CI rather than tracking `latest` until 1.0.
 
 ## [Unreleased]
 
+### Security
+
+- **zstd 0.13 → 0.14** (`zstd` 0.14.3, `zstd-safe` 8.2.0, `zstd-sys` 2.1.2):
+  resolves RUSTSEC-2026-0391, -0398, -0403 and -0410. Blob and bundle
+  compression format is unchanged; existing data stays readable.
+- **lru 0.18.0 → 0.18.5** (lockfile only): resolves RUSTSEC-2026-0253.
+  Note: lru 0.18.2+ declares `rust-version = 1.85`, above the workspace's
+  declared 1.75; no CI job currently enforces MSRV.
+
+### Fixed
+
+- Clippy 1.99's new `assert_is_empty` lint flagged eleven
+  `assert!(x.is_empty())` sites in tests; rewritten as
+  `assert_eq!`/`assert_ne!` against an empty array so failures print the
+  offending value. No behavior change.
+
+### Tests — Claude Desktop fixture
+
+- **`hh-core/tests/fixtures/claude-desktop/session.jsonl`**: a sanitized real
+  Claude Desktop (Code tab) session, with `NOTES.md` covering where Desktop
+  writes session data per OS (Linux confirmed; macOS/Windows unverified) and
+  how to tell a Desktop transcript from a CLI one. Wired into
+  `snapshot_claude_desktop_fixture_parse` (insta snapshot of the 51 parsed
+  events) and `tailer_parses_committed_claude_desktop_fixture` (end-to-end
+  through `ClaudeDesktopAdapter`, channel-driven wait, no sleeps).
+
 ### Added — v1.1.0 Stage 2 (migration 0005 + adapter degrade infrastructure, BUG-1)
 
 - **`sessions.adapter_degrade_reason`** column (migration 0005, SRS §5.1,

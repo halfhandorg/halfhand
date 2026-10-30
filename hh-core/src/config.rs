@@ -725,7 +725,7 @@ mod tests {
         assert_eq!(cfg.record.max_file_size, 4 * 1024 * 1024);
         assert!(!cfg.record.record_input);
         assert!(!cfg.record.record_binary);
-        assert!(cfg.record.ignore.is_empty());
+        assert_eq!(cfg.record.ignore, [] as [String; 0]);
         assert_eq!(cfg.replay.theme, Theme::Auto);
         assert!(cfg.storage.data_dir.as_os_str().is_empty());
     }
@@ -806,7 +806,7 @@ rules = [{ name = \"acme\", pattern = \"ACME-[0-9A-F]{16}\" }]
         let d = RedactionConfig::default();
         assert!(!d.at_record);
         assert!(d.entropy);
-        assert!(d.rules.is_empty());
+        assert_eq!(d.rules, [] as [RedactionRule; 0]);
     }
 
     #[test]
@@ -899,7 +899,10 @@ rules = [{ name = \"acme\", pattern = \"ACME-[0-9A-F]{16}\" }]
         )
         .unwrap();
         assert!(!canonical_absent.exists());
-        assert!(ignored_noncanonical_config_files(&canonical_absent).is_empty());
+        assert_eq!(
+            ignored_noncanonical_config_files(&canonical_absent),
+            [] as [std::path::PathBuf; 0]
+        );
         warn_on_ignored_config_files(&canonical_absent);
 
         // Missing canonical parent dir: still no panic.

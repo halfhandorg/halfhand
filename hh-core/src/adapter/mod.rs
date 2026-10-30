@@ -2797,6 +2797,18 @@ mod tests {
     /// `hh run` has launched it. Returns the handle so the test can drain then
     /// join.
     fn spawn_with(home: &Path, cwd: &Path) -> (AdapterHandle, std::sync::Arc<AtomicBool>, PathBuf) {
+        spawn_adapter_with(home, cwd, Box::new(ClaudeAdapter), "claude")
+    }
+
+    /// [`spawn_with`] generalized over the adapter under test, so the Claude
+    /// Desktop adapter (same tailer, different `AgentKind`) can be exercised
+    /// against its own committed fixture.
+    fn spawn_adapter_with(
+        home: &Path,
+        cwd: &Path,
+        adapter: Box<dyn Adapter>,
+        program: &str,
+    ) -> (AdapterHandle, std::sync::Arc<AtomicBool>, PathBuf) {
         let slug_dir = home.join(".claude").join("projects").join(slugify(cwd));
         std::fs::create_dir_all(&slug_dir).unwrap();
         let stop = std::sync::Arc::new(AtomicBool::new(false));
@@ -2805,17 +2817,36 @@ mod tests {
             session_id: SID.to_string(),
             started_at_unix_ms: STARTED,
             cwd: cwd.to_path_buf(),
-            command: vec!["claude".into()],
+            command: vec![program.into()],
             blobs,
             stop: std::sync::Arc::clone(&stop),
             projects_dir: Some(home.join(".claude").join("projects")),
         };
-        let handle = Box::new(ClaudeAdapter).spawn(ctx).expect("spawn adapter");
+        let handle = adapter.spawn(ctx).expect("spawn adapter");
         // Let the tailer take its preexisting-file snapshot before we write, so the
         // transcript is seen as created-during-the-session (50 ms is a safe margin
         // over the snapshot's single read_dir).
         std::thread::sleep(Duration::from_millis(50));
         (handle, stop, slug_dir)
+    }
+
+    /// Receive from `events` until `n` events have arrived or `timeout`
+    /// elapses, whichever comes first (BUG-4: channel-driven, no fixed sleep).
+    /// Returns whatever arrived; the caller asserts on the count.
+    fn collect_n(events: &mpsc::Receiver<Event>, n: usize, timeout: Duration) -> Vec<Event> {
+        let deadline = std::time::Instant::now() + timeout;
+        let mut out = Vec::with_capacity(n);
+        while out.len() < n {
+            let now = std::time::Instant::now();
+            if now >= deadline {
+                break;
+            }
+            match events.recv_timeout(deadline - now) {
+                Ok(ev) => out.push(ev),
+                Err(_) => break,
+            }
+        }
+        out
     }
 
     /// Write a transcript file into a slug dir (the "appears during the session"
@@ -3031,6 +3062,139 @@ mod tests {
         )
         .unwrap());
     }
+
+    /// The committed `tests/fixtures/claude-desktop/session.jsonl` fixture
+    /// (sanitized from a real Claude Desktop "Code tab" session; see the
+    /// sibling `NOTES.md`). Desktop writes the same JSONL as the CLI into the
+    /// same `~/.claude/projects/<slug>/` directory, with
+    /// `entrypoint: "claude-desktop"`, `promptSource: "sdk"`, and extra
+    /// record types (`queue-operation`, `ai-title`, `custom-title`,
+    /// `last-prompt`, `attachment`, `system`/`stop_hook_summary`). Parse every
+    /// line through the pure parser and snapshot the resulting events, so the
+    /// Desktop-specific records are provably ignored (not mis-parsed) and the
+    /// conversational records yield the same event shapes as a CLI session.
+    #[test]
+    fn snapshot_claude_desktop_fixture_parse() {
+        let fixture = include_str!("../../tests/fixtures/claude-desktop/session.jsonl");
+        let tmp = tempfile::TempDir::new().unwrap();
+        let blobs = BlobStore::new(tmp.path().join("blobs"));
+        let mut all_events: Vec<serde_json::Value> = Vec::new();
+        let mut records = 0usize;
+        for line in fixture.lines() {
+            let line = line.trim();
+            if line.is_empty() {
+                continue;
+            }
+            let v: serde_json::Value =
+                serde_json::from_str(line).expect("every fixture line is valid JSON");
+            records += 1;
+            let pr = parse_record(&v, SID, 0, &blobs);
+            for ev in &pr.events {
+                all_events.push(serde_json::to_value(ev).unwrap_or_default());
+            }
+        }
+        assert_eq!(
+            records, 79,
+            "fixture record count (guards accidental edits)"
+        );
+        insta::assert_snapshot!(serde_json::to_string_pretty(
+            &serde_json::json!({ "events": all_events })
+        )
+        .unwrap());
+    }
+
+    /// End-to-end through [`ClaudeDesktopAdapter`]: the committed Desktop
+    /// fixture is located by cwd, tailed, and yields the expected event mix
+    /// with `AgentKind::ClaudeDesktop` reported. Waits on the event channel
+    /// rather than sleeping (BUG-4).
+    #[test]
+    fn tailer_parses_committed_claude_desktop_fixture() {
+        let fixture = include_str!("../../tests/fixtures/claude-desktop/session.jsonl");
+        let home = tempfile::TempDir::new().unwrap();
+        let cwd = Path::new("/home/user/proj");
+        let adapter = Box::new(ClaudeDesktopAdapter);
+        assert_eq!(adapter.agent_kind(), AgentKind::ClaudeDesktop);
+        let (handle, stop, slug_dir) =
+            spawn_adapter_with(home.path(), cwd, adapter, "claude-desktop");
+        write_transcript(
+            &slug_dir,
+            "00000000-0000-4000-8000-000000000001.jsonl",
+            fixture,
+        );
+        let mut events = collect_n(
+            &handle.events,
+            DESKTOP_FIXTURE_EVENTS,
+            Duration::from_secs(10),
+        );
+        stop.store(true, Ordering::Release);
+        events.extend(drain(&handle.events));
+        assert_eq!(
+            events.len(),
+            DESKTOP_FIXTURE_EVENTS,
+            "desktop fixture must yield exactly the events the pure parser yields"
+        );
+
+        let count = |k: EventKind| events.iter().filter(|e| e.kind == k).count();
+        assert_eq!(count(EventKind::UserMessage), 3, "three human prompts");
+        assert_eq!(
+            count(EventKind::ToolCall),
+            17,
+            "one tool_call per tool_use block"
+        );
+        assert_eq!(
+            count(EventKind::ToolResult),
+            17,
+            "one tool_result per tool_call"
+        );
+        assert_eq!(count(EventKind::Thinking), 5, "thinking blocks");
+        assert_eq!(count(EventKind::AgentMessage), 9, "text blocks");
+        assert_eq!(
+            events[0].kind,
+            EventKind::UserMessage,
+            "session opens with the prompt"
+        );
+        assert_eq!(
+            events.last().map(|e| e.kind),
+            Some(EventKind::AgentMessage),
+            "session closes with the final answer"
+        );
+
+        // Every tool the session used is one the parser names.
+        let mut tools: Vec<&str> = events
+            .iter()
+            .filter(|e| e.kind == EventKind::ToolCall)
+            .filter_map(|e| e.body_json.as_ref()?.get("name")?.as_str())
+            .collect();
+        tools.sort_unstable();
+        tools.dedup();
+        assert_eq!(tools, vec!["Bash", "Edit", "Read", "Write"]);
+
+        // Exactly one tool_result is an error (the Write-before-Read refusal).
+        let errors = events
+            .iter()
+            .filter(|e| e.kind == EventKind::ToolResult)
+            .filter(|e| {
+                e.body_json
+                    .as_ref()
+                    .and_then(|b| b.get("is_error"))
+                    .and_then(serde_json::Value::as_bool)
+                    == Some(true)
+            })
+            .count();
+        assert_eq!(errors, 1);
+
+        let outcome = handle.outcome.join().expect("tailer thread");
+        assert_eq!(outcome.status, AdapterStatus::Active);
+        assert_eq!(outcome.model.as_deref(), Some("claude-sonnet-5"));
+        assert!(
+            outcome.usage_json.is_some(),
+            "usage is kept verbatim in the fixture, so the outcome must carry it"
+        );
+    }
+
+    /// Number of events the pure parser produces from the Desktop fixture;
+    /// locked by `snapshot_claude_desktop_fixture_parse`.
+    const DESKTOP_FIXTURE_EVENTS: usize = 51;
 
     #[test]
     fn tailer_finds_file_late() {
