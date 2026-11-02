@@ -1,0 +1,8 @@
+# Seeds for failure cases proptest has generated in the past. It is
+# automatically read and these particular cases re-run before any
+# novel cases are generated.
+#
+# It is recommended to check this file in to source control so that
+# everyone who runs the test benefits from these saved cases.
+cc fa940ae02cbbd577ce7c6e412a47e132a0386eba72cb4126abeb5c3797881135 # shrinks to events = [FileChange { path: "file-.txt", before: Some(""), after: None, source: 3, renamed_from: None }]
+cc b74aebf54eae7b6bb11a493aa5881e09afb5f96c0628f6b7ae20e2e288730329 # shrinks to events = [FileChange { path: "file-.txt", before: Some(""), after: None, source: 0, renamed_from: None }]

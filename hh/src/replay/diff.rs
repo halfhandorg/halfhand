@@ -11,10 +11,18 @@ use similar::{ChangeTag, TextDiff};
 /// instead of attempting a byte diff.
 #[must_use]
 pub fn render_file_change(fc: &FileChange, store: &Store, theme: Theme) -> Vec<Line<'static>> {
-    let mut lines = vec![Line::from(Span::styled(
-        format!("{} ({})", fc.path, fc.change_kind),
-        theme.accent_style(),
-    ))];
+    // A rename (migration 0006) is one row on the new path with the old path
+    // in its provenance; say so instead of a bare "(modified)".
+    let renamed_from = store
+        .file_change_provenance(fc.event_id)
+        .ok()
+        .flatten()
+        .and_then(|p| p.renamed_from);
+    let title = match &renamed_from {
+        Some(from) => format!("{} (renamed from {from})", fc.path),
+        None => format!("{} ({})", fc.path, fc.change_kind),
+    };
+    let mut lines = vec![Line::from(Span::styled(title, theme.accent_style()))];
 
     if fc.is_binary {
         lines.push(Line::from("binary file — diff not shown"));

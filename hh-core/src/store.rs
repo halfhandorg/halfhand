@@ -9,8 +9,9 @@
 use crate::blob::BlobStore;
 use crate::error::{Error, ResolveError, Result, StorageError};
 use crate::event::{
-    AdapterStatus, AgentKind, ChangeKind, Event, EventDetail, EventIndexRow, EventKind, EventRow,
-    FileChange, NewSession, RawEventRow, SessionRow, SessionStatus,
+    AdapterStatus, AgentKind, BeforeSource, ChangeKind, Event, EventDetail, EventIndexRow,
+    EventKind, EventRow, FileChange, FileChangeProvenance, NewSession, RawEventRow, SessionRow,
+    SessionStatus,
 };
 use crate::step::assign_steps as assign_steps_pass;
 use rusqlite::{params, Connection, OpenFlags, OptionalExtension};
@@ -40,6 +41,7 @@ enum WriterReq {
     AppendFileChange(
         Event,
         FileChange,
+        FileChangeProvenance,
         Sender<std::result::Result<i64, StorageError>>,
     ),
     Flush(Sender<std::result::Result<(), StorageError>>),
@@ -519,6 +521,10 @@ impl Store {
         // because the `PRAGMA table_info` check is the idempotency mechanism
         // SQLite lacks in pure DDL.
         add_adapter_degrade_reason_column(&conn)?;
+        // Migration 0006 (DR-4): `file_changes.before_source` and
+        // `file_changes.renamed_from`, added behind a `PRAGMA table_info`
+        // check for the same reason as `adapter_degrade_reason` above.
+        add_file_change_provenance_columns(&conn)?;
         let store = Self {
             conn,
             blobs: BlobStore::new(blobs_dir.to_path_buf()),
@@ -1003,12 +1009,7 @@ impl Store {
         // Collect (blob_hash, reference_count) for every blob this session's
         // events reference, before the cascade deletes the events.
         let refs: Vec<(String, i64)> = {
-            let mut stmt = self.conn.prepare(
-                "SELECT e.blob_hash, COUNT(*)
-                 FROM events e
-                 WHERE e.session_id = ?1 AND e.blob_hash IS NOT NULL
-                 GROUP BY e.blob_hash",
-            )?;
+            let mut stmt = self.conn.prepare(SESSION_BLOB_REFS_SQL)?;
             let rows = stmt.query_map(params![id], |r| {
                 Ok((r.get::<_, String>(0)?, r.get::<_, i64>(1)?))
             })?;
@@ -1146,6 +1147,11 @@ impl Store {
                     &FindingLocation::Body,
                 );
             }
+            // Done before the `blob_hash` block, whose early `continue`s
+            // would otherwise skip it.
+            if row.kind == EventKind::FileChange {
+                self.scan_owned_before_side(row, detectors, &mut seen_blobs, &mut out)?;
+            }
             if let Some(hash) = &row.blob_hash {
                 if !seen_blobs.insert(hash.clone()) {
                     continue;
@@ -1177,6 +1183,50 @@ impl Store {
             }
         }
         Ok(out)
+    }
+
+    /// [`Self::scan_session`]'s pass over a file change's owned before-side
+    /// blob. A git/baseline before-side (migration 0006) is a blob the
+    /// session stored and owns, but no `events.blob_hash` names it — scanned
+    /// here so `hh scan` covers everything `hh redact` rewrites.
+    fn scan_owned_before_side(
+        &self,
+        row: &ScanEventRow,
+        detectors: &crate::redact::Detectors,
+        seen_blobs: &mut std::collections::HashSet<String>,
+        out: &mut Vec<ScanFinding>,
+    ) -> Result<()> {
+        let owned: Option<(String, String)> = self
+            .conn
+            .query_row(
+                "SELECT before_hash, path FROM file_changes
+                 WHERE event_id = ?1 AND before_hash IS NOT NULL
+                   AND before_source IN ('git', 'baseline')",
+                params![row.id],
+                |r| Ok((r.get(0)?, r.get(1)?)),
+            )
+            .optional()?;
+        let Some((hash, path)) = owned else {
+            return Ok(());
+        };
+        if !seen_blobs.insert(hash.clone()) {
+            return Ok(());
+        }
+        // A missing/corrupt blob is `hh doctor`'s problem, not a scan failure.
+        if let Ok(content) = self.blobs.get(&hash) {
+            push_grouped(
+                out,
+                detectors.detect_bytes(&content),
+                Some(row.id),
+                row.step,
+                Some(row.kind),
+                &FindingLocation::Blob {
+                    hash,
+                    path: Some(path),
+                },
+            );
+        }
+        Ok(())
     }
 
     /// Redact a session in place (`hh redact`, docs/redaction-design.md):
@@ -1304,10 +1354,7 @@ impl Store {
         // move with them. Originals that reach refcount zero are deleted from
         // the table now and shredded from disk after commit.
         let blob_refs: Vec<(String, i64)> = {
-            let mut stmt = tx.prepare(
-                "SELECT blob_hash, COUNT(*) FROM events
-                 WHERE session_id = ?1 AND blob_hash IS NOT NULL GROUP BY blob_hash",
-            )?;
+            let mut stmt = tx.prepare(SESSION_BLOB_REFS_SQL)?;
             let mapped = stmt.query_map(params![id], |r| Ok((r.get(0)?, r.get(1)?)))?;
             let mut v = Vec::new();
             for m in mapped {
@@ -1515,8 +1562,8 @@ impl Store {
             {
                 pending_correlates.push((new_id, correlates_seq));
             }
-            if let Some(fc) = bundle_event_file_change(ev) {
-                insert_file_change_row(&tx, new_id, &fc)?;
+            if let Some((fc, provenance)) = bundle_event_file_change(ev, &bundle.blobs) {
+                insert_file_change_row(&tx, new_id, &fc, &provenance)?;
             }
         }
         for (new_id, correlates_seq) in pending_correlates {
@@ -1972,6 +2019,28 @@ impl Store {
             .map_err(Into::into)
     }
 
+    /// The migration-0006 provenance of the `file_changes` row attached to
+    /// `event_id`: where its before-side came from and, for a rename, the old
+    /// path. `Ok(None)` if the event has no `file_changes` row. Rows written
+    /// before migration 0006 return a provenance whose fields are all `None`.
+    pub fn file_change_provenance(&self, event_id: i64) -> Result<Option<FileChangeProvenance>> {
+        self.conn
+            .query_row(
+                "SELECT before_source, renamed_from FROM file_changes WHERE event_id = ?1",
+                params![event_id],
+                |r| {
+                    let source: Option<String> = r.get(0)?;
+                    Ok(FileChangeProvenance {
+                        before_source: source.and_then(|s| s.parse::<BeforeSource>().ok()),
+                        before_size: None,
+                        renamed_from: r.get(1)?,
+                    })
+                },
+            )
+            .optional()
+            .map_err(Into::into)
+    }
+
     /// Run the FR-3.4 step-assignment pass for a session and write the
     /// ordinals back to `events.step` in one transaction on the main
     /// connection (ADR-0002). Call after the writer is flushed + joined so
@@ -2088,9 +2157,26 @@ impl EventWriter {
     /// The `FileChange.event_id` field is ignored and overwritten with the
     /// new event's id; callers do not need to pre-allocate it.
     pub fn append_file_change(&self, event: Event, change: FileChange) -> Result<i64> {
+        self.append_file_change_with_provenance(event, change, FileChangeProvenance::default())
+    }
+
+    /// [`Self::append_file_change`], also recording the before-side
+    /// provenance and rename source (migration 0006). When
+    /// `provenance.before_source` owns its blob reference
+    /// ([`BeforeSource::owns_blob_ref`]) and `change.before_hash` is set, the
+    /// writer takes one reference on that blob in the same transaction, so a
+    /// before-side stored only for this change (a git or baseline before-side)
+    /// is refcounted like any other blob and reclaimed when the session is
+    /// deleted.
+    pub fn append_file_change_with_provenance(
+        &self,
+        event: Event,
+        change: FileChange,
+        provenance: FileChangeProvenance,
+    ) -> Result<i64> {
         let (rtx, rrx) = mpsc::channel();
         self.tx
-            .send(WriterReq::AppendFileChange(event, change, rtx))
+            .send(WriterReq::AppendFileChange(event, change, provenance, rtx))
             .map_err(|_| StorageError::WriterClosed)?;
         rrx.recv()
             .map_err(|_| StorageError::WriterClosed)?
@@ -2205,11 +2291,11 @@ fn writer_run(
                 let res = insert_event(&conn, &event);
                 let _ = reply.send(res);
             }
-            WriterReq::AppendFileChange(mut event, change, reply) => {
+            WriterReq::AppendFileChange(mut event, change, provenance, reply) => {
                 if let Some(d) = redactor {
                     redact_event_in_place(&mut event, d);
                 }
-                let res = insert_event_with_file_change(&mut conn, &event, &change);
+                let res = insert_event_with_file_change(&mut conn, &event, &change, &provenance);
                 let _ = reply.send(res);
             }
             WriterReq::Flush(reply) => {
@@ -2289,6 +2375,7 @@ fn insert_event_with_file_change(
     conn: &mut Connection,
     event: &Event,
     change: &FileChange,
+    provenance: &FileChangeProvenance,
 ) -> std::result::Result<i64, StorageError> {
     let tx = conn.transaction().map_err(StorageError::from)?;
     let body = event
@@ -2327,35 +2414,39 @@ fn insert_event_with_file_change(
     // FTS5 index is maintained by the `events_fts_ai` trigger (migration 0005,
     // external-content pattern) — no application-code writes to `events_fts`
     // (CLAUDE.md v1.1.0 addendum: "FTS5 stays in sync via triggers only").
-    tx.execute(
-        "INSERT INTO file_changes (event_id, path, change_kind, before_hash, after_hash, is_binary)
-         VALUES (?1, ?2, ?3, ?4, ?5, ?6)",
-        params![
-            event_id,
-            change.path,
-            change.change_kind.to_string(),
-            change.before_hash,
-            change.after_hash,
-            i64::from(change.is_binary),
-        ],
-    )?;
+    insert_file_change_row(&tx, event_id, change, provenance)?;
     tx.commit().map_err(StorageError::from)?;
     Ok(event_id)
 }
 
-/// Insert one `file_changes` row for an already-inserted event (used by
-/// [`Store::import`], which — unlike [`insert_event_with_file_change`] —
-/// runs every event of a session through one outer transaction rather than
-/// one nested transaction per event, so it needs the plain-INSERT half of
-/// that function without the transaction-starting half).
+/// Insert one `file_changes` row for an already-inserted event, plus the
+/// before-side blob reference it owns, if any (migration 0006: a `git` or
+/// `baseline` before-side is stored only for this row, so the row holds one
+/// refcount on it — see [`BeforeSource::owns_blob_ref`]). Shared by
+/// [`insert_event_with_file_change`] (the writer, one transaction per event)
+/// and [`Store::import`] (one outer transaction for the whole session); the
+/// caller owns the transaction.
 fn insert_file_change_row(
     conn: &Connection,
     event_id: i64,
     change: &FileChange,
+    provenance: &FileChangeProvenance,
 ) -> std::result::Result<(), StorageError> {
+    if let (Some(hash), Some(source)) = (&change.before_hash, provenance.before_source) {
+        if source.owns_blob_ref() {
+            let size = i64::try_from(provenance.before_size.unwrap_or(0)).unwrap_or(i64::MAX);
+            conn.execute(
+                "INSERT INTO blobs (hash, size, refcount) VALUES (?1, ?2, 1)
+                 ON CONFLICT(hash) DO UPDATE SET refcount = refcount + 1",
+                params![hash, size],
+            )?;
+        }
+    }
     conn.execute(
-        "INSERT INTO file_changes (event_id, path, change_kind, before_hash, after_hash, is_binary)
-         VALUES (?1, ?2, ?3, ?4, ?5, ?6)",
+        "INSERT INTO file_changes
+           (event_id, path, change_kind, before_hash, after_hash, is_binary,
+            before_source, renamed_from)
+         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)",
         params![
             event_id,
             change.path,
@@ -2363,8 +2454,56 @@ fn insert_file_change_row(
             change.before_hash,
             change.after_hash,
             i64::from(change.is_binary),
+            provenance.before_source.map(|s| s.to_string()),
+            provenance.renamed_from,
         ],
     )?;
+    Ok(())
+}
+
+/// Every blob reference a session holds, as `(hash, count)`: one per event
+/// whose `events.blob_hash` names the blob, plus one per `file_changes` row
+/// that owns its before-side blob (migration 0006, `before_source` of `git`
+/// or `baseline`). `?1` is the session id. Shared by
+/// [`Store::delete_session`] and [`Store::redact_session`] so the refcount
+/// books are balanced the same way they were filled.
+const SESSION_BLOB_REFS_SQL: &str = "
+    SELECT hash, SUM(n) FROM (
+        SELECT blob_hash AS hash, COUNT(*) AS n FROM events
+         WHERE session_id = ?1 AND blob_hash IS NOT NULL
+         GROUP BY blob_hash
+        UNION ALL
+        SELECT fc.before_hash AS hash, COUNT(*) AS n
+          FROM file_changes fc JOIN events e ON e.id = fc.event_id
+         WHERE e.session_id = ?1 AND fc.before_hash IS NOT NULL
+           AND fc.before_source IN ('git', 'baseline')
+         GROUP BY fc.before_hash
+    ) GROUP BY hash";
+
+/// Idempotently add migration 0006's `file_changes.before_source` and
+/// `file_changes.renamed_from` columns. SQLite has no `ALTER TABLE ADD
+/// COLUMN IF NOT EXISTS`, so each is guarded by a `PRAGMA table_info` check;
+/// safe to call on every `Store::open` (DR-4).
+fn add_file_change_provenance_columns(conn: &Connection) -> Result<()> {
+    let names: Vec<String> = {
+        let mut stmt = conn.prepare("PRAGMA table_info(file_changes)")?;
+        let rows = stmt.query_map([], |r| r.get::<_, String>(1))?;
+        rows.collect::<std::result::Result<_, _>>()?
+    };
+    for (column, ddl) in [
+        (
+            "before_source",
+            "ALTER TABLE file_changes ADD COLUMN before_source TEXT",
+        ),
+        (
+            "renamed_from",
+            "ALTER TABLE file_changes ADD COLUMN renamed_from TEXT",
+        ),
+    ] {
+        if !names.iter().any(|n| n == column) {
+            conn.execute_batch(ddl)?;
+        }
+    }
     Ok(())
 }
 
@@ -2452,8 +2591,14 @@ fn bundle_event_to_event(session_id: &str, ev: &serde_json::Value) -> Event {
     }
 }
 
-/// Extract the `file_change` sub-object of a bundle event, if present.
-fn bundle_event_file_change(ev: &serde_json::Value) -> Option<FileChange> {
+/// Extract the `file_change` sub-object of a bundle event, if present, with
+/// its migration-0006 provenance (`before_source`, `renamed_from`; absent in
+/// bundles written before them). The owned before-side blob's size is taken
+/// from the bundle's own copy of the blob so the import can refcount it.
+fn bundle_event_file_change(
+    ev: &serde_json::Value,
+    blobs: &std::collections::BTreeMap<String, Vec<u8>>,
+) -> Option<(FileChange, FileChangeProvenance)> {
     let fc = ev.get("file_change")?;
     if fc.is_null() {
         return None;
@@ -2463,7 +2608,7 @@ fn bundle_event_file_change(ev: &serde_json::Value) -> Option<FileChange> {
         .and_then(serde_json::Value::as_str)?
         .parse()
         .ok()?;
-    Some(FileChange {
+    let change = FileChange {
         event_id: 0, // overwritten by the caller once the owning event's id is known.
         path: fc
             .get("path")
@@ -2483,7 +2628,25 @@ fn bundle_event_file_change(ev: &serde_json::Value) -> Option<FileChange> {
             .get("is_binary")
             .and_then(serde_json::Value::as_bool)
             .unwrap_or(false),
-    })
+    };
+    let before_source = fc
+        .get("before_source")
+        .and_then(serde_json::Value::as_str)
+        .and_then(|s| s.parse::<BeforeSource>().ok());
+    let before_size = change
+        .before_hash
+        .as_ref()
+        .and_then(|h| blobs.get(h))
+        .and_then(|b| u64::try_from(b.len()).ok());
+    let provenance = FileChangeProvenance {
+        before_source,
+        before_size,
+        renamed_from: fc
+            .get("renamed_from")
+            .and_then(serde_json::Value::as_str)
+            .map(str::to_string),
+    };
+    Some((change, provenance))
 }
 
 /// Group raw detector findings by `(secret kind, hash8)` and append one
@@ -2700,6 +2863,167 @@ mod tests {
             blob_size: None,
             correlates: None,
         }
+    }
+
+    /// Record one file change in a fresh session whose before-side is a
+    /// baseline blob (`before`) the row owns, and finalize the session.
+    fn session_with_baseline_before(
+        store: &Store,
+        before: &[u8],
+        after: &[u8],
+    ) -> (String, String) {
+        let sid = store.create_session(&new_session()).unwrap().id;
+        let b = store.blobs().put(before).unwrap();
+        let a = store.blobs().put(after).unwrap();
+        let writer = store.event_writer().unwrap();
+        writer
+            .append_file_change_with_provenance(
+                Event {
+                    kind: EventKind::FileChange,
+                    blob_hash: Some(a.hash.clone()),
+                    blob_size: Some(a.size),
+                    summary: "config.env modified".into(),
+                    ..event(&sid, 1, None)
+                },
+                FileChange {
+                    event_id: 0,
+                    path: "config.env".into(),
+                    change_kind: ChangeKind::Modified,
+                    before_hash: Some(b.hash.clone()),
+                    after_hash: Some(a.hash),
+                    is_binary: false,
+                },
+                FileChangeProvenance::new(BeforeSource::Baseline).with_before_size(Some(b.size)),
+            )
+            .unwrap();
+        writer.finish().unwrap();
+        store
+            .finalize_session(&sid, 10, Some(0), SessionStatus::Ok)
+            .unwrap();
+        (sid, b.hash)
+    }
+
+    /// Migration 0006 on a database written before it: the two columns are
+    /// added (PRAGMA-guarded), legacy rows read back with no provenance, and
+    /// re-opening again changes nothing — the schema equals a fresh DB's.
+    #[test]
+    fn migration_0006_upgrades_a_pre_0006_db_idempotently() {
+        let fresh_tmp = TempDir::new().unwrap();
+        let fresh =
+            Store::open(&fresh_tmp.path().join("hh.db"), &fresh_tmp.path().join("b")).unwrap();
+        let schema = |s: &Store| -> Vec<String> {
+            let mut stmt = s
+                .conn
+                .prepare("SELECT sql FROM sqlite_master WHERE sql IS NOT NULL ORDER BY type, name")
+                .unwrap();
+            stmt.query_map([], |r| r.get(0))
+                .unwrap()
+                .map(|r| r.unwrap())
+                .collect()
+        };
+        let fresh_schema = schema(&fresh);
+
+        let tmp = TempDir::new().unwrap();
+        let (db, blobs) = (tmp.path().join("hh.db"), tmp.path().join("blobs"));
+        let sid;
+        {
+            // Roll a freshly-migrated DB back to its pre-0006 shape, then
+            // write a legacy row into it.
+            let store = Store::open(&db, &blobs).unwrap();
+            store
+                .conn
+                .execute_batch(
+                    "DROP INDEX idx_file_changes_before_hash;
+                     ALTER TABLE file_changes DROP COLUMN before_source;
+                     ALTER TABLE file_changes DROP COLUMN renamed_from;
+                     DELETE FROM schema_migrations WHERE version = 6;",
+                )
+                .unwrap();
+            sid = store.create_session(&new_session()).unwrap().id;
+            store
+                .conn
+                .execute(
+                    "INSERT INTO events (session_id, ts_ms, kind, summary) VALUES (?1, 1, 'file_change', 'a modified')",
+                    params![sid],
+                )
+                .unwrap();
+            let id = store.conn.last_insert_rowid();
+            store
+                .conn
+                .execute(
+                    "INSERT INTO file_changes (event_id, path, change_kind) VALUES (?1, 'a', 'modified')",
+                    params![id],
+                )
+                .unwrap();
+        }
+        for _ in 0..3 {
+            let store = Store::open(&db, &blobs).unwrap();
+            assert_eq!(
+                schema(&store),
+                fresh_schema,
+                "upgraded schema == fresh schema"
+            );
+            let version: i64 = store
+                .conn
+                .query_row("SELECT MAX(version) FROM schema_migrations", [], |r| {
+                    r.get(0)
+                })
+                .unwrap();
+            assert_eq!(version, crate::migrations::LATEST_VERSION);
+            let ev = store.list_event_index(&sid).unwrap()[0].id;
+            let p = store.file_change_provenance(ev).unwrap().unwrap();
+            assert_eq!(
+                p,
+                FileChangeProvenance::default(),
+                "legacy row: no provenance"
+            );
+        }
+    }
+
+    /// `hh scan` and `hh redact` cover a baseline before-side blob: it is a
+    /// blob only its `file_changes` row references, so the events-only scan
+    /// used to miss it. After redaction the refcounts still balance (deleting
+    /// the session reclaims everything).
+    #[test]
+    fn scan_and_redact_cover_owned_before_side_blobs() {
+        let (_tmp, store) = open_store();
+        let (sid, before_hash) = session_with_baseline_before(
+            &store,
+            b"AWS_KEY=AKIAIOSFODNN7EXAMPLE\n",
+            b"AWS_KEY=removed\n",
+        );
+        let detectors =
+            crate::redact::Detectors::new(&crate::config::RedactionConfig::default()).unwrap();
+        let findings = store.scan_session(&sid, &detectors).unwrap();
+        assert!(
+            findings.iter().any(|f| matches!(
+                &f.location,
+                FindingLocation::Blob { hash, .. } if *hash == before_hash
+            )),
+            "scan must report the secret in the before-side blob: {findings:?}"
+        );
+
+        store.redact_session(&sid, &detectors).unwrap();
+        let ev = store.list_event_index(&sid).unwrap()[0].id;
+        let fc = store.get_event_detail(ev).unwrap().file_change.unwrap();
+        let new_before = fc.before_hash.unwrap();
+        assert_ne!(
+            new_before, before_hash,
+            "before-side repointed to the redacted blob"
+        );
+        let text = String::from_utf8(store.blobs().get(&new_before).unwrap()).unwrap();
+        assert!(!text.contains("AKIAIOSFODNN7EXAMPLE"), "{text}");
+        assert!(
+            !store.blobs().blob_path(&before_hash).exists(),
+            "plaintext shredded"
+        );
+
+        store.delete_session(&sid).unwrap();
+        let rows: i64 = store
+            .conn
+            .query_row("SELECT COUNT(*) FROM blobs", [], |r| r.get(0))
+            .unwrap();
+        assert_eq!(rows, 0, "refcounts balanced after redaction");
     }
 
     #[test]
@@ -3875,12 +4199,14 @@ mod tests {
     }
 
     /// Property tests for blob refcounting + GC (`delete_session`'s
-    /// decrement-then-GC logic). For any sequence of session creates, blob-
-    /// referencing appends (from a small shared content pool, so blobs are
-    /// referenced by multiple events/sessions), and session deletes: the DB
-    /// refcount for a blob always equals its live reference count, a blob with
-    /// live references is never GC'd, and a blob with none is always GC'd
-    /// (both its `blobs` row and its on-disk file).
+    /// decrement-then-GC logic, and `hh gc`'s orphan pass). For any sequence
+    /// of session creates, blob-referencing appends (from a small shared
+    /// content pool, so blobs are referenced by multiple events/sessions),
+    /// file changes whose before-side is a git/baseline blob the row owns
+    /// (migration 0006) or a live blob it does not, `hh gc` runs, and session
+    /// deletes: the DB refcount for a blob always equals its live reference
+    /// count, a blob with live references is never GC'd, and a blob with none
+    /// is always GC'd (both its `blobs` row and its on-disk file).
     mod blob_refcount_prop {
         use super::*;
         use proptest::prelude::*;
@@ -3890,36 +4216,71 @@ mod tests {
         /// collide on the same hash (exercising the shared-refcount path).
         const BLOB_CONTENTS: [&[u8]; 3] = [b"blob-a-content", b"blob-b-content", b"blob-c-content"];
 
+        /// Before-side provenances a file change can carry. Only `Git` and
+        /// `Baseline` own a reference on the before blob.
+        const SOURCES: [BeforeSource; 4] = [
+            BeforeSource::Live,
+            BeforeSource::Git,
+            BeforeSource::Baseline,
+            BeforeSource::None,
+        ];
+
         /// A small pool of session "slots" (0..4) so creates/deletes/appends
         /// interleave against a bounded, reusable set of sessions.
         #[derive(Debug, Clone)]
         enum Op {
             Create,
-            Append { session: u8, blob: u8 },
-            Delete { session: u8 },
+            Append {
+                session: u8,
+                blob: u8,
+            },
+            /// A file change: after-side `blob`, before-side `before` with
+            /// provenance `SOURCES[source]`.
+            Change {
+                session: u8,
+                blob: u8,
+                before: u8,
+                source: u8,
+            },
+            /// `hh gc`'s orphan pass, which must never touch a live blob.
+            Gc,
+            Delete {
+                session: u8,
+            },
         }
 
         fn op_strategy() -> impl Strategy<Value = Op> {
             prop_oneof![
                 Just(Op::Create),
                 (0u8..4, 0u8..3).prop_map(|(session, blob)| Op::Append { session, blob }),
+                (0u8..4, 0u8..3, 0u8..3, 0u8..4).prop_map(|(session, blob, before, source)| {
+                    Op::Change {
+                        session,
+                        blob,
+                        before,
+                        source,
+                    }
+                }),
+                Just(Op::Gc),
                 (0u8..4).prop_map(|session| Op::Delete { session }),
             ]
         }
 
         proptest! {
-            #![proptest_config(ProptestConfig { cases: 32, ..ProptestConfig::default() })]
+            #![proptest_config(ProptestConfig { cases: 48, ..ProptestConfig::default() })]
 
             #[test]
             fn refcounts_match_live_refs_and_gc_is_exact(
-                ops in prop::collection::vec(op_strategy(), 1..40)
+                ops in prop::collection::vec(op_strategy(), 1..48)
             ) {
                 let (_tmp, store) = open_store();
                 let writer = store.event_writer().unwrap();
                 // slot -> live session id (absent = not created yet / deleted).
                 let mut sessions: HashMap<u8, String> = HashMap::new();
-                // Our own ground-truth: hash -> count of *live* events referencing it.
-                let mut expected_refs: HashMap<String, i64> = HashMap::new();
+                // Our own ground truth, per session: hash -> references held.
+                let mut held: HashMap<String, HashMap<String, i64>> = HashMap::new();
+                // Every hash ever referenced (so freed ones are checked too).
+                let mut seen = std::collections::BTreeSet::<String>::new();
                 let mut next_started_at = 1_700_000_000_000i64;
                 let mut ts = 0i64;
 
@@ -3948,42 +4309,60 @@ mod tests {
                                     ..event(sid, ts, Some(1))
                                 })
                                 .unwrap();
-                            *expected_refs.entry(out.hash).or_insert(0) += 1;
+                            *held.entry(sid.clone()).or_default().entry(out.hash.clone()).or_insert(0) += 1;
+                            seen.insert(out.hash);
+                        }
+                        Op::Change { session, blob, before, source } => {
+                            let Some(sid) = sessions.get(&session) else { continue };
+                            let after = store.blobs().put(BLOB_CONTENTS[usize::from(blob % 3)]).unwrap();
+                            let before = store.blobs().put(BLOB_CONTENTS[usize::from(before % 3)]).unwrap();
+                            let source = SOURCES[usize::from(source % 4)];
+                            ts += 1;
+                            writer
+                                .append_file_change_with_provenance(
+                                    Event {
+                                        kind: EventKind::FileChange,
+                                        blob_hash: Some(after.hash.clone()),
+                                        blob_size: Some(after.size),
+                                        summary: "f modified".into(),
+                                        ..event(sid, ts, Some(1))
+                                    },
+                                    FileChange {
+                                        event_id: 0,
+                                        path: "f".into(),
+                                        change_kind: ChangeKind::Modified,
+                                        before_hash: Some(before.hash.clone()),
+                                        after_hash: Some(after.hash.clone()),
+                                        is_binary: false,
+                                    },
+                                    FileChangeProvenance::new(source)
+                                        .with_before_size(Some(before.size)),
+                                )
+                                .unwrap();
+                            let refs = held.entry(sid.clone()).or_default();
+                            *refs.entry(after.hash.clone()).or_insert(0) += 1;
+                            seen.insert(after.hash);
+                            // A live/none before-side holds no reference of
+                            // its own (a blob put only for it is an orphan
+                            // file `hh gc` reclaims); git/baseline owns one.
+                            if source.owns_blob_ref() {
+                                *refs.entry(before.hash.clone()).or_insert(0) += 1;
+                                seen.insert(before.hash);
+                            }
+                        }
+                        Op::Gc => {
+                            writer.flush().unwrap();
+                            store.prune_orphan_blobs().unwrap();
                         }
                         Op::Delete { session } => {
                             let Some(sid) = sessions.remove(&session) else { continue };
-                            // This session's per-blob reference counts, read before the
-                            // delete cascades (mirrors delete_session's own query).
-                            let refs: Vec<(String, i64)> = {
-                                let mut stmt = store
-                                    .conn
-                                    .prepare(
-                                        "SELECT blob_hash, COUNT(*) FROM events \
-                                         WHERE session_id = ?1 AND blob_hash IS NOT NULL \
-                                         GROUP BY blob_hash",
-                                    )
-                                    .unwrap();
-                                stmt.query_map(params![sid], |r| {
-                                    Ok((r.get::<_, String>(0)?, r.get::<_, i64>(1)?))
-                                })
-                                .unwrap()
-                                .collect::<std::result::Result<_, _>>()
-                                .unwrap()
-                            };
                             store.delete_session(&sid).unwrap();
-                            for (hash, count) in refs {
-                                if let Some(e) = expected_refs.get_mut(&hash) {
-                                    *e -= count;
-                                }
-                            }
+                            held.remove(&sid);
                         }
                     }
 
-                    for (hash, expected) in &expected_refs {
-                        prop_assert!(
-                            *expected >= 0,
-                            "test bookkeeping went negative — bug in the test itself"
-                        );
+                    for hash in &seen {
+                        let expected: i64 = held.values().filter_map(|r| r.get(hash)).sum();
                         let row: Option<i64> = store
                             .conn
                             .query_row(
@@ -3994,19 +4373,27 @@ mod tests {
                             .optional()
                             .unwrap();
                         let path = store.blobs().blob_path(hash);
-                        if *expected > 0 {
+                        if expected > 0 {
                             prop_assert_eq!(
-                                row, Some(*expected),
+                                row, Some(expected),
                                 "DB refcount must equal the live reference count"
                             );
                             prop_assert!(path.exists(), "a referenced blob must stay on disk");
                         } else {
                             prop_assert_eq!(row, None, "an unreferenced blob's row must be GC'd");
-                            prop_assert!(!path.exists(), "an unreferenced blob's file must be GC'd");
                         }
                     }
                 }
+                // Finally: once every session is gone and `hh gc` runs,
+                // nothing — baseline blobs included — is left behind.
+                for sid in sessions.into_values() {
+                    store.delete_session(&sid).unwrap();
+                }
                 writer.finish().unwrap();
+                store.prune_orphan_blobs().unwrap();
+                prop_assert!(store.blobs().iter_hashes().unwrap().is_empty(), "gc reclaims every blob");
+                let rows: i64 = store.conn.query_row("SELECT COUNT(*) FROM blobs", [], |r| r.get(0)).unwrap();
+                prop_assert_eq!(rows, 0);
             }
         }
     }

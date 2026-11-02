@@ -56,6 +56,9 @@ pub struct RunOptions {
     pub record_binary: bool,
     /// Extra ignore patterns for the watcher.
     pub extra_ignore: Vec<String>,
+    /// Total bytes of pre-existing file content captured at session start as
+    /// before-sides (`[record] baseline_budget`; docs/recording.md).
+    pub baseline_budget: u64,
     /// Absolute halfhand-owned paths under cwd to exclude from the watcher
     /// (the db file, the blobs dir) so the recorder doesn't record itself.
     pub internal_exclude: Vec<PathBuf>,
@@ -199,6 +202,7 @@ pub fn run(store: &Store, opts: &RunOptions) -> crate::Result<RunOutcome> {
         record_binary: opts.record_binary,
         extra_ignore: opts.extra_ignore.clone(),
         internal_exclude: opts.internal_exclude.clone(),
+        baseline_budget: opts.baseline_budget,
     };
     let blobs = Arc::new(crate::make_blob_store(store, opts.redactor.clone()));
     // FR-1.5 best-effort: a watcher that cannot be set up (e.g. an unreadable

@@ -33,14 +33,14 @@ pub use config::{
     legacy_config_hint, legacy_config_hint_marker_path, parse_bytes,
     print_legacy_config_hint_if_needed, print_legacy_config_hint_if_needed_with, Config,
     ConfigSource, ExportConfig, Paths, RecordConfig, RedactionConfig, RedactionRule, ReplayConfig,
-    StorageConfig, Theme,
+    StorageConfig, Theme, DEFAULT_BASELINE_BUDGET,
 };
 pub use deprecation::warn_deprecated;
 pub use error::{BlobError, BundleError, ConfigError, Error, ResolveError, Result, StorageError};
 pub use event::{
-    truncate_summary, AdapterStatus, AgentKind, ChangeKind, Event, EventDetail, EventIndexRow,
-    EventKind, EventRow, FileChange, NewSession, RawEventRow, SessionRow, SessionStatus,
-    JSON_SCHEMA_VERSION,
+    truncate_summary, AdapterStatus, AgentKind, BeforeSource, ChangeKind, Event, EventDetail,
+    EventIndexRow, EventKind, EventRow, FileChange, FileChangeProvenance, NewSession, RawEventRow,
+    SessionRow, SessionStatus, JSON_SCHEMA_VERSION,
 };
 pub use redact::{Detectors, Finding, SecretKind};
 // `Uuid` is part of the public surface already (`now_v7` returns it,

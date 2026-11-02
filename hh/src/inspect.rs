@@ -617,19 +617,25 @@ fn print_diff(store: &Store, entry: &StepEntry, color: bool) {
 /// byte diff. `+`/`-` lines are tinted green/red when `color` is enabled.
 fn render_file_change_diff(fc: &FileChange, store: &Store, color: bool) -> String {
     let mut out = String::new();
-    let header = format!("diff -- a/{path} b/{path}\n", path = fc.path);
-    out.push_str(&if color {
-        header.cyan().to_string()
-    } else {
-        header
-    });
+    // A rename (migration 0006) is one row on the new path; its before-side
+    // is the old path's content, so the `a/` side names the old path, git
+    // style. A lookup failure just renders it as a plain modify.
+    let renamed_from = store
+        .file_change_provenance(fc.event_id)
+        .ok()
+        .flatten()
+        .and_then(|p| p.renamed_from);
+    let a_path = renamed_from.as_deref().unwrap_or(&fc.path);
+    push_diff_header(&mut out, a_path, &fc.path, renamed_from.is_some(), color);
+    // A pure rename (content unchanged) is fully described by the header,
+    // exactly as `git diff` prints it.
+    if renamed_from.is_some() && fc.before_hash.is_some() && fc.before_hash == fc.after_hash {
+        return out;
+    }
     let (a_label, b_label) = match fc.change_kind {
         ChangeKind::Created => ("/dev/null".to_string(), format!("b/{path}", path = fc.path)),
         ChangeKind::Deleted => (format!("a/{path}", path = fc.path), "/dev/null".to_string()),
-        ChangeKind::Modified => (
-            format!("a/{path}", path = fc.path),
-            format!("b/{path}", path = fc.path),
-        ),
+        ChangeKind::Modified => (format!("a/{a_path}"), format!("b/{path}", path = fc.path)),
     };
     let sep = format!("--- {a_label}\n+++ {b_label}\n");
     out.push_str(&if color { sep.dimmed().to_string() } else { sep });
@@ -708,6 +714,25 @@ fn render_file_change_diff(fc: &FileChange, store: &Store, color: bool) -> Strin
         }
     }
     out
+}
+
+/// The `diff -- a/<a_path> b/<b_path>` line, plus git's `rename from` /
+/// `rename to` lines for a rename.
+fn push_diff_header(out: &mut String, a_path: &str, b_path: &str, renamed: bool, color: bool) {
+    let header = format!("diff -- a/{a_path} b/{b_path}\n");
+    out.push_str(&if color {
+        header.cyan().to_string()
+    } else {
+        header
+    });
+    if renamed {
+        let rename = format!("rename from {a_path}\nrename to {b_path}\n");
+        out.push_str(&if color {
+            rename.dimmed().to_string()
+        } else {
+            rename
+        });
+    }
 }
 
 /// The structured twin of [`render_file_change_diff`]: the same hunk-walking

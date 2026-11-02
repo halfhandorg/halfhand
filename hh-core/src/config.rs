@@ -103,7 +103,21 @@ pub struct RecordConfig {
     pub record_binary: bool,
     /// Extra ignore patterns extending the built-in list + .gitignore.
     pub ignore: Vec<String>,
+    /// Total bytes of pre-existing file content `hh run` captures at session
+    /// start as the before-side of a later first change (default 32 MiB,
+    /// [`DEFAULT_BASELINE_BUDGET`]). Files clean against the git index cost
+    /// nothing here — their before-side is read from git on demand; this
+    /// budget covers dirty, untracked and non-git files. Files beyond it
+    /// record their first change without a before-side. `0` disables the
+    /// held baseline entirely. See docs/recording.md.
+    pub baseline_budget: u64,
 }
+
+/// Default for [`RecordConfig::baseline_budget`]: 32 MiB. Conservative on
+/// purpose — the baseline is held in memory for the whole session (only
+/// content that is later changed is ever written to the blob store), and a
+/// typical project's dirty + untracked set is far smaller.
+pub const DEFAULT_BASELINE_BUDGET: u64 = 32 * 1024 * 1024;
 
 impl Default for RecordConfig {
     fn default() -> Self {
@@ -112,6 +126,7 @@ impl Default for RecordConfig {
             record_input: false,
             record_binary: false,
             ignore: Vec::new(),
+            baseline_budget: DEFAULT_BASELINE_BUDGET,
         }
     }
 }
@@ -483,7 +498,13 @@ fn read_or_default_config(path: &Path) -> Result<Option<toml::Table>> {
 const KNOWN: &[(&str, &[&str])] = &[
     (
         "record",
-        &["max_file_size", "record_input", "record_binary", "ignore"],
+        &[
+            "max_file_size",
+            "record_input",
+            "record_binary",
+            "ignore",
+            "baseline_budget",
+        ],
     ),
     ("storage", &["data_dir"]),
     ("replay", &["theme"]),
@@ -517,6 +538,9 @@ fn merge_table(cfg: &mut Config, table: &toml::Table) -> Result<()> {
     if let Some(record) = table.get("record").and_then(toml::Value::as_table) {
         if let Some(v) = record.get("max_file_size") {
             cfg.record.max_file_size = value_to_bytes("record.max_file_size", v)?;
+        }
+        if let Some(v) = record.get("baseline_budget") {
+            cfg.record.baseline_budget = value_to_bytes("record.baseline_budget", v)?;
         }
         if let Some(v) = record.get("record_input").and_then(toml::Value::as_bool) {
             cfg.record.record_input = v;
@@ -757,6 +781,7 @@ mod tests {
         assert!(!cfg.record.record_input);
         assert!(!cfg.record.record_binary);
         assert_eq!(cfg.record.ignore, [] as [String; 0]);
+        assert_eq!(cfg.record.baseline_budget, DEFAULT_BASELINE_BUDGET);
         assert_eq!(cfg.replay.theme, Theme::Auto);
         assert!(cfg.storage.data_dir.as_os_str().is_empty());
         assert_eq!(
@@ -816,6 +841,24 @@ theme = \"dark\"
         assert_eq!(cfg.record.ignore, vec!["dist/", "*.lock"]);
         assert_eq!(cfg.storage.data_dir, PathBuf::from("/tmp/hh-from-file"));
         assert_eq!(cfg.replay.theme, Theme::Dark);
+    }
+
+    #[test]
+    fn config_loads_baseline_budget_in_both_byte_forms() {
+        let tmp = TempDir::new().unwrap();
+        let path = write_config(tmp.path(), "[record]\nbaseline_budget = \"8MiB\"\n");
+        assert_eq!(
+            Config::load(&path).unwrap().record.baseline_budget,
+            8 * 1024 * 1024
+        );
+        let path = write_config(tmp.path(), "[record]\nbaseline_budget = 0\n");
+        assert_eq!(Config::load(&path).unwrap().record.baseline_budget, 0);
+        let path = write_config(tmp.path(), "[record]\nbaseline_budget = -1\n");
+        let err = Config::load(&path).unwrap_err().to_string();
+        assert!(
+            err.contains("baseline_budget"),
+            "error names the key: {err}"
+        );
     }
 
     #[test]

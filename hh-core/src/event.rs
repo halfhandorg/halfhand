@@ -539,6 +539,124 @@ pub struct FileChange {
     pub is_binary: bool,
 }
 
+/// Where a file change's before-side content came from (migration 0006,
+/// `file_changes.before_source`).
+///
+/// The before-side of the *first* change to a file that existed before the
+/// session started is not something the watcher observed live: it is resolved
+/// from the session-start baseline. Recording the provenance lets a reader
+/// tell a real "no previous content" (a created file) from "previous content
+/// was never captured", and tells `hh gc` which before-side blobs are owned by
+/// the `file_changes` row (see [`BeforeSource::owns_blob_ref`]).
+///
+/// `#[non_exhaustive]`: a new provenance (e.g. a future VCS) is additive.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
+#[non_exhaustive]
+pub enum BeforeSource {
+    /// The before-side is the content the watcher itself recorded for this
+    /// path earlier in the session (the previous change's after-side).
+    Live,
+    /// The file was clean against the git index at session start; the
+    /// before-side was read from that index blob and stored.
+    Git,
+    /// The file was dirty, untracked, or outside a git repository at session
+    /// start; its content was captured at session start and stored.
+    Baseline,
+    /// No before-side content exists or it could not be captured: a created
+    /// file, a pre-existing file over `max_file_size` or the baseline budget,
+    /// or a binary file with `record_binary` off.
+    None,
+}
+
+impl BeforeSource {
+    /// Whether a `file_changes` row with this provenance holds its own
+    /// reference (refcount) on the `before_hash` blob. A `Live` before-side
+    /// is the after-side blob of an earlier event in the same session, which
+    /// that event already references; `Git` and `Baseline` before-sides are
+    /// stored only for this row, so the row owns the reference.
+    #[must_use]
+    pub fn owns_blob_ref(self) -> bool {
+        matches!(self, Self::Git | Self::Baseline)
+    }
+}
+
+impl fmt::Display for BeforeSource {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.write_str(match self {
+            Self::Live => "live",
+            Self::Git => "git",
+            Self::Baseline => "baseline",
+            Self::None => "none",
+        })
+    }
+}
+
+impl FromStr for BeforeSource {
+    type Err = String;
+    fn from_str(s: &str) -> std::result::Result<Self, Self::Err> {
+        match s {
+            "live" => Ok(Self::Live),
+            "git" => Ok(Self::Git),
+            "baseline" => Ok(Self::Baseline),
+            "none" => Ok(Self::None),
+            other => Err(format!("unknown before source `{other}`")),
+        }
+    }
+}
+
+/// Recorder-side detail of a [`FileChange`] that does not fit the original
+/// `file_changes` columns (migration 0006): the before-side provenance and,
+/// for a rename, the path the file was renamed from.
+///
+/// A rename is recorded as ONE row: `path` is the new path, `change_kind` is
+/// [`ChangeKind::Modified`] (the before-side is the old path's content, the
+/// after-side the new path's), and `renamed_from` is the old path. Adding a
+/// `Renamed` variant to the exhaustive [`ChangeKind`] would be a semver break
+/// of `hh-core`, so the rename lives here instead.
+///
+/// `#[non_exhaustive]`: build it with [`FileChangeProvenance::new`] and the
+/// `with_*` setters.
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+#[non_exhaustive]
+pub struct FileChangeProvenance {
+    /// Where the before-side came from. `None` for rows written before
+    /// migration 0006 or by a caller that did not record it.
+    pub before_source: Option<BeforeSource>,
+    /// Uncompressed size of the `before_hash` blob. Needed only when the row
+    /// owns the blob reference ([`BeforeSource::owns_blob_ref`]), so the
+    /// writer can create the `blobs` row. Not persisted.
+    pub before_size: Option<u64>,
+    /// For a rename: the old path, relative to the session cwd.
+    pub renamed_from: Option<String>,
+}
+
+impl FileChangeProvenance {
+    /// Provenance with the given before-side source and nothing else.
+    #[must_use]
+    pub fn new(before_source: BeforeSource) -> Self {
+        Self {
+            before_source: Some(before_source),
+            before_size: None,
+            renamed_from: None,
+        }
+    }
+
+    /// Set the uncompressed size of the owned before-side blob.
+    #[must_use]
+    pub fn with_before_size(mut self, size: Option<u64>) -> Self {
+        self.before_size = size;
+        self
+    }
+
+    /// Mark the change as a rename from `old_path`.
+    #[must_use]
+    pub fn with_renamed_from(mut self, old_path: Option<String>) -> Self {
+        self.renamed_from = old_path;
+        self
+    }
+}
+
 /// Truncate a summary to the SRS §4.1 limit of 120 chars, appending `…` if it
 /// was longer. Shared by the recorder (PTY/FS capture) and the adapters so the
 /// `events.summary` length constraint is enforced in one place.
