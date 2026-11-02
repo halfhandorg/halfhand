@@ -1,0 +1,6 @@
+---
+source: hh/src/main.rs
+expression: "format!(\"{line}\\n{warning}\")"
+---
+⚠ Recorded session a1b2c3 · 4m32s · 42 steps · 7 files changed · 1312 events dropped · hh replay a1b2c3
+hh: warning: 1312 events could not be written and are missing from session a1b2c3 (first failure: insert terminal_output event: database or disk is full) — the session is marked degraded; check free disk space and permissions on the data dir, then run `hh doctor`

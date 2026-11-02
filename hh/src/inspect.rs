@@ -262,7 +262,8 @@ fn render_summary_header(session: &SessionRow, color: bool) -> String {
         Some(end) => render::humanize_ms((end - session.started_at).max(0)),
         None => "—".to_string(),
     };
-    let status = render::render_status(session.status, color);
+    let status =
+        render::render_status_marked(session.status, render::session_is_degraded(session), color);
     let id = if color {
         session.short_id.green().to_string()
     } else {

@@ -369,7 +369,9 @@ fn print_mcp_epilogue(outcome: &hh_record::McpProxyOutcome) {
 ///   unparseable transcript is the direct cause of 0 recorded steps;
 /// - a watcher smoke test — confirms `notify` delivers file-change events on
 ///   this platform (a watcher that silently never fires explains 0 files
-///   changed).
+///   changed);
+/// - dropped events in recent sessions — a session whose recorder failed to
+///   write some events has gaps in its timeline.
 ///
 /// `--json` emits a stable object with a per-check array for scripting.
 fn doctor_command(args: &cli::DoctorArgs) -> anyhow::Result<ExitCode> {
@@ -382,6 +384,7 @@ fn doctor_command(args: &cli::DoctorArgs) -> anyhow::Result<ExitCode> {
         check_config_resolution(&paths.config_path),
         check_claude_jsonl_discoverable(&cwd),
         check_watcher_smoke(),
+        check_dropped_events(&store),
     ];
     let any_failed = checks.iter().any(|c| !c.passed);
 
@@ -500,6 +503,57 @@ fn check_data_dir_writable(data_dir: &std::path::Path) -> DoctorCheck {
             ),
         ),
     }
+}
+
+/// How many recent sessions the dropped-events doctor check inspects.
+const DOCTOR_RECENT_SESSIONS: u32 = 20;
+
+/// Check: dropped events in the most recent sessions. A recorder that failed
+/// to write events (disk full, I/O error, a closed writer) marks the session
+/// degraded and persists the count; this surfaces the per-session counts so a
+/// gap in a timeline is explained, with the first cause and a fix.
+fn check_dropped_events(store: &Store) -> DoctorCheck {
+    const NAME: &str = "dropped events";
+    let recent = match store.recent_dropped_events(DOCTOR_RECENT_SESSIONS) {
+        Ok(r) => r,
+        Err(e) => {
+            return DoctorCheck::fail(NAME, format!("could not read recent sessions: {e}"));
+        }
+    };
+    dropped_events_check(&recent)
+}
+
+/// Pure half of [`check_dropped_events`], for snapshot testing.
+fn dropped_events_check(recent: &[(String, hh_core::DroppedEvents)]) -> DoctorCheck {
+    const NAME: &str = "dropped events";
+    let affected: Vec<&(String, hh_core::DroppedEvents)> =
+        recent.iter().filter(|(_, d)| d.any()).collect();
+    if affected.is_empty() {
+        return DoctorCheck::pass(
+            NAME,
+            format!("0 dropped events in the last {} session(s)", recent.len()),
+        );
+    }
+    let total: u64 = affected.iter().map(|(_, d)| d.count).sum();
+    let per_session: Vec<String> = affected
+        .iter()
+        .map(|(sid, d)| format!("{sid}: {}", d.count))
+        .collect();
+    let cause = affected
+        .iter()
+        .rev() // oldest affected session first: its cause is the original one
+        .find_map(|(_, d)| d.first_error.as_deref())
+        .unwrap_or("unknown");
+    DoctorCheck::fail(
+        NAME,
+        format!(
+            "{total} event(s) dropped across {n} of the last {m} session(s) ({list}); \
+             first cause: {cause} — check free disk space and permissions on the data dir",
+            n = affected.len(),
+            m = recent.len(),
+            list = per_session.join(", "),
+        ),
+    )
 }
 
 /// Check 2: SQLite integrity via `PRAGMA integrity_check` (read-only probe).
@@ -827,19 +881,14 @@ fn render_stats_plain(
 /// claude-code session recorded 0 steps over a nontrivial duration, the symptom
 /// of a broken adapter (the tailer never found a transcript).
 fn print_epilogue(outcome: &hh_record::RunOutcome) {
-    let color = render::use_color();
-    let check = if color {
-        "✓".green().to_string()
-    } else {
-        "✓".to_string()
-    };
-    println!(
-        "{check} Recorded session {sid} · {dur} · {steps} steps · {files} files changed · hh replay {sid}",
-        sid = outcome.short_id,
-        dur = render::humanize_ms(outcome.duration_ms),
-        steps = outcome.steps,
-        files = outcome.files_changed,
-    );
+    println!("{}", format_epilogue_line(outcome, render::use_color()));
+
+    // Dropped events: the recorder already printed one warning line when the
+    // first write failed; repeat the total here, after the terminal is
+    // restored, where it cannot be buried by the agent's TUI.
+    if let Some(warning) = dropped_events_warning(outcome) {
+        eprintln!("{warning}");
+    }
 
     // Adapter degradation: surface the carried reason on stderr (FR-1.5).
     if outcome.adapter_status == AdapterStatus::Degraded {
@@ -873,6 +922,53 @@ fn print_epilogue(outcome: &hh_record::RunOutcome) {
             render::humanize_ms(outcome.duration_ms)
         );
     }
+}
+
+/// The epilogue's stdout line (FR-1.6). A session that dropped events is never
+/// reported clean: the glyph becomes a yellow `⚠` and the line carries the
+/// dropped count. Pure (no I/O) so a snapshot can lock it.
+fn format_epilogue_line(outcome: &hh_record::RunOutcome, color: bool) -> String {
+    let dropped = outcome.dropped.count;
+    let glyph = match (dropped > 0, color) {
+        (true, true) => "⚠".yellow().to_string(),
+        (true, false) => "⚠".to_string(),
+        (false, true) => "✓".green().to_string(),
+        (false, false) => "✓".to_string(),
+    };
+    let dropped_part = if dropped > 0 {
+        format!(
+            " · {dropped} event{s} dropped",
+            s = if dropped == 1 { "" } else { "s" }
+        )
+    } else {
+        String::new()
+    };
+    format!(
+        "{glyph} Recorded session {sid} · {dur} · {steps} steps · {files} files changed{dropped_part} · hh replay {sid}",
+        sid = outcome.short_id,
+        dur = render::humanize_ms(outcome.duration_ms),
+        steps = outcome.steps,
+        files = outcome.files_changed,
+    )
+}
+
+/// The end-of-run stderr line for a session that dropped events: how many,
+/// the first cause, and what to do. `None` for a clean session.
+fn dropped_events_warning(outcome: &hh_record::RunOutcome) -> Option<String> {
+    let d = &outcome.dropped;
+    if !d.any() {
+        return None;
+    }
+    Some(format!(
+        "hh: warning: {n} event{s} could not be written and {verb} missing from session {sid} \
+         (first failure: {cause}) — the session is marked degraded; check free disk space \
+         and permissions on the data dir, then run `hh doctor`",
+        n = d.count,
+        s = if d.count == 1 { "" } else { "s" },
+        verb = if d.count == 1 { "is" } else { "are" },
+        sid = outcome.short_id,
+        cause = d.first_error.as_deref().unwrap_or("unknown"),
+    ))
 }
 
 /// `hh list` (FR-5.1): list recorded sessions newest-first as an aligned table
@@ -973,8 +1069,9 @@ fn confirm_delete(session: &hh_core::SessionRow) -> anyhow::Result<()> {
 /// `NO_COLOR` and non-TTY output (plain, pipe-safe per CLAUDE.md): one accent
 /// color (green) on the id; the STATUS column carries a colored glyph per
 /// state (ok=green ✓, error=red ✗, interrupted=yellow ●, recording=cyan ●) plus
-/// a `⚠` marker when the adapter ended degraded, via the shared
-/// [`render::render_status_with_adapter`] so `hh list` and `hh inspect` speak
+/// a `⚠` marker when the session is degraded (adapter degraded or events
+/// dropped), via the shared [`render::render_status_marked`] so `hh list` and
+/// `hh inspect` speak
 /// the same visual language.
 fn print_session_table(rows: &[hh_core::SessionRow]) {
     if rows.is_empty() {
@@ -992,10 +1089,10 @@ fn print_session_table(rows: &[hh_core::SessionRow]) {
 /// present) without depending on a TTY or wall-clock.
 fn format_session_table(rows: &[hh_core::SessionRow], color: bool, now: i64) -> String {
     // Build cell strings, then column-align by *visible* width. Status carries
-    // a glyph (+ ⚠ when the adapter degraded, so the row is visibly not clean).
+    // a glyph (+ ⚠ when the session is degraded, so the row is visibly not clean).
     let mut lines: Vec<Line> = Vec::with_capacity(rows.len());
     for r in rows {
-        let status = render::render_status_with_adapter(r.status, r.adapter_status, color);
+        let status = render::render_status_marked(r.status, render::session_is_degraded(r), color);
         let id_field = r.short_id.clone();
         let id = if color {
             id_field.green().to_string()
@@ -1126,6 +1223,8 @@ fn session_to_json(r: &hh_core::SessionRow) -> serde_json::Value {
         "agent_kind": r.agent_kind.to_string(),
         "adapter_status": r.adapter_status.to_string(),
         "adapter_degrade_reason": r.adapter_degrade_reason,
+        "dropped_events": r.dropped_events,
+        "dropped_events_reason": r.dropped_events_reason,
         "started_at": r.started_at,
         "ended_at": r.ended_at,
         "exit_code": r.exit_code,
@@ -1354,6 +1453,114 @@ mod tests {
         assert_eq!(doctor_check_to_json(&pass)["status"], "ok");
         assert_eq!(doctor_check_to_json(&fail)["status"], "fail");
         assert_eq!(doctor_check_to_json(&fail)["name"], "database integrity");
+    }
+
+    fn outcome(dropped: hh_core::DroppedEvents) -> hh_record::RunOutcome {
+        hh_record::RunOutcome {
+            session_id: "00000000-0000-7000-8000-a1b2c3".into(),
+            short_id: "a1b2c3".into(),
+            exit_code: Some(0),
+            duration_ms: 272_000,
+            event_count: 120,
+            steps: 42,
+            files_changed: 7,
+            status: "ok",
+            agent_kind: AgentKind::Generic,
+            adapter_status: AdapterStatus::None,
+            degrade_reason: None,
+            dropped,
+        }
+    }
+
+    /// A clean session's epilogue is unchanged: `✓`, no dropped count, and no
+    /// stderr warning.
+    #[test]
+    fn epilogue_clean_session_has_no_dropped_marker() {
+        let o = outcome(hh_core::DroppedEvents::default());
+        let line = format_epilogue_line(&o, false);
+        assert_eq!(
+            line,
+            "✓ Recorded session a1b2c3 · 4m32s · 42 steps · 7 files changed · hh replay a1b2c3"
+        );
+        assert!(dropped_events_warning(&o).is_none());
+    }
+
+    /// A session that dropped events is never reported clean: the epilogue
+    /// swaps `✓` for `⚠`, reports the count, and stderr names the first cause.
+    #[test]
+    fn epilogue_reports_dropped_events() {
+        let o = outcome(hh_core::DroppedEvents {
+            count: 1312,
+            first_error: Some("insert terminal_output event: database or disk is full".into()),
+        });
+        let line = format_epilogue_line(&o, false);
+        let warning = dropped_events_warning(&o).unwrap();
+        insta::assert_snapshot!(format!("{line}\n{warning}"));
+        assert!(!line.contains('✓'));
+    }
+
+    /// `hh doctor`'s dropped-events check: passes with a count when recent
+    /// sessions are clean; fails listing each affected session otherwise.
+    #[test]
+    fn doctor_dropped_events_check() {
+        let clean = vec![
+            ("a1b2c3".to_string(), hh_core::DroppedEvents::default()),
+            ("d4e5f6".to_string(), hh_core::DroppedEvents::default()),
+        ];
+        let c = dropped_events_check(&clean);
+        assert!(c.passed);
+        assert_eq!(c.detail, "0 dropped events in the last 2 session(s)");
+
+        let mixed = vec![
+            (
+                "a1b2c3".to_string(),
+                hh_core::DroppedEvents {
+                    count: 3,
+                    first_error: Some("insert file_change event for a.txt: disk full".into()),
+                },
+            ),
+            ("d4e5f6".to_string(), hh_core::DroppedEvents::default()),
+            (
+                "0f9e8d".to_string(),
+                hh_core::DroppedEvents {
+                    count: 40,
+                    first_error: Some("insert terminal_output event: disk I/O error".into()),
+                },
+            ),
+        ];
+        let c = dropped_events_check(&mixed);
+        assert!(!c.passed);
+        insta::assert_snapshot!(render_doctor_plain(&[c], false));
+    }
+
+    /// `hh list` marks a session that dropped events with `⚠` (same marker as
+    /// adapter degradation) and `--json` carries the count and cause.
+    #[test]
+    fn list_marks_dropped_events_session_degraded() {
+        let clean = row("a1b2c3", SessionStatus::Ok, AdapterStatus::None, 4);
+        let mut dropped = row("d4e5f6", SessionStatus::Ok, AdapterStatus::None, 4);
+        dropped.dropped_events = 9;
+        dropped.dropped_events_reason = Some("insert terminal_output event: disk full".into());
+        let table =
+            format_session_table(&[clean.clone(), dropped.clone()], false, 1_782_052_810_000);
+        insta::assert_snapshot!(table);
+        let lines: Vec<&str> = table.lines().collect();
+        assert!(lines
+            .iter()
+            .any(|l| l.starts_with("d4e5f6") && l.contains("✓ ok ⚠")));
+        assert!(lines
+            .iter()
+            .any(|l| l.starts_with("a1b2c3") && !l.contains('⚠')));
+
+        let j = session_to_json(&dropped);
+        assert_eq!(j["dropped_events"], 9);
+        assert_eq!(
+            j["dropped_events_reason"],
+            "insert terminal_output event: disk full"
+        );
+        let j = session_to_json(&clean);
+        assert_eq!(j["dropped_events"], 0);
+        assert!(j["dropped_events_reason"].is_null());
     }
 
     /// `hh gc` plain output: a pruned line + a vacuum line (color=false for a
