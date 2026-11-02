@@ -21,6 +21,11 @@ path = "src/lib.rs"
 # See hh-core's `fuzzing` feature; same rationale, for the MCP proxy's
 # line-classification logic.
 fuzzing = ["hh-core/fuzzing"]
+# Test-only fault injection for end-to-end tests of the `hh` binary (see
+# `watcher::forced_unwatchable`). Enabled only by `hh`'s dev-dependency, so it
+# is compiled into the binary `cargo test` runs and never into a release or
+# `cargo install` build. Not a stable interface.
+test-seams = []
 
 [dependencies]
 hh-core = { workspace = true }

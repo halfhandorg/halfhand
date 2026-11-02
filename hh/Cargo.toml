@@ -66,3 +66,8 @@ rusqlite = { version = "0.31", features = ["bundled"] }
 # (FR-4; CLAUDE.md testing standards: "Snapshot tests with insta for rendered
 # output"). Dual Apache-2.0/MIT, already in the workspace via hh-core.
 insta = "1"
+# Justification: no new crate — re-lists the workspace's own hh-record with the
+# `test-seams` feature so `tests/cli.rs` can make the cwd unwatchable for any
+# uid on any OS (the old chmod trick does not stop root). Dev-only: release
+# and `cargo install` builds never enable it.
+hh-record = { workspace = true, features = ["test-seams"] }

@@ -67,20 +67,6 @@ doc = false
 bench = false
 
 [[bin]]
-name = "codex_jsonl"
-path = "fuzz_targets/codex_jsonl.rs"
-test = false
-doc = false
-bench = false
-
-[[bin]]
-name = "gemini_jsonl"
-path = "fuzz_targets/gemini_jsonl.rs"
-test = false
-doc = false
-bench = false
-
-[[bin]]
 name = "claude_desktop_jsonl"
 path = "fuzz_targets/claude_desktop_jsonl.rs"
 test = false

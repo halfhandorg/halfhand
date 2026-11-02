@@ -81,11 +81,16 @@ pub enum AgentKind {
     Generic,
     /// Standalone `hh mcp-proxy` session (FR-2.2).
     McpOnly,
-    /// Claude Desktop app (structured adapter active).
+    /// Claude Desktop app's Code tab (Claude Code parser; deprecated adapter,
+    /// see `docs/adapters.md`).
     ClaudeDesktop,
-    /// OpenAI Codex CLI (structured adapter active).
+    /// OpenAI Codex CLI. Terminal output and file changes only: the Codex
+    /// adapter never converted a transcript into structured events and is
+    /// deprecated (see `docs/adapters.md`).
     CodexCli,
-    /// Google Gemini CLI (structured adapter active).
+    /// Google Gemini CLI. Terminal output and file changes only: the Gemini
+    /// adapter never converted a transcript into structured events and is
+    /// deprecated (see `docs/adapters.md`).
     GeminiCli,
 }
 

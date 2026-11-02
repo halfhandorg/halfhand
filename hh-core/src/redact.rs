@@ -383,8 +383,7 @@ fn resolve_overlaps(mut findings: Vec<Finding>) -> Vec<Finding> {
     });
     let mut out: Vec<Finding> = Vec::with_capacity(findings.len());
     for f in findings {
-        // MSRV 1.75: `Option::is_none_or` is not available yet.
-        if out.last().map_or(true, |last| f.start >= last.end) {
+        if out.last().is_none_or(|last| f.start >= last.end) {
             out.push(f);
         }
     }
