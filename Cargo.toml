@@ -5,7 +5,11 @@ members = ["hh-core", "hh-record", "hh", "hh-dist"]
 [workspace.package]
 version = "1.1.0"
 edition = "2021"
-rust-version = "1.75"
+# MSRV: the oldest toolchain that builds the committed Cargo.lock (verified:
+# 1.87 cannot — `time` 0.3.53 needs let-chains, stable in 1.88). CI's `msrv`
+# job installs exactly this version and runs `cargo check --workspace
+# --locked`. Raising it is a minor-version change (STABILITY.md (d)).
+rust-version = "1.88"
 license = "Apache-2.0"
 authors = ["Saadman Rafat"]
 repository = "https://github.com/halfhandorg/halfhand"

@@ -82,11 +82,19 @@ until `1.0.0` ships (see `README.md`).
 
 ## (d) MSRV
 
-- The minimum supported Rust version is stated once, in the workspace
-  `Cargo.toml` (`rust-version.workspace = true` in `hh-core`/`hh-record`/
-  `hh`; currently `1.75`).
-- An MSRV bump only happens in a **minor** release, never a patch release,
-  and is called out in `CHANGELOG.md`.
+- The minimum supported Rust version is **1.88**. It is stated once, in the
+  workspace `Cargo.toml` (`rust-version`; the crates inherit it with
+  `rust-version.workspace = true`), and every other document repeats that
+  number.
+- It is the real floor, not an aspiration: the oldest toolchain that builds
+  the committed `Cargo.lock`. CI's `msrv` job installs exactly the declared
+  version and runs `cargo check --workspace --locked`, so a dependency
+  update that needs a newer compiler fails CI instead of silently raising
+  the MSRV.
+- **Raising the MSRV is a minor-version change.** It only happens in a
+  **minor** release, never a patch release, and is called out in
+  `CHANGELOG.md`. A dependency update that would raise it is held back (or
+  pinned with `cargo update --precise`) until a minor release.
 
 ## (e) `hh-core` semver policy
 
