@@ -2,17 +2,25 @@
 source: hh/tests/cli_conformance.rs
 expression: "String::from_utf8_lossy(&out.stdout)"
 ---
-Run an MCP server behind a recording stdio proxy (SRS FR-2)
+Advanced: run an MCP server behind a recording stdio proxy.
+
+Use it in an agent's MCP server configuration in place of the server command, to record the JSON-RPC traffic between the agent and that server.
 
 Usage: hh mcp-proxy [OPTIONS] -- <COMMAND>...
 
 Arguments:
-  <COMMAND>...  The MCP server command and its arguments, after `--`
+  <COMMAND>...
+          The MCP server command and its arguments, after `--`
 
 Options:
-      --session-hint <SESSION_HINT>  A human-readable hint for a standalone mcp-only session. Accepted for forward compatibility but not yet persisted anywhere (no session-name column exists today) — it has no visible effect. See docs/mcp-proxy.md
-  -h, --help                         Print help
+      --session-hint <SESSION_HINT>
+          A human-readable hint for a standalone mcp-only session. Accepted for forward compatibility but not yet persisted anywhere (no session-name column exists today) — it has no visible effect
 
-Example:
-  hh mcp-proxy -- uvx my-mcp-server
-  hh mcp-proxy --session-hint api-server -- node server.js
+  -h, --help
+          Print help (see a summary with '-h')
+
+Examples:
+  hh mcp-proxy -- uvx my-mcp-server                         record a server's stdio traffic
+  hh mcp-proxy --session-hint api-server -- node server.js  same, with a session hint
+
+Docs: https://halfhand.org/docs/mcp-proxy/

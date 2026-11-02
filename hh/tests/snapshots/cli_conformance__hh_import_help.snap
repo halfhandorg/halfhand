@@ -17,4 +17,4 @@ Options:
           Print help (see a summary with '-h')
 
 Example:
-  hh import session.hh
+  hh import session.hh  import a bundle as a new session

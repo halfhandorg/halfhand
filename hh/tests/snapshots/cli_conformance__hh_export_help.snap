@@ -28,8 +28,8 @@ Options:
   -h, --help
           Print help (see a summary with '-h')
 
-Example:
-  hh export last --out session.json
-  hh export last --bundle -o session.hh
-  hh export a1b2c3 --html --out session.html
-  hh export last | jq .session
+Examples:
+  hh export last --out session.json           redacted JSON bundle to a file
+  hh export last --bundle -o session.hh       portable archive for `hh import`
+  hh export a1b2c3 --html --out session.html  self-contained HTML replay page
+  hh export last | jq .session                JSON bundle to stdout

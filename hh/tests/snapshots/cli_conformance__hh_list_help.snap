@@ -2,7 +2,7 @@
 source: hh/tests/cli_conformance.rs
 expression: "String::from_utf8_lossy(&out.stdout)"
 ---
-List recorded sessions, newest first (SRS FR-5)
+List recorded sessions, newest first
 
 Usage: hh list [OPTIONS]
 
@@ -11,7 +11,7 @@ Options:
       --json           Emit JSON instead of a table
   -h, --help           Print help
 
-Example:
-  hh list
-  hh list --limit 50
-  hh list --json
+Examples:
+  hh list             the 20 most recent sessions
+  hh list --limit 50  the 50 most recent sessions
+  hh list --json      machine-readable output
