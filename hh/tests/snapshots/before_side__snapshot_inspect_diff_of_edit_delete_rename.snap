@@ -1,0 +1,26 @@
+---
+source: hh/tests/before_side.rs
+expression: rendered
+---
+diff -- a/del.txt b/del.txt
+--- a/del.txt
++++ /dev/null
+-doomed line one
+-doomed line two
+
+diff -- a/f.txt b/f.txt
+--- a/f.txt
++++ b/f.txt
+@@ -4,7 +4,7 @@
+ line 4
+ line 5
+ line 6
+-line 7
++line SEVEN
+ line 8
+ line 9
+ line 10
+
+diff -- a/old.txt b/new.txt
+rename from old.txt
+rename to new.txt

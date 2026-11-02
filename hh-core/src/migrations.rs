@@ -11,7 +11,7 @@
 //! STABILITY.md's policy instead.
 
 /// The highest migration version applied by a fresh [`crate::store::Store::open`].
-pub const LATEST_VERSION: i64 = 5;
+pub const LATEST_VERSION: i64 = 6;
 
 /// The ordered migration set: `(version, DDL)`. Applied in ascending order;
 /// each is run only when the DB's recorded `schema_migrations.version` is below
@@ -24,6 +24,12 @@ pub const LATEST_VERSION: i64 = 5;
 /// no `ALTER TABLE ADD COLUMN IF NOT EXISTS`), then runs this DDL. Both halves
 /// are idempotent (DR-4): re-opening a v1.1.0 DB no-ops the column check and
 /// the `DROP TABLE IF EXISTS` / `CREATE ... IF NOT EXISTS` statements.
+///
+/// Migration 0006 follows the same pattern: `Store::open` adds
+/// `file_changes.before_source` and `file_changes.renamed_from` behind a
+/// `PRAGMA table_info` check after the migration runner has applied the DDL
+/// (an `IF NOT EXISTS` index on `before_hash`, which does not reference the
+/// new columns).
 pub const MIGRATIONS: &[(i64, &str)] = &[
     (1, include_str!("migrations/0001_initial.sql")),
     (2, include_str!("migrations/0002_events_heal_index.sql")),
@@ -32,6 +38,10 @@ pub const MIGRATIONS: &[(i64, &str)] = &[
     (
         5,
         include_str!("migrations/0005_v1_1_0_degrade_and_fts.sql"),
+    ),
+    (
+        6,
+        include_str!("migrations/0006_file_change_before_source.sql"),
     ),
 ];
 

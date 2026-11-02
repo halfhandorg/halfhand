@@ -18,9 +18,32 @@
 //! roadmap refinement. See the decisions summary.
 //!
 //! A one-time recursive scan of `cwd` runs before the event loop starts, to
-//! give [`resolve_first_seen`] a baseline of pre-existing files — see its
-//! docs for why (a macOS FSEvents quirk misreports edits to pre-existing
-//! files as creations otherwise).
+//! build the session-start baseline ([`scan_baseline`]). It serves two
+//! purposes: [`resolve_first_seen`] uses the set of pre-existing paths to
+//! correct a macOS FSEvents quirk (edits to pre-existing files misreported as
+//! creations), and [`Tracker`] uses each file's captured content — or, for a
+//! file clean against the git index, its index blob id — as the before-side
+//! of the file's first change. Without it, the first change to any file that
+//! predates the session had no before-side and rendered as all-added lines,
+//! and a delete rendered as "content not captured".
+//!
+//! # Where the before-side comes from
+//!
+//! In order: the watcher's own previous capture of the path (`live`); the
+//! git index blob for a file that was clean against the index at session
+//! start (`git`); the content captured at session start for a dirty,
+//! untracked or non-git file (`baseline`); otherwise nothing (`none`). Never
+//! `HEAD`, and never the index for a dirty file — that would attribute the
+//! developer's own uncommitted edits to the agent. The provenance is stored in
+//! `file_changes.before_source` (migration 0006).
+//!
+//! # Renames
+//!
+//! A rename is recorded as one `file_changes` row on the new path with
+//! `renamed_from` set to the old one. The two halves are paired from the
+//! backend's own rename pairing when it has one (`RenameMode::Both` on
+//! inotify/Windows), else by byte-identical content within one flush batch
+//! (FSEvents reports each half separately). See [`record_changes`].
 
 use std::collections::{HashMap, HashSet};
 use std::io::Read;
@@ -31,7 +54,9 @@ use std::thread::JoinHandle;
 use std::time::{Duration, Instant};
 
 use hh_core::blob::BlobStore;
-use hh_core::event::{ChangeKind, Event, EventKind, FileChange};
+use hh_core::event::{
+    BeforeSource, ChangeKind, Event, EventKind, FileChange, FileChangeProvenance,
+};
 use hh_core::store::EventWriter;
 use ignore::gitignore::{Gitignore, GitignoreBuilder};
 use notify::{RecommendedWatcher, RecursiveMode, Watcher};
@@ -144,6 +169,10 @@ pub struct WatchOptions {
     /// blobs when the agent records into its own data dir). Matched by
     /// prefix so a whole tree can be excluded.
     pub internal_exclude: Vec<PathBuf>,
+    /// Total bytes of pre-existing file content held at session start as
+    /// before-sides (`[record] baseline_budget`). Git-clean files do not
+    /// count against it. See [`hh_core::DEFAULT_BASELINE_BUDGET`].
+    pub baseline_budget: u64,
 }
 
 /// A handle to the running watcher thread.
@@ -251,16 +280,17 @@ pub fn spawn_watcher(
     // worker thread instead left a window (wide in tests, narrow in prod)
     // where a write that raced ahead of the scan was folded into the baseline
     // and dropped — the macOS-CI `events seen: []` flake. The scan is
-    // best-effort (unreadable files/dirs are skipped); see [`scan_baseline_hashes`].
-    let mut existing: HashMap<PathBuf, String> = HashMap::new();
-    scan_baseline_hashes(
-        &opts.cwd,
-        &opts.cwd,
-        &matcher,
-        &opts.internal_exclude,
-        &opts,
-        &mut existing,
-    );
+    // best-effort (unreadable files/dirs are skipped); see [`scan_baseline`].
+    //
+    // The baseline holds each pre-existing file's real before-side — its
+    // content, or for a file clean against the git index, the index blob id —
+    // so the first change to a file that predates the session diffs against
+    // what was actually there, instead of rendering as "all added".
+    let (existing, baseline) = scan_baseline(&opts, &matcher);
+    let tracker = Tracker {
+        known: HashMap::new(),
+        baseline,
+    };
 
     let stop_for_thread = Arc::clone(&stop);
     let thread = std::thread::Builder::new()
@@ -277,6 +307,7 @@ pub fn spawn_watcher(
                 start,
                 stop_for_thread,
                 existing,
+                tracker,
             );
         })
         .map_err(|e| crate::RecordError::Pty(format!("spawn watcher thread: {e}")))?;
@@ -443,6 +474,234 @@ fn build_matcher(cwd: &Path, extra_ignore: &[String]) -> std::result::Result<Git
     builder.build().map_err(|e| format!("build gitignore: {e}"))
 }
 
+/// What the watcher last recorded for a path during this session — the
+/// before-side of that path's next change ([`BeforeSource::Live`]).
+#[derive(Debug, Clone)]
+struct Known {
+    /// The hash the recorded after-side references: the stored blob's hash,
+    /// or the disk-content hash of an unstored binary file (identity only).
+    hash: String,
+    /// BLAKE3 of the on-disk bytes, compared by rename pairing and by the
+    /// shutdown backstop (differs from `hash` under record-time redaction).
+    raw: String,
+    /// Whether the recorded content was detected as binary.
+    binary: bool,
+}
+
+/// One pre-existing file's session-start state, held until the first change
+/// to the path consumes it as that change's before-side (see
+/// [`Tracker::take_before`]).
+#[derive(Debug, Clone)]
+struct BaselineEntry {
+    /// BLAKE3 of the content at session start.
+    raw: String,
+    /// Whether that content was detected as binary.
+    binary: bool,
+    /// Where the before-side content will be read from.
+    content: BaselineContent,
+}
+
+/// Where a baseline file's before-side content comes from.
+#[derive(Debug, Clone)]
+enum BaselineContent {
+    /// Clean against the git index at session start: read the index blob
+    /// (`oid`) on demand. Nothing is copied unless the file changes.
+    Git(String),
+    /// Dirty, untracked, or outside a git repository: the bytes, captured at
+    /// session start and written to the blob store on first change.
+    Held(Vec<u8>),
+    /// Not captured: binary with `record_binary` off, or over the baseline
+    /// budget. The first change records no before-side.
+    Unstored,
+}
+
+/// Per-session before-side bookkeeping: the live map of what the watcher has
+/// recorded, plus the session-start baseline of everything that existed
+/// before. Owned by the watcher thread (never shared).
+#[derive(Debug, Default)]
+struct Tracker {
+    /// path → last recorded state ([`BeforeSource::Live`] before-sides).
+    known: HashMap<PathBuf, Known>,
+    /// path → session-start state, consumed by the path's first change.
+    baseline: HashMap<PathBuf, BaselineEntry>,
+}
+
+/// A resolved before-side, ready to attach to a `file_changes` row.
+#[derive(Debug)]
+struct Before {
+    hash: Option<String>,
+    source: BeforeSource,
+    /// Uncompressed size of a blob the row owns (git / baseline).
+    size: Option<u64>,
+    binary: bool,
+}
+
+impl Before {
+    fn none() -> Self {
+        Self {
+            hash: None,
+            source: BeforeSource::None,
+            size: None,
+            binary: false,
+        }
+    }
+}
+
+impl Tracker {
+    /// Whether anything is known about `path`'s previous content (recorded
+    /// live, or present at session start and not yet consumed).
+    fn has_prior(&self, path: &Path) -> bool {
+        self.known.contains_key(path) || self.baseline.contains_key(path)
+    }
+
+    /// BLAKE3 of `path`'s previous on-disk content, if known.
+    fn prior_raw(&self, path: &Path) -> Option<&str> {
+        self.known
+            .get(path)
+            .map(|k| k.raw.as_str())
+            .or_else(|| self.baseline.get(path).map(|b| b.raw.as_str()))
+    }
+
+    /// Resolve and consume the before-side of a change to `path`.
+    ///
+    /// 1. Recorded earlier this session → that after-side ([`BeforeSource::Live`]).
+    /// 2. Present at session start → the baseline, consumed here. A git-clean
+    ///    file's index blob is read through `git cat-file --filters` and kept
+    ///    only if it hashes to the session-start content (so a filter or
+    ///    stat-cache surprise can never surface the wrong text); held bytes
+    ///    are written as-is. Either way the content goes through the
+    ///    recorder's blob store — redacting when `[redaction] at_record` is
+    ///    on — and the row will own one reference on it.
+    /// 3. Otherwise there is no before-side ([`BeforeSource::None`]).
+    fn take_before(&mut self, path: &Path, sink: &Sink<'_>) -> Before {
+        if let Some(k) = self.known.remove(path) {
+            return Before {
+                hash: Some(k.hash),
+                source: BeforeSource::Live,
+                size: None,
+                binary: k.binary,
+            };
+        }
+        let Some(entry) = self.baseline.remove(path) else {
+            return Before::none();
+        };
+        let content = match entry.content {
+            BaselineContent::Held(bytes) => Some((bytes, BeforeSource::Baseline)),
+            BaselineContent::Git(oid) => path
+                .strip_prefix(&sink.opts.cwd)
+                .ok()
+                .and_then(|rel| crate::git::read_blob(&sink.opts.cwd, &oid, rel))
+                .filter(|bytes| BlobStore::hash(bytes) == entry.raw)
+                .map(|bytes| (bytes, BeforeSource::Git)),
+            BaselineContent::Unstored => None,
+        };
+        let Some((bytes, source)) = content else {
+            return Before {
+                binary: entry.binary,
+                ..Before::none()
+            };
+        };
+        match sink.blobs.put(&bytes) {
+            Ok(out) => Before {
+                hash: Some(out.hash),
+                source,
+                size: Some(out.size),
+                binary: entry.binary,
+            },
+            Err(e) => {
+                eprintln!(
+                    "hh: warning: could not store the previous content of {} ({e}); \
+                     its diff will show no removed lines",
+                    path.display()
+                );
+                Before {
+                    binary: entry.binary,
+                    ..Before::none()
+                }
+            }
+        }
+    }
+}
+
+/// Everything a capture needs to write an event: options, the shared writer
+/// and blob store, and the session clock.
+struct Sink<'a> {
+    opts: &'a WatchOptions,
+    writer: &'a Arc<Mutex<EventWriter>>,
+    blobs: &'a Arc<BlobStore>,
+    session_id: &'a str,
+    start: Instant,
+}
+
+/// Scan `cwd` once at session start (on the caller's thread, see
+/// [`spawn_watcher`]) and build both the set of pre-existing paths (for
+/// [`resolve_first_seen`]) and the [`Tracker`] baseline.
+///
+/// For each capturable file (not ignored, not excluded, ≤ `max_file_size`):
+/// - clean against the git index → [`BaselineContent::Git`] (no copy);
+/// - binary with `record_binary` off → [`BaselineContent::Unstored`], exactly
+///   as a live capture of it would store no content;
+/// - otherwise held in memory while `baseline_budget` lasts, else
+///   [`BaselineContent::Unstored`] with one stderr note for the session.
+///
+/// Nothing is written to the blob store here: content reaches it only when
+/// the file actually changes, so an unchanged file never leaves an orphan
+/// blob for `hh gc` to reclaim (or race with a live recording over).
+fn scan_baseline(
+    opts: &WatchOptions,
+    matcher: &Gitignore,
+) -> (HashSet<PathBuf>, HashMap<PathBuf, BaselineEntry>) {
+    let git_clean = crate::git::index_clean_blobs(&opts.cwd).unwrap_or_default();
+    let mut files: HashSet<PathBuf> = HashSet::new();
+    scan_existing_files(
+        &opts.cwd,
+        &opts.cwd,
+        matcher,
+        &opts.internal_exclude,
+        &mut files,
+    );
+    let mut baseline = HashMap::new();
+    let mut held: u64 = 0;
+    let mut over_budget = 0usize;
+    for path in &files {
+        // Skip what the watcher would never capture, or that raced away.
+        let Some((content, raw)) = read_if_capturable(path, opts) else {
+            continue;
+        };
+        let binary = is_binary(&content);
+        let len = u64::try_from(content.len()).unwrap_or(u64::MAX);
+        let source = if binary && !opts.record_binary {
+            BaselineContent::Unstored
+        } else if let Some(oid) = git_clean.get(path) {
+            BaselineContent::Git(oid.clone())
+        } else if held.saturating_add(len) <= opts.baseline_budget {
+            held += len;
+            BaselineContent::Held(content)
+        } else {
+            over_budget += 1;
+            BaselineContent::Unstored
+        };
+        baseline.insert(
+            path.clone(),
+            BaselineEntry {
+                raw,
+                binary,
+                content: source,
+            },
+        );
+    }
+    if over_budget > 0 {
+        eprintln!(
+            "hh: note: {over_budget} pre-existing file(s) exceed the baseline budget \
+             ({} bytes); their first change will be recorded without the previous \
+             content (raise `[record] baseline_budget` or commit/stash first — \
+             see docs/recording.md)",
+            opts.baseline_budget
+        );
+    }
+    (files, baseline)
+}
+
 /// The watcher event loop, run on the worker thread. Events are not processed
 /// immediately: each capturable path enters a [`pending`] map keyed by absolute
 /// path, and is processed only after its debounce window elapses with no
@@ -462,20 +721,28 @@ fn run_loop(
     session_id: String,
     start: Instant,
     stop: Arc<AtomicBool>,
-    // Baseline of files (path → startup content hash) that existed under `cwd`
-    // before the watch started observing, captured synchronously in
-    // [`spawn_watcher`] on the caller's thread *before* the worker is spawned
-    // — so anything written after `spawn_watcher` returns is post-baseline and
-    // never misclassified as a pre-existing file. See [`spawn_watcher`] and
-    // [`rescan_for_missed_changes`] for how this baseline is used (spurious-
-    // create correction + missed-modify detection). The baseline content is
-    // NOT stored as a blob (no refcount for `before_hash`); only its hash is
-    // kept, so a backstopped modify renders with a missing before-side ("all
-    // added") — the original was overwritten before we observed it.
-    mut existing: HashMap<PathBuf, String>,
+    // Paths that existed under `cwd` before the watch started observing,
+    // captured synchronously in [`spawn_watcher`] on the caller's thread
+    // *before* the worker is spawned — so anything written after
+    // `spawn_watcher` returns is never misclassified as pre-existing. Used by
+    // [`resolve_first_seen`] for the FSEvents spurious-create correction.
+    mut existing: HashSet<PathBuf>,
+    // The before-side state: starts with the session-start baseline (real
+    // content, or a git index blob id, per file) and accumulates what the
+    // watcher records. See [`Tracker::take_before`].
+    mut tracker: Tracker,
 ) {
-    let mut known: HashMap<PathBuf, String> = HashMap::new();
+    let sink = Sink {
+        opts: &opts,
+        writer: &writer,
+        blobs: &blobs,
+        session_id: &session_id,
+        start,
+    };
     let mut pending: HashMap<PathBuf, Pending> = HashMap::new();
+    // Rename hints from backends that pair the two halves of a rename
+    // (`RenameMode::Both`: inotify, Windows): new path → old path.
+    let mut renames: HashMap<PathBuf, PathBuf> = HashMap::new();
     while !stop.load(Ordering::Acquire) {
         // Panic-hygiene test hook (never compiled outside `cfg(test)`): lets a
         // test flip a flag and observe that a real panic on this thread is
@@ -487,21 +754,20 @@ fn run_loop(
             "hh-record test: injected watcher panic"
         );
         match nrx.recv_timeout(POLL_INTERVAL) {
-            Ok(Ok(event)) => fold_event(&event, &matcher, &opts, &mut existing, &mut pending),
+            Ok(Ok(event)) => fold_event(
+                &event,
+                &matcher,
+                &opts,
+                &mut existing,
+                &mut pending,
+                &mut renames,
+            ),
             Ok(Err(e)) => eprintln!("hh: warning: fs watcher error: {e}"),
             Err(std::sync::mpsc::RecvTimeoutError::Timeout) => {}
             Err(std::sync::mpsc::RecvTimeoutError::Disconnected) => break,
         }
         // Flush any pending changes whose debounce window has elapsed.
-        flush_due(
-            &mut pending,
-            &opts,
-            &writer,
-            &blobs,
-            &session_id,
-            start,
-            &mut known,
-        );
+        flush_due(&mut pending, &mut renames, &sink, &mut tracker);
     }
     // --- Shutdown grace drain (FR-1.4 robustness) ------------------------
     // `stop` was signaled: the child has exited and the recorder is shutting
@@ -529,7 +795,14 @@ fn run_loop(
             cap_left
         };
         match nrx.recv_timeout(wait) {
-            Ok(Ok(event)) => fold_event(&event, &matcher, &opts, &mut existing, &mut pending),
+            Ok(Ok(event)) => fold_event(
+                &event,
+                &matcher,
+                &opts,
+                &mut existing,
+                &mut pending,
+                &mut renames,
+            ),
             Ok(Err(e)) => eprintln!("hh: warning: fs watcher error: {e}"),
             // Quiet for `wait` with no event, or channel closed → caught up.
             Err(
@@ -537,60 +810,48 @@ fn run_loop(
                 | std::sync::mpsc::RecvTimeoutError::Disconnected,
             ) => break,
         }
-        flush_due(
-            &mut pending,
-            &opts,
-            &writer,
-            &blobs,
-            &session_id,
-            start,
-            &mut known,
-        );
+        flush_due(&mut pending, &mut renames, &sink, &mut tracker);
     }
-    // Flush whatever is still pending so a write that landed inside the window
-    // just before shutdown is not lost.
-    flush_all(
-        &mut pending,
-        &opts,
-        &writer,
-        &blobs,
-        &session_id,
-        start,
-        &mut known,
-    );
-    // Deterministic backstop: re-walk cwd for any file the watcher never
+    // Flush whatever is still pending — as ONE batch, so the two halves of a
+    // rename are paired — so a write that landed inside the window just
+    // before shutdown is not lost.
+    let all: Vec<PathBuf> = pending.keys().cloned().collect();
+    flush_batch(all, &mut pending, &mut renames, &sink, &mut tracker);
+    // Deterministic backstop: re-walk cwd for any change the watcher never
     // observed (the grace drain only helps when an event is *late*; this
     // catches the case where the backend delivered *nothing* — e.g. macOS
-    // FSEvents on CI runners, observed flaky/absent). Files already in `known`
-    // (captured via the event path) or unchanged from the `existing` baseline
-    // are skipped, so this never duplicates a normal-path capture. A pre-
-    // existing file whose content hash differs from its baseline is recorded as
-    // a missed `Modified`.
-    rescan_for_missed_changes(
-        &opts,
-        &matcher,
-        &writer,
-        &blobs,
-        &session_id,
-        start,
-        &mut known,
-        &existing,
-    );
+    // FSEvents on CI runners, observed flaky/absent).
+    rescan_for_missed_changes(&matcher, &sink, &mut tracker);
     // Drop the watcher to release the inotify/fsevents handle.
     drop(watcher);
 }
 
 /// Fold a raw `notify` event into the debounced `pending` map: classify each
 /// path against the ignore matcher, drop spurious first-seen "creates" on
-/// pre-existing files, and coalesce. Shared by the live loop and the shutdown
-/// grace drain so the two stay in sync.
+/// pre-existing files, and coalesce. A paired rename (`RenameMode::Both`,
+/// whose `paths` are `[from, to]`) also leaves a hint in `renames` so the
+/// flush records one rename instead of a delete plus a create. Shared by the
+/// live loop and the shutdown grace drain so the two stay in sync.
 fn fold_event(
     event: &notify::Event,
     matcher: &Gitignore,
     opts: &WatchOptions,
-    existing: &mut HashMap<PathBuf, String>,
+    existing: &mut HashSet<PathBuf>,
     pending: &mut HashMap<PathBuf, Pending>,
+    renames: &mut HashMap<PathBuf, PathBuf>,
 ) {
+    if let notify::EventKind::Modify(notify::event::ModifyKind::Name(
+        notify::event::RenameMode::Both,
+    )) = event.kind
+    {
+        if let [from, to] = event.paths.as_slice() {
+            if classify(from, event.kind, matcher, opts).is_some()
+                && classify(to, event.kind, matcher, opts).is_some()
+            {
+                renames.insert(to.clone(), from.clone());
+            }
+        }
+    }
     for path in &event.paths {
         if let Some(kind) = classify(path, event.kind, matcher, opts) {
             let kind = resolve_first_seen(kind, path, existing);
@@ -607,37 +868,22 @@ fn fold_event(
 /// deliver events — notably macOS FSEvents, which is observed flaky/absent on
 /// GitHub's macOS runners (a quick-exiting agent can write a file and exit
 /// before `fseventsd` reports anything, and the grace drain only helps when
-/// the event is merely *late*, not *absent*). Without this backstop such a
-/// session finalizes with "0 file changes" and `hh inspect --diff` reports
-/// "no file changes in this session" despite files being written.
+/// the event is merely *late*, not *absent*). It also catches what no
+/// backend reports per file, such as the files inside a renamed directory.
 ///
-/// For each capturable file currently on disk:
-/// - in `known` → already recorded via the event path, skip (no duplicate);
-/// - in `existing` (present at baseline) → compare its current content hash
-///   to the baseline hash captured at startup. Unchanged → skip. Changed →
-///   record as a missed `Modified`, seeding `known[path] = baseline_hash` so
-///   [`process`] records `before = baseline`, `after = current`. The baseline
-///   blob was never stored (only its hash was kept), so the diff before-side
-///   is missing and the change renders as "all added" — the original content
-///   was overwritten before we observed it, so there is nothing to diff
-///   against. This is the one cosmetic gap of the hash-only baseline; it is
-///   documented and preferable to dropping the change entirely;
-/// - not in `known` and not in `existing` → created during the session with no
-///   event observed → record as `Created`.
+/// For each capturable file on disk now:
+/// - recorded this session ([`Tracker::known`]) → re-record as `Modified`
+///   only if its content changed after the last capture;
+/// - in the unconsumed baseline → `Modified` if its content differs from the
+///   session-start content, with that content as the before-side (it was
+///   captured at startup, so the diff is real, not "all added");
+/// - otherwise → `Created`.
 ///
-/// Files larger than `max_file_size` are never capturable, so they are skipped
-/// by the hash comparison (and [`process`] would skip them anyway).
-#[allow(clippy::too_many_arguments)] // recorder wiring threaded through to the writer
-fn rescan_for_missed_changes(
-    opts: &WatchOptions,
-    matcher: &Gitignore,
-    writer: &Arc<Mutex<EventWriter>>,
-    blobs: &Arc<BlobStore>,
-    session_id: &str,
-    start: Instant,
-    known: &mut HashMap<PathBuf, String>,
-    existing: &HashMap<PathBuf, String>,
-) {
+/// Every recorded or baseline path no longer on disk is a missed `Deleted`
+/// whose before-side is its last known content. Missed deletes and creates
+/// with identical content are paired into renames by [`record_changes`].
+fn rescan_for_missed_changes(matcher: &Gitignore, sink: &Sink<'_>, tracker: &mut Tracker) {
+    let opts = sink.opts;
     let mut current: HashSet<PathBuf> = HashSet::new();
     scan_existing_files(
         &opts.cwd,
@@ -646,73 +892,78 @@ fn rescan_for_missed_changes(
         &opts.internal_exclude,
         &mut current,
     );
-    for path in current {
-        if known.contains_key(&path) {
-            continue;
+    let mut items: Vec<(PathBuf, ChangeKind)> = Vec::new();
+    for path in &current {
+        match tracker.prior_raw(path).map(str::to_owned) {
+            Some(prior) => {
+                let Some((_, raw)) = read_if_capturable(path, opts) else {
+                    continue;
+                };
+                if raw != prior {
+                    items.push((path.clone(), ChangeKind::Modified));
+                }
+            }
+            None => items.push((path.clone(), ChangeKind::Created)),
         }
-        if let Some(baseline_hash) = existing.get(&path) {
-            // Baseline file: detect a missed modify by comparing the current
-            // content hash to the startup baseline hash. Unchanged → skip.
-            let Some(current_hash) = read_hash_if_capturable(&path, opts) else {
-                continue;
-            };
-            if current_hash == *baseline_hash {
-                continue;
-            }
-            // Modified during the session but the event was missed. Seed
-            // `known` with the baseline hash so `process` records
-            // `before = baseline`, `after = current`.
-            known.insert(path.clone(), baseline_hash.clone());
-            if let Err(e) = process(
-                &path,
-                ChangeKind::Modified,
-                opts,
-                writer,
-                blobs,
-                session_id,
-                start,
-                known,
-            ) {
-                eprintln!(
-                    "hh: warning: file change capture failed for {}: {e}",
-                    path.display()
-                );
-            }
-        } else {
-            // Not in the baseline and not already recorded → created during
-            // the session with no event observed.
-            if let Err(e) = process(
-                &path,
-                ChangeKind::Created,
-                opts,
-                writer,
-                blobs,
-                session_id,
-                start,
-                known,
-            ) {
-                eprintln!(
-                    "hh: warning: file change capture failed for {}: {e}",
-                    path.display()
-                );
-            }
+    }
+    for path in tracker.known.keys().chain(tracker.baseline.keys()) {
+        // `exists` re-checks against the filesystem: a directory the scan
+        // could not read must not turn its files into phantom deletes.
+        if !current.contains(path) && !path.exists() {
+            items.push((path.clone(), ChangeKind::Deleted));
         }
+    }
+    record_changes(items, &mut HashMap::new(), sink, tracker);
+}
+
+/// Read `path` and return its content and BLAKE3 hash, or `None` if it is not
+/// capturable (missing, not a regular file, larger than `max_file_size`, or
+/// unreadable).
+fn read_if_capturable(path: &Path, opts: &WatchOptions) -> Option<(Vec<u8>, String)> {
+    match observe(path, opts) {
+        Ok(Observed::Present(p)) => Some((p.content, p.raw)),
+        _ => None,
     }
 }
 
-/// Read `path` and return its BLAKE3 content hash, or `None` if it is not
-/// capturable (missing, larger than `max_file_size`, or unreadable). Used by
-/// the shutdown backstop to compare a baseline file's current content against
-/// its startup hash without storing a blob.
-fn read_hash_if_capturable(path: &Path, opts: &WatchOptions) -> Option<String> {
-    let meta = std::fs::metadata(path).ok()?;
-    if meta.len() > opts.max_file_size {
-        return None;
+/// A path's state at flush time.
+enum Observed {
+    /// The path does not exist.
+    Gone,
+    /// Not capturable: larger than `max_file_size`, or not a regular file.
+    Skip,
+    /// A capturable file and its current content.
+    Present(Present),
+}
+
+/// Stat and read `path` (FR-1.4 size limit applies). A vanished path is
+/// [`Observed::Gone`], not an error: the debounce window means a change is
+/// processed some time after it happened.
+fn observe(path: &Path, opts: &WatchOptions) -> std::result::Result<Observed, String> {
+    let meta = match std::fs::metadata(path) {
+        Ok(m) => m,
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => return Ok(Observed::Gone),
+        Err(e) => return Err(format!("stat {}: {e}", path.display())),
+    };
+    if !meta.is_file() || meta.len() > opts.max_file_size {
+        // FR-1.4: only capture files ≤ max_file_size.
+        return Ok(Observed::Skip);
     }
-    let mut f = std::fs::File::open(path).ok()?;
+    let mut f = match std::fs::File::open(path) {
+        Ok(f) => f,
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => return Ok(Observed::Gone),
+        Err(e) => return Err(format!("open {}: {e}", path.display())),
+    };
     let mut content = Vec::with_capacity(usize::try_from(meta.len()).unwrap_or(0));
-    f.read_to_end(&mut content).ok()?;
-    Some(BlobStore::hash(&content))
+    f.read_to_end(&mut content)
+        .map_err(|e| format!("read {}: {e}", path.display()))?;
+    let binary = is_binary(&content);
+    let raw = BlobStore::hash(&content);
+    Ok(Observed::Present(Present {
+        content,
+        raw,
+        binary,
+    }))
 }
 
 /// A debounced, not-yet-processed change to one path. `suppress` is set when a
@@ -727,71 +978,226 @@ struct Pending {
     suppress: bool,
 }
 
-/// Flush every pending change whose deadline has passed.
+/// Flush every pending change whose deadline has passed. If any due change
+/// is a create or delete, every other pending create/delete is flushed with
+/// it, so the two halves of a rename (whose events arrive microseconds apart
+/// and may straddle a poll) are paired in the same batch.
 fn flush_due(
     pending: &mut HashMap<PathBuf, Pending>,
-    opts: &WatchOptions,
-    writer: &Arc<Mutex<EventWriter>>,
-    blobs: &Arc<BlobStore>,
-    session_id: &str,
-    start: Instant,
-    known: &mut HashMap<PathBuf, String>,
+    renames: &mut HashMap<PathBuf, PathBuf>,
+    sink: &Sink<'_>,
+    tracker: &mut Tracker,
 ) {
     let now = Instant::now();
-    let due: Vec<PathBuf> = pending
+    let structural = |p: &Pending| matches!(p.kind, ChangeKind::Created | ChangeKind::Deleted);
+    let mut due: Vec<PathBuf> = pending
         .iter()
         .filter(|(_, p)| p.deadline <= now)
         .map(|(k, _)| k.clone())
         .collect();
-    for path in due {
-        flush_one(
-            pending, &path, opts, writer, blobs, session_id, start, known,
+    if due.is_empty() {
+        return;
+    }
+    if due
+        .iter()
+        .any(|path| pending.get(path).is_some_and(structural))
+    {
+        due.extend(
+            pending
+                .iter()
+                .filter(|(_, p)| p.deadline > now && structural(p))
+                .map(|(path, _)| path.clone()),
         );
     }
+    flush_batch(due, pending, renames, sink, tracker);
 }
 
-/// Flush every pending change, regardless of deadline (shutdown path).
-fn flush_all(
+/// Remove `paths` from `pending` and record them as one batch (dropping
+/// suppressed net no-ops).
+fn flush_batch(
+    paths: Vec<PathBuf>,
     pending: &mut HashMap<PathBuf, Pending>,
-    opts: &WatchOptions,
-    writer: &Arc<Mutex<EventWriter>>,
-    blobs: &Arc<BlobStore>,
-    session_id: &str,
-    start: Instant,
-    known: &mut HashMap<PathBuf, String>,
+    renames: &mut HashMap<PathBuf, PathBuf>,
+    sink: &Sink<'_>,
+    tracker: &mut Tracker,
 ) {
-    let paths: Vec<PathBuf> = pending.keys().cloned().collect();
+    let mut items = Vec::with_capacity(paths.len());
     for path in paths {
-        flush_one(
-            pending, &path, opts, writer, blobs, session_id, start, known,
-        );
+        match pending.remove(&path) {
+            Some(p) if !p.suppress => items.push((path, p.kind)),
+            _ => {
+                renames.remove(&path);
+            }
+        }
+    }
+    record_changes(items, renames, sink, tracker);
+}
+
+/// Record one batch of debounced changes. The raw event kind is reconciled
+/// with what is actually on disk now and with what the tracker knows (a
+/// "create" of a file that existed is a modify; a "modify" of a vanished file
+/// is a delete), then deletes and creates are paired into renames — first by
+/// the backend's rename hint, then by identical non-empty content (git's exact
+/// rename detection) — and everything is written.
+fn record_changes(
+    items: Vec<(PathBuf, ChangeKind)>,
+    renames: &mut HashMap<PathBuf, PathBuf>,
+    sink: &Sink<'_>,
+    tracker: &mut Tracker,
+) {
+    let Batch {
+        mut deletes,
+        creates,
+        modifies,
+    } = reconcile(items, sink.opts, tracker);
+
+    // Pair renames: a created path takes its hinted source if that source is
+    // being deleted in this batch, else the first deleted path whose last
+    // known content is byte-identical (never for empty files — any two empty
+    // files are "identical", which says nothing about a rename).
+    let mut paired: Vec<(PathBuf, PathBuf, Present)> = Vec::new();
+    let mut plain_creates: Vec<(PathBuf, Present)> = Vec::new();
+    for (to, present) in creates {
+        let hinted = renames
+            .remove(&to)
+            .and_then(|from| deletes.iter().position(|d| *d == from));
+        let by_content = || {
+            (!present.content.is_empty())
+                .then(|| {
+                    deletes
+                        .iter()
+                        .position(|d| tracker.prior_raw(d) == Some(present.raw.as_str()))
+                })
+                .flatten()
+        };
+        match hinted.or_else(by_content) {
+            Some(i) => paired.push((deletes.remove(i), to, present)),
+            None => plain_creates.push((to, present)),
+        }
+    }
+    for (path, _) in &modifies {
+        renames.remove(path);
+    }
+
+    for (from, to, present) in paired {
+        let before = tracker.take_before(&from, sink);
+        if let Err(e) = write_change(
+            &to,
+            ChangeKind::Modified,
+            before,
+            Some(present),
+            Some(&from),
+            sink,
+            tracker,
+        ) {
+            warn_capture(&to, &e);
+        }
+    }
+    for (path, present) in modifies {
+        let before = tracker.take_before(&path, sink);
+        if let Err(e) = write_change(
+            &path,
+            ChangeKind::Modified,
+            before,
+            Some(present),
+            None,
+            sink,
+            tracker,
+        ) {
+            warn_capture(&path, &e);
+        }
+    }
+    for (path, present) in plain_creates {
+        // A created path has no before-side; nothing to consume.
+        if let Err(e) = write_change(
+            &path,
+            ChangeKind::Created,
+            Before::none(),
+            Some(present),
+            None,
+            sink,
+            tracker,
+        ) {
+            warn_capture(&path, &e);
+        }
+    }
+    for path in deletes {
+        let before = tracker.take_before(&path, sink);
+        if let Err(e) = write_change(
+            &path,
+            ChangeKind::Deleted,
+            before,
+            None,
+            None,
+            sink,
+            tracker,
+        ) {
+            warn_capture(&path, &e);
+        }
     }
 }
 
-/// Remove and process one pending change, logging a warning on failure.
-#[allow(clippy::too_many_arguments)] // recorder wiring threaded through to the writer
-fn flush_one(
-    pending: &mut HashMap<PathBuf, Pending>,
-    path: &Path,
-    opts: &WatchOptions,
-    writer: &Arc<Mutex<EventWriter>>,
-    blobs: &Arc<BlobStore>,
-    session_id: &str,
-    start: Instant,
-    known: &mut HashMap<PathBuf, String>,
-) {
-    let Some(p) = pending.remove(path) else {
-        return;
+/// One flush batch, reconciled against disk and the tracker (see
+/// [`reconcile`]), each list sorted by path for a deterministic write order.
+struct Batch {
+    deletes: Vec<PathBuf>,
+    creates: Vec<(PathBuf, Present)>,
+    modifies: Vec<(PathBuf, Present)>,
+}
+
+/// Reconcile each raw `(path, kind)` with the filesystem now and with what
+/// the tracker knows: a vanished path with a known prior (or a raw delete) is
+/// a delete; a present path with a known prior is a modify whatever the raw
+/// kind said; a present path with no prior is a create unless the backend
+/// said modify (e.g. a file over `max_file_size` at session start, now
+/// smaller — it existed, so "created" would be wrong).
+fn reconcile(items: Vec<(PathBuf, ChangeKind)>, opts: &WatchOptions, tracker: &Tracker) -> Batch {
+    let mut batch = Batch {
+        deletes: Vec::new(),
+        creates: Vec::new(),
+        modifies: Vec::new(),
     };
-    if p.suppress {
-        return;
+    for (path, kind) in items {
+        match observe(&path, opts) {
+            Err(e) => warn_capture(&path, &e),
+            Ok(Observed::Skip) => {}
+            Ok(Observed::Gone) => {
+                if kind == ChangeKind::Deleted || tracker.has_prior(&path) {
+                    batch.deletes.push(path);
+                }
+            }
+            Ok(Observed::Present(present)) => {
+                let is_modify = match kind {
+                    ChangeKind::Modified => true,
+                    ChangeKind::Created | ChangeKind::Deleted => tracker.has_prior(&path),
+                };
+                if is_modify {
+                    batch.modifies.push((path, present));
+                } else {
+                    batch.creates.push((path, present));
+                }
+            }
+        }
     }
-    if let Err(e) = process(path, p.kind, opts, writer, blobs, session_id, start, known) {
-        eprintln!(
-            "hh: warning: file change capture failed for {}: {e}",
-            path.display()
-        );
-    }
+    batch.deletes.sort();
+    batch.creates.sort_by(|a, b| a.0.cmp(&b.0));
+    batch.modifies.sort_by(|a, b| a.0.cmp(&b.0));
+    batch
+}
+
+/// A present file's content, read at flush time.
+struct Present {
+    content: Vec<u8>,
+    raw: String,
+    binary: bool,
+}
+
+/// One-line stderr warning for a failed capture (recording continues).
+fn warn_capture(path: &Path, e: &str) {
+    eprintln!(
+        "hh: warning: file change capture failed for {}: {e}",
+        path.display()
+    );
 }
 
 /// Decide whether a raw notify event on `path` should be captured, and if so
@@ -799,6 +1205,12 @@ fn flush_one(
 /// the watched tree, directories, and ignored paths (built-in, `.gitignore`,
 /// and caller-supplied extra patterns). This runs *before* debouncing so
 /// ignored files never enter the pending map.
+///
+/// A rename event (`Modify(Name(_))`) names a path that either appeared or
+/// disappeared, so it is classified by whether the path exists now: a
+/// `Created` for the new name, a `Deleted` for the old one. (Classifying it as
+/// `Modified`, as before, silently dropped the old name — a modify of a path
+/// that no longer exists has nothing to read.)
 fn classify(
     path: &Path,
     kind: notify::EventKind,
@@ -819,6 +1231,13 @@ fn classify(
     }
     Some(match kind {
         notify::EventKind::Create(_) => ChangeKind::Created,
+        notify::EventKind::Modify(notify::event::ModifyKind::Name(_)) => {
+            if path.exists() {
+                ChangeKind::Created
+            } else {
+                ChangeKind::Deleted
+            }
+        }
         notify::EventKind::Modify(_) => ChangeKind::Modified,
         notify::EventKind::Remove(_) => ChangeKind::Deleted,
         // Any/Other/Access are not content changes we capture.
@@ -830,10 +1249,10 @@ fn classify(
 
 /// Recursively collect every regular file under `dir` (relative to `cwd`)
 /// that isn't excluded or ignored, into `out`. Walked once at watch startup
-/// to build the baseline for [`resolve_first_seen`]. Does not follow
-/// symlinks (`DirEntry::file_type` reports the link itself, not its target),
-/// which also avoids symlink-cycle recursion. Best-effort: an unreadable
-/// subdirectory is skipped rather than failing the whole scan.
+/// (via [`scan_baseline`]) and again by the shutdown backstop. Does not
+/// follow symlinks (`DirEntry::file_type` reports the link itself, not its
+/// target), which also avoids symlink-cycle recursion. Best-effort: an
+/// unreadable subdirectory is skipped rather than failing the whole scan.
 fn scan_existing_files(
     dir: &Path,
     cwd: &Path,
@@ -867,65 +1286,6 @@ fn scan_existing_files(
     }
 }
 
-/// Like [`scan_existing_files`] but records each capturable file's startup
-/// content hash (BLAKE3) into `out`, not just its path. Run once at watch
-/// startup to build the baseline that [`rescan_for_missed_changes`] diffs
-/// against at shutdown. The baseline content itself is NOT stored as a blob —
-/// only its hash — so a backstopped modify renders with a missing before-side.
-///
-/// Files larger than `max_file_size` are never capturable, so they are skipped
-/// here (no point hashing a file the watcher would never record). Best-effort:
-/// an unreadable subdirectory or an unreadable file (permissions, race) is
-/// skipped rather than failing the whole scan — a missing baseline entry just
-/// means that file, if later modified, is backstopped as a `Created` rather
-/// than a `Modified`, which is a safe over-report.
-fn scan_baseline_hashes(
-    dir: &Path,
-    cwd: &Path,
-    matcher: &Gitignore,
-    internal_exclude: &[PathBuf],
-    opts: &WatchOptions,
-    out: &mut HashMap<PathBuf, String>,
-) {
-    let Ok(entries) = std::fs::read_dir(dir) else {
-        return;
-    };
-    for entry in entries.flatten() {
-        let path = entry.path();
-        if internal_exclude.iter().any(|excl| path.starts_with(excl)) {
-            continue;
-        }
-        let Ok(rel) = path.strip_prefix(cwd) else {
-            continue;
-        };
-        let Ok(file_type) = entry.file_type() else {
-            continue;
-        };
-        let is_dir = file_type.is_dir();
-        if matcher.matched_path_or_any_parents(rel, is_dir).is_ignore() {
-            continue;
-        }
-        if is_dir {
-            scan_baseline_hashes(&path, cwd, matcher, internal_exclude, opts, out);
-        } else {
-            // Skip oversized files (the watcher would never capture them, so a
-            // baseline hash for them is useless I/O). A metadata error (file
-            // raced away, unreadable) is silently dropped — see the doc comment.
-            if let Ok(meta) = std::fs::metadata(&path) {
-                if meta.len() > opts.max_file_size {
-                    continue;
-                }
-                if let Ok(mut f) = std::fs::File::open(&path) {
-                    let mut content = Vec::with_capacity(usize::try_from(meta.len()).unwrap_or(0));
-                    if f.read_to_end(&mut content).is_ok() {
-                        out.insert(path, BlobStore::hash(&content));
-                    }
-                }
-            }
-        }
-    }
-}
-
 /// Resolve a raw classified [`ChangeKind`] against the set of paths already
 /// known to exist, correcting for a macOS FSEvents quirk: `fseventsd` can tag
 /// the *first-ever* notification it delivers for a path with
@@ -935,26 +1295,21 @@ fn scan_baseline_hashes(
 /// of `modified` (its very first observed event wins the merge in
 /// [`merge_kind`]).
 ///
-/// `existing` maps a baseline path to its startup content hash. It is updated
-/// as change kinds are resolved, so a later delete-then-recreate of the same
-/// path within the same session is still reported as a genuine `Created`. A
-/// pre-existing baseline hash is preserved across a `Created`→`Modified`
-/// downgrade (it is not overwritten) so the shutdown backstop can still
-/// diff against it; a genuinely new path is inserted with an empty sentinel
-/// hash (no baseline) purely to mark it seen — the backstop skips any path
-/// already in `known`, so the sentinel is never compared.
+/// `existing` is updated as change kinds are resolved, so a later
+/// delete-then-recreate of the same path within the same session is still
+/// reported as a genuine `Created`. (The flush additionally reconciles kinds
+/// with the [`Tracker`], see [`record_changes`].)
 fn resolve_first_seen(
     kind: ChangeKind,
     path: &Path,
-    existing: &mut HashMap<PathBuf, String>,
+    existing: &mut HashSet<PathBuf>,
 ) -> ChangeKind {
     match kind {
-        ChangeKind::Created if existing.contains_key(path) => ChangeKind::Modified,
+        ChangeKind::Created if existing.contains(path) => ChangeKind::Modified,
         ChangeKind::Created | ChangeKind::Modified => {
             // Mark the path seen so a later raw `Created` (the FSEvents quirk
-            // firing again) downgrades to `Modified`. `or_default` preserves a
-            // pre-existing baseline hash (set at startup) for the backstop.
-            existing.entry(path.to_path_buf()).or_default();
+            // firing again) downgrades to `Modified`.
+            existing.insert(path.to_path_buf());
             kind
         }
         ChangeKind::Deleted => {
@@ -1023,55 +1378,38 @@ fn merge_kind(prior: ChangeKind, new: ChangeKind) -> (ChangeKind, bool) {
     }
 }
 
-/// Process one debounced change into a `file_change` event (or skip it). The
-/// change kind is already known (computed by [`classify`], possibly merged by
-/// [`coalesce`]); this reads content, manages before/after hashes, and appends
-/// the event + `file_changes` row.
-#[allow(clippy::too_many_arguments)] // recorder wiring threaded through to the writer
-fn process(
+/// Write one resolved change: store the after-side content (unless it is
+/// binary and `record_binary` is off), update the tracker, and append the
+/// `file_change` event + `file_changes` row with its before-side provenance
+/// (migration 0006). `renamed_from` is the old absolute path of a rename.
+#[allow(clippy::too_many_arguments)] // one change's full description; a struct would just rename the args
+fn write_change(
     path: &Path,
     change_kind: ChangeKind,
-    opts: &WatchOptions,
-    writer: &Arc<Mutex<EventWriter>>,
-    blobs: &Arc<BlobStore>,
-    session_id: &str,
-    start: Instant,
-    known: &mut HashMap<PathBuf, String>,
+    before: Before,
+    after: Option<Present>,
+    renamed_from: Option<&Path>,
+    sink: &Sink<'_>,
+    tracker: &mut Tracker,
 ) -> std::result::Result<(), String> {
+    let opts = sink.opts;
     // Defensive: re-strip in case a path outside cwd slipped through.
     let Ok(rel) = path.strip_prefix(&opts.cwd) else {
         return Ok(());
     };
-    let ts_ms = i64::try_from(start.elapsed().as_millis()).unwrap_or(i64::MAX);
     let rel_str = rel.to_string_lossy().to_string();
+    let from_str = renamed_from
+        .and_then(|p| p.strip_prefix(&opts.cwd).ok())
+        .map(|p| p.to_string_lossy().to_string());
 
-    let (before_hash, after_hash, blob_hash, blob_size, is_binary) =
-        if change_kind == ChangeKind::Deleted {
-            let before = known.remove(path);
-            (before, None, None, None, false)
-        } else {
-            // Create / Modify: read current content if within size limit.
-            let meta = match std::fs::metadata(path) {
-                Ok(m) => m,
-                Err(e) if e.kind() == std::io::ErrorKind::NotFound => return Ok(()),
-                Err(e) => return Err(format!("stat {}: {e}", path.display())),
-            };
-            if meta.len() > opts.max_file_size {
-                // FR-1.4: only capture files ≤ max_file_size.
-                return Ok(());
-            }
-            let mut content = Vec::with_capacity(usize::try_from(meta.len()).unwrap_or(0));
-            let mut f = match std::fs::File::open(path) {
-                Ok(f) => f,
-                Err(e) if e.kind() == std::io::ErrorKind::NotFound => return Ok(()),
-                Err(e) => return Err(format!("open {}: {e}", path.display())),
-            };
-            f.read_to_end(&mut content)
-                .map_err(|e| format!("read {}: {e}", path.display()))?;
-            let binary = is_binary(&content);
-            let hash = BlobStore::hash(&content);
+    let (after_hash, blob_hash, blob_size, is_binary) = match after {
+        None => (None, None, None, before.binary),
+        Some(Present {
+            content,
+            raw,
+            binary,
+        }) => {
             let size = u64::try_from(content.len()).unwrap_or(u64::MAX);
-            let before = known.get(path).cloned();
             // Store content unless it's binary and the user opted out. The
             // stored hash/size come from the put *outcome*, not the disk
             // content: with a record-time redactor the stored (redacted)
@@ -1080,7 +1418,8 @@ fn process(
             let (stored_hash, stored_size) = if binary && !opts.record_binary {
                 (None, Some(size))
             } else {
-                let outcome = blobs
+                let outcome = sink
+                    .blobs
                     .put(&content)
                     .map_err(|e| format!("blob put {}: {e}", path.display()))?;
                 (Some(outcome.hash), Some(outcome.size))
@@ -1089,28 +1428,39 @@ fn process(
             // tracks the stored hash when content was stored, and falls back
             // to the disk-content hash for unstored (binary) files where the
             // hash is identity metadata only (FR-1.4).
-            let effective_hash = stored_hash.clone().unwrap_or(hash);
-            known.insert(path.to_path_buf(), effective_hash.clone());
-            (
-                before,
-                Some(effective_hash),
-                stored_hash,
-                stored_size,
-                binary,
-            )
-        };
+            let effective_hash = stored_hash.clone().unwrap_or_else(|| raw.clone());
+            tracker.known.insert(
+                path.to_path_buf(),
+                Known {
+                    hash: effective_hash.clone(),
+                    raw,
+                    binary,
+                },
+            );
+            (Some(effective_hash), stored_hash, stored_size, binary)
+        }
+    };
 
+    let summary = match &from_str {
+        Some(from) => format!("{rel_str} renamed from {from}"),
+        None => format!("{rel_str} {change_kind}"),
+    };
+    let mut body = serde_json::json!({
+        "path": rel_str,
+        "change_kind": change_kind.to_string(),
+        "before_source": before.source.to_string(),
+    });
+    if let Some(from) = &from_str {
+        body["renamed_from"] = serde_json::json!(from);
+    }
     let event = Event {
-        session_id: session_id.to_string(),
-        ts_ms,
+        session_id: sink.session_id.to_string(),
+        ts_ms: i64::try_from(sink.start.elapsed().as_millis()).unwrap_or(i64::MAX),
         kind: EventKind::FileChange,
         step: None, // file changes are steps in replay (FR-3.4); step ordinal derived at read time.
-        summary: truncate_summary(&format!("{rel_str} {change_kind}")),
-        body_json: Some(serde_json::json!({
-            "path": rel_str,
-            "change_kind": change_kind.to_string(),
-        })),
-        blob_hash: blob_hash.clone(),
+        summary: truncate_summary(&summary),
+        body_json: Some(body),
+        blob_hash,
         blob_size,
         correlates: None,
     };
@@ -1118,20 +1468,24 @@ fn process(
         event_id: 0, // overwritten by the writer (EventWriter::append_file_change).
         path: rel_str,
         change_kind,
-        before_hash,
+        before_hash: before.hash,
         after_hash,
         is_binary,
     };
+    let provenance = FileChangeProvenance::new(before.source)
+        .with_before_size(before.size)
+        .with_renamed_from(from_str);
 
     // Recover from poisoning rather than failing this (and every subsequent)
     // capture: the writer `Mutex` is shared with the PTY reader and adapter
     // drain threads, and a panic in one of them must not silently blind the
     // others for the rest of the session (see `runner::lock_writer`).
-    let writer = writer
+    let writer = sink
+        .writer
         .lock()
         .unwrap_or_else(std::sync::PoisonError::into_inner);
     writer
-        .append_file_change(event, file_change)
+        .append_file_change_with_provenance(event, file_change, provenance)
         .map_err(|e| format!("append file_change: {e}"))?;
     Ok(())
 }
@@ -1279,27 +1633,22 @@ mod tests {
     fn resolve_first_seen_downgrades_created_for_known_existing_path() {
         // A path already in the baseline set was on disk before the watch
         // started: a raw `Created` for it is the macOS FSEvents quirk, not a
-        // real creation. The baseline hash is preserved (not overwritten).
+        // real creation, and the path stays known.
         let path = PathBuf::from("/tmp/modified.txt");
-        let mut existing: HashMap<PathBuf, String> = [(path.clone(), "baseline-hash".into())]
-            .into_iter()
-            .collect();
+        let mut existing: HashSet<PathBuf> = [path.clone()].into_iter().collect();
         let kind = resolve_first_seen(ChangeKind::Created, &path, &mut existing);
         assert_eq!(kind, ChangeKind::Modified);
-        assert_eq!(
-            existing.get(&path).map(String::as_str),
-            Some("baseline-hash")
-        );
+        assert!(existing.contains(&path));
     }
 
     #[test]
     fn resolve_first_seen_keeps_created_for_new_path_and_tracks_it() {
         let path = PathBuf::from("/tmp/created.txt");
-        let mut existing: HashMap<PathBuf, String> = HashMap::new();
+        let mut existing: HashSet<PathBuf> = HashSet::new();
         let kind = resolve_first_seen(ChangeKind::Created, &path, &mut existing);
         assert_eq!(kind, ChangeKind::Created);
         // Now tracked, so a later edit is a genuine Modified, not re-downgraded.
-        assert!(existing.contains_key(&path));
+        assert!(existing.contains(&path));
     }
 
     #[test]
@@ -1307,14 +1656,12 @@ mod tests {
         // A baseline path that gets deleted then recreated within the same
         // session must report the recreate as a real Created, not Modified.
         let path = PathBuf::from("/tmp/doomed.txt");
-        let mut existing: HashMap<PathBuf, String> = [(path.clone(), "baseline-hash".into())]
-            .into_iter()
-            .collect();
+        let mut existing: HashSet<PathBuf> = [path.clone()].into_iter().collect();
         assert_eq!(
             resolve_first_seen(ChangeKind::Deleted, &path, &mut existing),
             ChangeKind::Deleted
         );
-        assert!(!existing.contains_key(&path));
+        assert!(!existing.contains(&path));
         assert_eq!(
             resolve_first_seen(ChangeKind::Created, &path, &mut existing),
             ChangeKind::Created
@@ -1438,6 +1785,7 @@ mod tests {
             record_binary: false,
             extra_ignore: Vec::new(),
             internal_exclude: Vec::new(),
+            baseline_budget: hh_core::DEFAULT_BASELINE_BUDGET,
         };
         let handle = spawn_watcher(
             opts,
@@ -1543,6 +1891,7 @@ mod tests {
             record_binary: false,
             extra_ignore: Vec::new(),
             internal_exclude: Vec::new(),
+            baseline_budget: hh_core::DEFAULT_BASELINE_BUDGET,
         };
         let handle = spawn_watcher(
             opts,
@@ -1573,123 +1922,396 @@ mod tests {
         );
     }
 
+    /// A fresh store with one `generic` session, its writer and a plain blob
+    /// store — the fixture every recording test below starts from.
+    struct Fixture {
+        _tmp: tempfile::TempDir,
+        cwd: PathBuf,
+        store: hh_core::store::Store,
+        session_id: String,
+        writer: Arc<Mutex<EventWriter>>,
+        blobs: Arc<BlobStore>,
+    }
+
+    impl Fixture {
+        fn new() -> Self {
+            use hh_core::event::{AdapterStatus, AgentKind, NewSession};
+            let tmp = tempfile::tempdir().unwrap();
+            let cwd = tmp.path().join("work");
+            std::fs::create_dir_all(&cwd).unwrap();
+            let store =
+                hh_core::store::Store::open(&tmp.path().join("hh.db"), &tmp.path().join("blobs"))
+                    .unwrap();
+            let created = store
+                .create_session(&NewSession {
+                    id: hh_core::event::now_v7(),
+                    started_at: 0,
+                    agent_kind: AgentKind::Generic,
+                    adapter_status: AdapterStatus::None,
+                    command: vec!["test".into()],
+                    cwd: cwd.clone(),
+                    hostname: None,
+                    hh_version: "test".into(),
+                    model: None,
+                    git_branch: None,
+                    git_sha: None,
+                    git_dirty: None,
+                })
+                .unwrap();
+            let writer = Arc::new(Mutex::new(store.event_writer().unwrap()));
+            let blobs = Arc::new(BlobStore::new(store.blobs().root().to_path_buf()));
+            Self {
+                _tmp: tmp,
+                cwd,
+                store,
+                session_id: created.id,
+                writer,
+                blobs,
+            }
+        }
+
+        fn opts(&self) -> WatchOptions {
+            WatchOptions {
+                cwd: self.cwd.clone(),
+                max_file_size: 4 * 1024 * 1024,
+                record_binary: false,
+                extra_ignore: Vec::new(),
+                internal_exclude: Vec::new(),
+                baseline_budget: hh_core::DEFAULT_BASELINE_BUDGET,
+            }
+        }
+
+        /// Every recorded file change: `(path, kind, before text, after
+        /// text, provenance)`, in recording order.
+        fn changes(&self) -> Vec<RecordedChange> {
+            self.store
+                .list_event_index(&self.session_id)
+                .unwrap()
+                .into_iter()
+                .filter(|e| e.kind == EventKind::FileChange)
+                .map(|e| {
+                    let d = self.store.get_event_detail(e.id).unwrap();
+                    let fc = d.file_change.unwrap();
+                    let text = |h: &Option<String>| {
+                        h.as_deref()
+                            .and_then(|h| self.store.blobs().get(h).ok())
+                            .map(|b| String::from_utf8(b).unwrap())
+                    };
+                    RecordedChange {
+                        path: fc.path.clone(),
+                        kind: fc.change_kind,
+                        before: text(&fc.before_hash),
+                        after: text(&fc.after_hash),
+                        provenance: self.store.file_change_provenance(e.id).unwrap().unwrap(),
+                    }
+                })
+                .collect()
+        }
+    }
+
+    #[derive(Debug)]
+    struct RecordedChange {
+        path: String,
+        kind: ChangeKind,
+        before: Option<String>,
+        after: Option<String>,
+        provenance: FileChangeProvenance,
+    }
+
+    fn held(content: &[u8]) -> BaselineEntry {
+        BaselineEntry {
+            raw: BlobStore::hash(content),
+            binary: false,
+            content: BaselineContent::Held(content.to_vec()),
+        }
+    }
+
     /// Deterministic unit test for [`rescan_for_missed_changes`] — the backstop
     /// that catches file changes the watcher never observed. Unlike
     /// [`watcher_captures_write_then_immediate_stop`] this does NOT spawn a
     /// real `notify` watcher, so it is fully deterministic and not subject to
     /// macOS FSEvents flakiness: it calls the backstop directly with a
-    /// hand-built `existing` baseline (path → startup hash) and `known` set.
-    /// Asserts:
+    /// hand-built [`Tracker`]. Asserts:
     /// - an unobserved new file is recorded as `Created`;
-    /// - a pre-existing file whose current hash differs from its baseline is
-    ///   recorded as `Modified` (the missed-modify case the hash baseline
-    ///   enables);
-    /// - an unchanged baseline file and an already-recorded file are NOT
-    ///   re-recorded (no duplicates).
+    /// - a pre-existing file whose content differs from its baseline is
+    ///   recorded as `Modified` WITH the session-start content as its
+    ///   before-side (the bug this guards: it used to render "all added");
+    /// - a pre-existing file that vanished is a `Deleted` carrying its content;
+    /// - an unchanged baseline file and an already-recorded, unchanged file
+    ///   are NOT re-recorded (no duplicates).
     #[test]
-    fn rescan_for_missed_changes_records_unobserved_creates_and_modifies() {
-        use hh_core::event::{AdapterStatus, AgentKind, EventKind, NewSession};
-        use hh_core::store::Store;
-
-        let tmp = tempfile::tempdir().unwrap();
-        let cwd = tmp.path().join("work");
-        std::fs::create_dir_all(&cwd).unwrap();
-        let store = Store::open(&tmp.path().join("hh.db"), &tmp.path().join("blobs")).unwrap();
-        let created = store
-            .create_session(&NewSession {
-                id: hh_core::event::now_v7(),
-                started_at: 0,
-                agent_kind: AgentKind::Generic,
-                adapter_status: AdapterStatus::None,
-                command: vec!["test".into()],
-                cwd: cwd.clone(),
-                hostname: None,
-                hh_version: "test".into(),
-                model: None,
-                git_branch: None,
-                git_sha: None,
-                git_dirty: None,
-            })
-            .unwrap();
-        let writer = Arc::new(Mutex::new(store.event_writer().unwrap()));
-        let blobs = Arc::new(BlobStore::new(store.blobs().root().to_path_buf()));
-
-        // baseline.txt: existed before the watch, unchanged since. Its baseline
-        // hash equals its current content hash → must NOT be recorded.
+    fn rescan_for_missed_changes_records_unobserved_creates_modifies_and_deletes() {
+        let fx = Fixture::new();
+        let cwd = &fx.cwd;
         let baseline_bytes = b"already here\n";
         std::fs::write(cwd.join("baseline.txt"), baseline_bytes).unwrap();
-        // changed.txt: existed before the watch (baseline hash of "original\n")
-        // but was modified during the session to "modified\n" with no event
-        // observed → must be recorded as `Modified`.
         std::fs::write(cwd.join("changed.txt"), b"modified\n").unwrap();
-        // recorded.txt: the watcher already captured it → in `known`. Must NOT
-        // be re-recorded.
         std::fs::write(cwd.join("recorded.txt"), b"captured via event\n").unwrap();
-        // missed.txt: created during the session but the watcher never saw an
-        // event for it → not in `existing`, not in `known`. MUST be recorded as
-        // `Created`.
         std::fs::write(cwd.join("missed.txt"), b"the watcher missed this\n").unwrap();
 
-        // `existing` is the startup baseline: path → content hash. For
-        // baseline.txt that is the hash of its (unchanged) content; for
-        // changed.txt it is the hash of the ORIGINAL content ("original\n"),
-        // which differs from what is on disk now.
-        let existing: HashMap<PathBuf, String> = [
-            (cwd.join("baseline.txt"), BlobStore::hash(baseline_bytes)),
-            (cwd.join("changed.txt"), BlobStore::hash(b"original\n")),
-        ]
-        .into_iter()
-        .collect();
-        // `known` holds path → content hash; the hash value is irrelevant for
-        // the backstop's skip check (it only tests key presence), so a dummy
-        // hash is fine.
-        let mut known: HashMap<PathBuf, String> = [(cwd.join("recorded.txt"), "dummyhash".into())]
-            .into_iter()
-            .collect();
+        let mut tracker = Tracker::default();
+        tracker
+            .baseline
+            .insert(cwd.join("baseline.txt"), held(baseline_bytes));
+        tracker
+            .baseline
+            .insert(cwd.join("changed.txt"), held(b"original\n"));
+        tracker
+            .baseline
+            .insert(cwd.join("gone.txt"), held(b"deleted while unobserved\n"));
+        tracker.known.insert(
+            cwd.join("recorded.txt"),
+            Known {
+                hash: "dummyhash".into(),
+                raw: BlobStore::hash(b"captured via event\n"),
+                binary: false,
+            },
+        );
 
-        let opts = WatchOptions {
-            cwd: cwd.clone(),
-            max_file_size: 4 * 1024 * 1024,
-            record_binary: false,
-            extra_ignore: Vec::new(),
-            internal_exclude: Vec::new(),
+        let opts = fx.opts();
+        let sink = Sink {
+            opts: &opts,
+            writer: &fx.writer,
+            blobs: &fx.blobs,
+            session_id: &fx.session_id,
+            start: Instant::now(),
         };
-        let matcher = build_matcher(&cwd, &[]).unwrap();
-        rescan_for_missed_changes(
-            &opts,
-            &matcher,
-            &writer,
-            &blobs,
-            &created.id,
-            Instant::now(),
-            &mut known,
-            &existing,
-        );
+        let matcher = build_matcher(cwd, &[]).unwrap();
+        rescan_for_missed_changes(&matcher, &sink, &mut tracker);
 
-        let index = store.list_event_index(&created.id).unwrap();
-        let summaries: Vec<String> = index.iter().map(|e| e.summary.clone()).collect();
+        let recorded = fx.changes();
+        let find = |p: &str| recorded.iter().find(|c| c.path == p);
+        let missed = find("missed.txt").expect("unobserved new file recorded");
+        assert_eq!(missed.kind, ChangeKind::Created);
+        let changed = find("changed.txt").expect("missed modify recorded");
+        assert_eq!(changed.kind, ChangeKind::Modified);
+        assert_eq!(changed.before.as_deref(), Some("original\n"));
+        assert_eq!(changed.after.as_deref(), Some("modified\n"));
+        assert_eq!(
+            changed.provenance.before_source,
+            Some(BeforeSource::Baseline)
+        );
+        let gone = find("gone.txt").expect("missed delete recorded");
+        assert_eq!(gone.kind, ChangeKind::Deleted);
+        assert_eq!(gone.before.as_deref(), Some("deleted while unobserved\n"));
+        assert!(find("baseline.txt").is_none(), "unchanged: {recorded:?}");
+        assert!(find("recorded.txt").is_none(), "no duplicate: {recorded:?}");
+    }
+
+    fn git(cwd: &Path, args: &[&str]) {
+        let st = std::process::Command::new("git")
+            .args(["-c", "user.name=t", "-c", "user.email=t@example.com"])
+            .args(["-c", "commit.gpgsign=false", "-c", "core.autocrlf=false"])
+            .args(args)
+            .current_dir(cwd)
+            .env("GIT_CEILING_DIRECTORIES", cwd.parent().unwrap())
+            .stdout(std::process::Stdio::null())
+            .status()
+            .expect("git must be installed to run these tests");
+        assert!(st.success(), "git {args:?} failed");
+    }
+
+    fn kind_of(entry: &BaselineEntry) -> &'static str {
+        match entry.content {
+            BaselineContent::Git(_) => "git",
+            BaselineContent::Held(_) => "held",
+            BaselineContent::Unstored => "unstored",
+        }
+    }
+
+    /// The git-clean rule: only a file clean against the index takes its
+    /// before-side from git; dirty and untracked files hold their real
+    /// session-start content (diffing them against the index would attribute
+    /// the developer's uncommitted edits to the agent). Binary files with
+    /// `record_binary` off store nothing, exactly like a live capture.
+    #[test]
+    fn scan_baseline_applies_the_git_clean_rule() {
+        let fx = Fixture::new();
+        let cwd = &fx.cwd;
+        std::fs::write(cwd.join("clean.txt"), "committed\n").unwrap();
+        std::fs::write(cwd.join("dirty.txt"), "committed\n").unwrap();
+        std::fs::write(cwd.join("bin.dat"), b"\x00\x01binary").unwrap();
+        git(cwd, &["init", "-q"]);
+        git(cwd, &["add", "-A"]);
+        git(cwd, &["commit", "-q", "-m", "init"]);
+        std::fs::write(cwd.join("dirty.txt"), "committed\nplus developer edit\n").unwrap();
+        std::fs::write(cwd.join("untracked.txt"), "new\n").unwrap();
+
+        let opts = fx.opts();
+        let matcher = build_matcher(cwd, &[]).unwrap();
+        let (existing, baseline) = scan_baseline(&opts, &matcher);
+        let kind = |name: &str| kind_of(&baseline[&cwd.join(name)]);
+        assert_eq!(kind("clean.txt"), "git");
+        assert_eq!(kind("dirty.txt"), "held");
+        assert_eq!(kind("untracked.txt"), "held");
+        assert_eq!(kind("bin.dat"), "unstored");
+        match &baseline[&cwd.join("dirty.txt")].content {
+            BaselineContent::Held(b) => assert_eq!(b, b"committed\nplus developer edit\n"),
+            other => panic!("dirty.txt: {other:?}"),
+        }
+        assert!(existing.contains(&cwd.join("clean.txt")));
         assert!(
-            index
+            !baseline.keys().any(|p| p.starts_with(cwd.join(".git"))),
+            ".git is never part of the baseline"
+        );
+    }
+
+    /// Outside a git repository every file is held, until the budget runs
+    /// out; files past it are `Unstored` (no before-side, never an error).
+    #[test]
+    fn scan_baseline_outside_git_holds_content_within_budget() {
+        let fx = Fixture::new();
+        let cwd = &fx.cwd;
+        for name in ["a.txt", "b.txt", "c.txt"] {
+            std::fs::write(cwd.join(name), "0123456789").unwrap(); // 10 bytes each
+        }
+        let mut opts = fx.opts();
+        let matcher = build_matcher(cwd, &[]).unwrap();
+        let (_, baseline) = scan_baseline(&opts, &matcher);
+        assert!(baseline.values().all(|e| kind_of(e) == "held"));
+
+        opts.baseline_budget = 25;
+        let (_, baseline) = scan_baseline(&opts, &matcher);
+        let held = baseline.values().filter(|e| kind_of(e) == "held").count();
+        let unstored = baseline
+            .values()
+            .filter(|e| kind_of(e) == "unstored")
+            .count();
+        assert_eq!((held, unstored), (2, 1), "25 bytes hold two 10-byte files");
+
+        opts.baseline_budget = 0;
+        let (_, baseline) = scan_baseline(&opts, &matcher);
+        assert!(baseline.values().all(|e| kind_of(e) == "unstored"));
+    }
+
+    fn sink_for<'a>(fx: &'a Fixture, opts: &'a WatchOptions) -> Sink<'a> {
+        Sink {
+            opts,
+            writer: &fx.writer,
+            blobs: &fx.blobs,
+            session_id: &fx.session_id,
+            start: Instant::now(),
+        }
+    }
+
+    /// A git before-side is used only if the index blob hashes to the
+    /// session-start content. If it does not (a smudge filter, a stale stat
+    /// cache, the index rewritten mid-session), the change records no
+    /// before-side rather than a wrong one.
+    #[test]
+    fn git_before_side_is_verified_against_session_start_content() {
+        let fx = Fixture::new();
+        let cwd = &fx.cwd;
+        std::fs::write(cwd.join("f.txt"), "committed\n").unwrap();
+        git(cwd, &["init", "-q"]);
+        git(cwd, &["add", "-A"]);
+        git(cwd, &["commit", "-q", "-m", "init"]);
+        let opts = fx.opts();
+        let matcher = build_matcher(cwd, &[]).unwrap();
+        let (_, baseline) = scan_baseline(&opts, &matcher);
+        let sink = sink_for(&fx, &opts);
+
+        let mut tracker = Tracker {
+            baseline: baseline.clone(),
+            ..Tracker::default()
+        };
+        let before = tracker.take_before(&cwd.join("f.txt"), &sink);
+        assert_eq!(before.source, BeforeSource::Git);
+        let bytes = fx
+            .store
+            .blobs()
+            .get(before.hash.as_deref().unwrap())
+            .unwrap();
+        assert_eq!(bytes, b"committed\n");
+
+        let mut tampered = baseline;
+        tampered.get_mut(&cwd.join("f.txt")).unwrap().raw = BlobStore::hash(b"something else");
+        let mut tracker = Tracker {
+            baseline: tampered,
+            ..Tracker::default()
+        };
+        let before = tracker.take_before(&cwd.join("f.txt"), &sink);
+        assert_eq!(before.source, BeforeSource::None);
+        assert_eq!(before.hash, None);
+    }
+
+    /// Rename pairing inside one flush batch: by the backend's rename hint
+    /// (even when the content also changed), else by identical content — but
+    /// never between two empty files, and never onto a path that already
+    /// existed (that is a modify of the target plus a delete of the source).
+    #[test]
+    fn record_changes_pairs_renames_by_hint_and_by_content() {
+        let fx = Fixture::new();
+        let cwd = &fx.cwd;
+        let mut tracker = Tracker::default();
+        for (name, content) in [
+            ("same_old.txt", &b"same content\n"[..]),
+            ("hinted_old.txt", &b"before edit\n"[..]),
+            ("empty_old.txt", &b""[..]),
+            ("src.txt", &b"overwrites target\n"[..]),
+            ("target.txt", &b"target original\n"[..]),
+        ] {
+            tracker.baseline.insert(cwd.join(name), held(content));
+        }
+        // On disk after the "agent" ran:
+        std::fs::write(cwd.join("same_new.txt"), "same content\n").unwrap();
+        std::fs::write(cwd.join("hinted_new.txt"), "after edit\n").unwrap();
+        std::fs::write(cwd.join("empty_new.txt"), "").unwrap();
+        std::fs::write(cwd.join("target.txt"), "overwrites target\n").unwrap();
+
+        let opts = fx.opts();
+        let sink = sink_for(&fx, &opts);
+        let mut hints: HashMap<PathBuf, PathBuf> =
+            [(cwd.join("hinted_new.txt"), cwd.join("hinted_old.txt"))]
+                .into_iter()
+                .collect();
+        let items = vec![
+            (cwd.join("same_old.txt"), ChangeKind::Deleted),
+            (cwd.join("same_new.txt"), ChangeKind::Created),
+            (cwd.join("hinted_old.txt"), ChangeKind::Deleted),
+            (cwd.join("hinted_new.txt"), ChangeKind::Created),
+            (cwd.join("empty_old.txt"), ChangeKind::Deleted),
+            (cwd.join("empty_new.txt"), ChangeKind::Created),
+            (cwd.join("src.txt"), ChangeKind::Deleted),
+            // The FSEvents-style "created" for an existing target.
+            (cwd.join("target.txt"), ChangeKind::Created),
+        ];
+        record_changes(items, &mut hints, &sink, &mut tracker);
+
+        let changes = fx.changes();
+        let find = |p: &str| {
+            changes
                 .iter()
-                .any(|e| e.kind == EventKind::FileChange && e.summary.contains("missed.txt")),
-            "the unobserved new file must be recorded by the backstop; events: {summaries:?}"
+                .find(|c| c.path == p)
+                .unwrap_or_else(|| panic!("{p} not recorded: {changes:?}"))
+        };
+        let same = find("same_new.txt");
+        assert_eq!(
+            same.provenance.renamed_from.as_deref(),
+            Some("same_old.txt")
         );
+        assert_eq!(same.kind, ChangeKind::Modified);
+        let hinted = find("hinted_new.txt");
+        assert_eq!(
+            hinted.provenance.renamed_from.as_deref(),
+            Some("hinted_old.txt")
+        );
+        assert_eq!(hinted.before.as_deref(), Some("before edit\n"));
+        assert_eq!(hinted.after.as_deref(), Some("after edit\n"));
+        assert_eq!(find("empty_new.txt").kind, ChangeKind::Created);
+        assert_eq!(find("empty_old.txt").kind, ChangeKind::Deleted);
+        let target = find("target.txt");
+        assert_eq!(target.kind, ChangeKind::Modified);
+        assert_eq!(target.provenance.renamed_from, None);
+        assert_eq!(target.before.as_deref(), Some("target original\n"));
+        assert_eq!(find("src.txt").kind, ChangeKind::Deleted);
         assert!(
-            index.iter().any(|e| {
-                e.kind == EventKind::FileChange
-                    && e.summary.contains("changed.txt")
-                    && e.summary.contains("modified")
-            }),
-            "a baseline file whose current hash differs must be recorded as Modified; events: {summaries:?}"
+            !changes
+                .iter()
+                .any(|c| c.path == "same_old.txt" || c.path == "hinted_old.txt"),
+            "a paired rename source is not also recorded as a delete: {changes:?}"
         );
-        assert!(
-            !summaries.iter().any(|s| s.contains("baseline.txt")),
-            "an unchanged baseline file must not be recorded; events: {summaries:?}"
-        );
-        assert!(
-            !summaries.iter().any(|s| s.contains("recorded.txt")),
-            "an already-recorded file must not be duplicated; events: {summaries:?}"
-        );
+        assert!(hints.is_empty(), "consumed hints are dropped");
     }
 
     /// FR-1.5 best-effort: when the cwd itself cannot be watched (here: it does
@@ -1712,6 +2334,7 @@ mod tests {
             record_binary: false,
             extra_ignore: Vec::new(),
             internal_exclude: Vec::new(),
+            baseline_budget: hh_core::DEFAULT_BASELINE_BUDGET,
         };
         let outcome = spawn_watcher(opts, writer, blobs, "session".into(), Instant::now());
         assert!(

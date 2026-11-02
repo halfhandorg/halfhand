@@ -1,0 +1,25 @@
+-- Migration 0006: file-change before-side provenance and renames.
+--
+-- Adds two nullable columns to `file_changes`:
+--
+--   * `before_source TEXT` — where the before-side content of the change
+--     came from: 'live' (an earlier change the watcher recorded in this
+--     session), 'git' (the git index blob of a file that was clean at session
+--     start), 'baseline' (content captured at session start for a dirty,
+--     untracked or non-git file), or 'none' (no before-side). NULL for rows
+--     written before this migration. 'git' and 'baseline' rows own one
+--     reference on the `before_hash` blob (see `BeforeSource::owns_blob_ref`).
+--
+--   * `renamed_from TEXT` — for a rename, the old path (relative to the
+--     session cwd); `path` holds the new one. NULL otherwise.
+--
+-- Both columns are added by Rust code in `Store::open`
+-- (`add_file_change_provenance_columns`) behind a `PRAGMA table_info` check,
+-- because SQLite has no `ALTER TABLE ADD COLUMN IF NOT EXISTS`; that check is
+-- what makes the migration idempotent (DR-4). The SQL half only adds an index
+-- on `before_hash` (for `hh redact`'s repointing and refcount accounting) and
+-- is `IF NOT EXISTS`. It does not reference the new columns, so it can run
+-- before the Rust half — which must run after the migration runner anyway,
+-- since `file_changes` itself is created by migration 0001 on a fresh DB.
+CREATE INDEX IF NOT EXISTS idx_file_changes_before_hash
+  ON file_changes(before_hash) WHERE before_hash IS NOT NULL;

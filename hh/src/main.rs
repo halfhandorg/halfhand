@@ -220,6 +220,7 @@ fn run_command(args: cli::RunArgs) -> anyhow::Result<ExitCode> {
         record_input: args.record_input || config.record.record_input,
         record_binary: config.record.record_binary,
         extra_ignore: config.record.ignore.clone(),
+        baseline_budget: config.record.baseline_budget,
         internal_exclude,
         hh_version: HH_VERSION.to_string(),
         redactor: record_redactor(&config)?,

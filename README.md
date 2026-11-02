@@ -105,6 +105,7 @@ mkdir -p ~/.config/halfhand   # macOS: ~/Library/Application Support/halfhand
 cat > ~/.config/halfhand/config.toml <<'EOF'
 [record]
 max_file_size = "1GiB"          # default: 4MiB
+baseline_budget = "128MiB"      # default: 32MiB — before-sides of dirty/untracked/non-git files
 ignore = [
     "**/target/**",
     "**/.git/**",

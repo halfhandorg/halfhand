@@ -5,7 +5,8 @@
 //! `git` binary or a non-repo cwd simply yield `None` fields (best-effort, per
 //! "if the cwd is a repo"). We never let git problems fail a recording.
 
-use std::path::Path;
+use std::collections::{HashMap, HashSet};
+use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
 
 /// Git metadata captured for a session (FR-1.2). All fields are `None` if the
@@ -41,6 +42,111 @@ impl GitMeta {
         let dirty = git_exit_ok(cwd, &["diff", "--quiet"]).map(|clean| !clean);
         Self { branch, sha, dirty }
     }
+}
+
+/// Git index snapshot taken at session start, used to resolve the before-side
+/// of the first change to a pre-existing file without copying it (see
+/// docs/recording.md, "Where the before-side comes from").
+///
+/// Maps the absolute path (`cwd` joined with the cwd-relative name git
+/// prints) of every regular file under `cwd` that is **clean against the
+/// index** to the object id of its index blob. A file is clean when it is
+/// tracked at stage 0 (not mid-merge), is a regular file (mode `100644` or
+/// `100755` — not a symlink or submodule), and `git diff-files` does not list
+/// it. Anything else — dirty, untracked, conflicted, or no repository at all —
+/// is absent, and the caller must capture its content itself: diffing a dirty
+/// file against the index (or `HEAD`) would attribute the developer's own
+/// uncommitted edits to the agent.
+///
+/// `git diff-files` does not refresh the index's stat cache (and we never
+/// write the user's index), so a file whose stat data changed but whose
+/// content did not may be reported dirty. That errs on the safe side: the
+/// file is captured as a baseline instead of read from git. Returns `None` if
+/// `cwd` is not inside a work tree or `git` cannot run.
+pub(crate) fn index_clean_blobs(cwd: &Path) -> Option<HashMap<PathBuf, String>> {
+    let staged = git_output_bytes(cwd, &["ls-files", "--stage", "-z"])?;
+    let dirty: HashSet<Vec<u8>> =
+        git_output_bytes(cwd, &["diff-files", "--name-only", "-z", "--relative"])?
+            .split(|&b| b == 0)
+            .filter(|p| !p.is_empty())
+            .map(<[u8]>::to_vec)
+            .collect();
+    let mut conflicted: HashSet<Vec<u8>> = HashSet::new();
+    let mut clean: HashMap<Vec<u8>, String> = HashMap::new();
+    for record in staged.split(|&b| b == 0).filter(|r| !r.is_empty()) {
+        // `<mode> SP <oid> SP <stage> TAB <path>`.
+        let Some(tab) = record.iter().position(|&b| b == b'\t') else {
+            continue;
+        };
+        let (meta, name) = (&record[..tab], &record[tab + 1..]);
+        let Ok(meta) = std::str::from_utf8(meta) else {
+            continue;
+        };
+        let mut fields = meta.split(' ');
+        let (Some(mode), Some(oid), Some(stage)) = (fields.next(), fields.next(), fields.next())
+        else {
+            continue;
+        };
+        if stage != "0" {
+            conflicted.insert(name.to_vec());
+            continue;
+        }
+        if (mode == "100644" || mode == "100755") && !dirty.contains(name) {
+            clean.insert(name.to_vec(), oid.to_string());
+        }
+    }
+    Some(
+        clean
+            .into_iter()
+            .filter(|(name, _)| !conflicted.contains(name))
+            .filter_map(|(name, oid)| Some((cwd.join(path_from_git_bytes(&name)?), oid)))
+            .collect(),
+    )
+}
+
+/// Read the content of index blob `oid` as it would appear in the work tree
+/// at `rel_path` (relative to `cwd`): `git cat-file --filters` applies the
+/// same end-of-line conversion and smudge filters a checkout would, so the
+/// result is comparable byte-for-byte with what was on disk. Falls back to
+/// the raw blob if `--filters` is unsupported (git < 2.11); the caller
+/// verifies the bytes against the session-start content hash either way, so
+/// a filter mismatch can never surface wrong content. `None` if git fails.
+pub(crate) fn read_blob(cwd: &Path, oid: &str, rel_path: &Path) -> Option<Vec<u8>> {
+    let path_arg = format!("--path={}", rel_path.to_string_lossy());
+    git_output_bytes(cwd, &["cat-file", "--filters", &path_arg, oid])
+        .or_else(|| git_output_bytes(cwd, &["cat-file", "blob", oid]))
+}
+
+/// A path as git printed it under `-z` (raw bytes, no quoting). On Unix this
+/// is exact; elsewhere it must be UTF-8 (a non-UTF-8 name is skipped, which
+/// only means that file is captured as a baseline instead).
+// Justification: the `None` is reachable on non-Unix targets (a non-UTF-8
+// name); clippy only sees the Unix arm, which always succeeds.
+#[allow(clippy::unnecessary_wraps)]
+fn path_from_git_bytes(bytes: &[u8]) -> Option<PathBuf> {
+    #[cfg(unix)]
+    {
+        use std::os::unix::ffi::OsStrExt;
+        Some(PathBuf::from(std::ffi::OsStr::from_bytes(bytes)))
+    }
+    #[cfg(not(unix))]
+    {
+        std::str::from_utf8(bytes).ok().map(PathBuf::from)
+    }
+}
+
+/// Run `git` in `cwd` and return raw stdout bytes on success (stderr
+/// discarded, see [`git_output`]).
+fn git_output_bytes(cwd: &Path, args: &[&str]) -> Option<Vec<u8>> {
+    Command::new("git")
+        .args(args)
+        .current_dir(cwd)
+        .stdin(Stdio::null())
+        .stderr(Stdio::null())
+        .output()
+        .ok()
+        .filter(|o| o.status.success())
+        .map(|o| o.stdout)
 }
 
 /// Run `git` in `cwd` with the given args and return stdout on success.

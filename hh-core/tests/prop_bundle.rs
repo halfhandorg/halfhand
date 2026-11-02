@@ -9,8 +9,8 @@
 //! that legitimately change on import.
 
 use hh_core::{
-    bundle, AdapterStatus, AgentKind, ChangeKind, Event, EventKind, FileChange, NewSession,
-    SessionStatus, Store, Uuid,
+    bundle, AdapterStatus, AgentKind, BeforeSource, ChangeKind, Event, EventKind, FileChange,
+    FileChangeProvenance, NewSession, SessionStatus, Store, Uuid,
 };
 use proptest::prelude::*;
 use std::path::PathBuf;
@@ -52,8 +52,20 @@ enum TestEvent {
         path: String,
         before: Option<String>,
         after: Option<String>,
+        /// Index into [`SOURCES`]: where the before-side came from
+        /// (migration 0006). Git/baseline before-sides own a blob reference
+        /// that must survive the round trip.
+        source: u8,
+        renamed_from: Option<String>,
     },
 }
+
+const SOURCES: [BeforeSource; 4] = [
+    BeforeSource::Live,
+    BeforeSource::Git,
+    BeforeSource::Baseline,
+    BeforeSource::None,
+];
 
 fn text_strategy() -> impl Strategy<Value = String> {
     "[a-zA-Z0-9 ._-]{0,24}"
@@ -73,11 +85,17 @@ fn test_event_strategy() -> impl Strategy<Value = TestEvent> {
             text_strategy(),
             prop::option::of(text_strategy()),
             prop::option::of(text_strategy()),
+            0u8..4,
+            prop::option::of(text_strategy()),
         )
-            .prop_map(|(path, before, after)| TestEvent::FileChange {
-                path: format!("file-{path}.txt"),
-                before,
-                after,
+            .prop_map(|(path, before, after, source, renamed_from)| {
+                TestEvent::FileChange {
+                    path: format!("file-{path}.txt"),
+                    before,
+                    after,
+                    source,
+                    renamed_from: renamed_from.map(|r| format!("old-{r}.txt")),
+                }
             }),
     ]
 }
@@ -149,6 +167,7 @@ fn append_tool_pair(
     result_ts
 }
 
+#[allow(clippy::too_many_arguments)] // one file change's full description
 fn append_file_change(
     store: &Store,
     writer: &hh_core::EventWriter,
@@ -157,8 +176,20 @@ fn append_file_change(
     path: &str,
     before: Option<&str>,
     after: Option<&str>,
+    provenance: FileChangeProvenance,
 ) {
-    let before_hash = before.map(|c| store.blobs().put(c.as_bytes()).unwrap().hash);
+    // Keep the generated rows to states the recorder actually writes: a
+    // `none` before-side has no hash, and a `live` one is a blob the session
+    // already references (here: this change's own after-side — a touch).
+    // Only git/baseline before-sides are blobs held solely by their row.
+    let before = match provenance.before_source {
+        Some(BeforeSource::None) => None,
+        Some(BeforeSource::Live) => after,
+        _ => before,
+    };
+    let before_out = before.map(|c| store.blobs().put(c.as_bytes()).unwrap());
+    let provenance = provenance.with_before_size(before_out.as_ref().map(|o| o.size));
+    let before_hash = before_out.map(|o| o.hash);
     let after_out = after.map(|c| store.blobs().put(c.as_bytes()).unwrap());
     let change_kind = match (before, after) {
         (None, Some(_)) => ChangeKind::Created,
@@ -166,7 +197,7 @@ fn append_file_change(
         _ => ChangeKind::Modified,
     };
     writer
-        .append_file_change(
+        .append_file_change_with_provenance(
             Event {
                 session_id: sid.to_string(),
                 ts_ms: ts,
@@ -186,6 +217,7 @@ fn append_file_change(
                 after_hash: after_out.map(|o| o.hash),
                 is_binary: false,
             },
+            provenance,
         )
         .unwrap();
 }
@@ -213,6 +245,8 @@ fn record(store: &Store, events: &[TestEvent]) -> String {
                 path,
                 before,
                 after,
+                source,
+                renamed_from,
             } => append_file_change(
                 store,
                 &writer,
@@ -221,6 +255,8 @@ fn record(store: &Store, events: &[TestEvent]) -> String {
                 path,
                 before.as_deref(),
                 after.as_deref(),
+                FileChangeProvenance::new(SOURCES[usize::from(*source % 4)])
+                    .with_renamed_from(renamed_from.clone()),
             ),
         }
     }
@@ -261,6 +297,12 @@ proptest! {
         let target_tmp = TempDir::new().unwrap();
         let target = Store::open(&target_tmp.path().join("hh.db"), &target_tmp.path().join("blobs")).unwrap();
         let created = target.import(&bundle_a).unwrap();
+        // `hh gc` in the importing store must not reclaim anything the
+        // imported session references — in particular a git/baseline
+        // before-side, whose only reference is its own `file_changes` row.
+        // (If import forgot to refcount it, the re-export below would fail
+        // on the missing blob.)
+        target.prune_orphan_blobs().unwrap();
 
         let bytes_b = bundle::export(&target, &created.id, "test", None).unwrap();
         let bundle_b = bundle::parse(&bytes_b).unwrap();
@@ -280,5 +322,11 @@ proptest! {
         );
         prop_assert_ne!(bundle_a.session["id"].clone(), bundle_b.session["id"].clone());
         prop_assert_eq!(&bundle_b.session["imported_from"], &bundle_a.session["id"]);
+
+        // ...and the refcounts import took are exactly balanced: deleting the
+        // imported session and running gc leaves the target store empty.
+        target.delete_session(&created.id).unwrap();
+        target.prune_orphan_blobs().unwrap();
+        prop_assert!(target.blobs().iter_hashes().unwrap().is_empty());
     }
 }

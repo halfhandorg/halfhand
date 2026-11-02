@@ -92,7 +92,11 @@ Every hash any event's `blob_hash` or `file_change.before_hash`/`after_hash`
 references is packed under `blobs/<hash[0..2]>/<hash>`, content-addressed and
 BLAKE3-verified on import. This is the one thing plain `hh export` (no
 `--bundle`) cannot carry: its JSON only ever includes hash *references* for
-file changes, never the bytes.
+file changes, never the bytes. A `file_change` also carries
+`before_source` and `renamed_from` when they were recorded, so `hh import`
+re-takes the reference a `git`/`baseline` before-side blob holds and `hh gc`
+in the importing store keeps it (see
+[Recording](./recording.md#file-changes-where-the-before-side-comes-from)).
 
 ### Redaction and hash remapping
 

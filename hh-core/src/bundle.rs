@@ -131,7 +131,7 @@ pub fn export(
     let mut events_json: Vec<serde_json::Value> = Vec::with_capacity(raw_events.len());
     for (seq, r) in raw_events.iter().enumerate() {
         let correlates_seq = r.correlates.and_then(|cid| id_to_seq.get(&cid).copied());
-        let file_change_json = r.file_change.as_ref().map(file_change_to_json);
+        let file_change_json = bundle_file_change_json(store, r)?;
         let mut ev = serde_json::json!({
             "seq": u64::try_from(seq).unwrap_or(u64::MAX),
             "ts_ms": r.ts_ms,
@@ -464,6 +464,27 @@ fn session_to_bundle_json(row: &SessionRow) -> serde_json::Value {
         "cwd": row.cwd.to_string_lossy(),
         "imported_from": row.imported_from,
     })
+}
+
+/// The bundle's `file_change` object for one raw event, including the
+/// migration-0006 provenance so an import can re-take the before-side blob
+/// reference a git/baseline before-side owns (otherwise `hh gc` would reclaim
+/// it in the importing store). Provenance keys are only added when recorded,
+/// so bundles of pre-0006 sessions are byte-identical to before.
+fn bundle_file_change_json(store: &Store, r: &RawEventRow) -> Result<Option<serde_json::Value>> {
+    let Some(fc) = r.file_change.as_ref() else {
+        return Ok(None);
+    };
+    let mut json = file_change_to_json(fc);
+    if let Some(p) = store.file_change_provenance(r.id)? {
+        if let Some(source) = p.before_source {
+            json["before_source"] = serde_json::json!(source.to_string());
+        }
+        if let Some(from) = p.renamed_from {
+            json["renamed_from"] = serde_json::json!(from);
+        }
+    }
+    Ok(Some(json))
 }
 
 /// The JSON object for a `file_changes` row, as carried in a bundle event.

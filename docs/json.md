@@ -111,7 +111,7 @@ the built-in adapters emit today:
 | `mcp_response` | the forwarded JSON-RPC response object, plus `{ "latency_ms": <int> }` |
 | `mcp_notification` | the forwarded JSON-RPC notification object |
 | `error` | `{ "message": "…" }` |
-| `file_change` | `null` (the structured change is in `file_change`) |
+| `file_change` | `{ "path", "change_kind", "before_source" }` — the structured change is in `file_change`; `before_source` (one of `live`, `git`, `baseline`, `none`; absent on sessions recorded before it was introduced) says where the before-side came from (see [Recording](./recording.md#file-changes-where-the-before-side-comes-from)). A rename adds `"renamed_from": "<old path>"`. |
 | `lifecycle` | `null`; `{ "event": "start" | "exit" }`; or (added in `schema:2`, produced by `hh redact`) `{ "redaction_audit": { "secrets": [{ "type", "hash8", "count" }], "events_rewritten", "blobs_rewritten" } }` — the session self-documenting what a redaction removed, never the secret material itself. |
 
 Future adapter bodies are additive: new keys may appear within `body` without
@@ -123,7 +123,7 @@ bumping `schema`.
 |---|---|---|
 | `path` | string | Path relative to the session's `cwd`. |
 | `change_kind` | string | One of `created`, `modified`, `deleted`. |
-| `before_hash` | string \| null | BLAKE3 hex of the pre-change content blob, if captured. `null` for a created file, or when the pre-change content exceeded `max_file_size` and was not stored. |
+| `before_hash` | string \| null | BLAKE3 hex of the pre-change content blob, if captured. For the first change to a file that existed before the session, this is its session-start content (from the git index for a clean file, else captured at start). `null` for a created file, or when the pre-change content was not captured (over `max_file_size` or `baseline_budget`, or binary with `record_binary` off). For a rename (`body.renamed_from` set; `change_kind` is `modified`) it is the old path's content. |
 | `after_hash` | string \| null | BLAKE3 hex of the post-change content blob, if captured. `null` for a deleted file. |
 | `is_binary` | boolean | Whether the file was detected as binary. |
 

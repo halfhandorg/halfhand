@@ -98,8 +98,10 @@ guarantees nothing leaves the machine unredacted by accident.
 ## Commands
 
 - **`hh scan <session|last|--all> [--json]`** — runs the detectors over every
-  event summary, body, referenced blob, and the session's recorded command
-  line. Reports `(type, step, location, hash8)` — never the secret itself.
+  event summary, body, referenced blob (including a file change's stored
+  `git`/`baseline` before-side, which only its `file_changes` row references
+  — see [Recording](./recording.md#file-changes-where-the-before-side-comes-from)),
+  and the session's recorded command line. Reports `(type, step, location, hash8)` — never the secret itself.
   Exit code **4** when findings exist ([Exit codes](./exit-codes.md); the documented redaction/policy exit
   code), 0 when clean: CI can gate on it.
 - **`hh redact <session> [--yes]`** — applies redaction in place:
@@ -107,7 +109,8 @@ guarantees nothing leaves the machine unredacted by accident.
   2. rewrites affected blobs: redacted content is `put` as a new blob, every
      reference in this session (`events.blob_hash`,
      `file_changes.before_hash/after_hash`) is repointed, refcounts move
-     with the references;
+     with the references (an owned `git`/`baseline` before-side counts as a
+     reference);
   3. originals that reach refcount 0 are **shredded** (best-effort overwrite
      with zeros + fsync, then unlink) and their rows GC'd;
   4. a redaction **audit event** (kind `lifecycle`,

@@ -47,6 +47,53 @@ in CI rather than tracking `latest` until 1.0.
   format and on `hh replay --web`, `-o -` means stdout. (Previously,
   `hh export -o -` created a file literally named `-`.)
 
+### Fixed — diffs of the first change to a pre-existing file
+
+- **A one-line edit to a file that existed before the session now shows one
+  removed and one added line.** Before this fix, the first change to any
+  pre-existing file was recorded with no before-side. `hh inspect --diff`, the
+  replay diff pane and `hh export --html` showed the whole file as added,
+  with no removed lines. Deleting a pre-existing file showed
+  "(content not captured)", and a rename lost its old path entirely. The
+  session-start scan kept only each file's hash, never its content.
+- `hh run` now resolves the before-side of a pre-existing file from session
+  start. A file that was **clean against the git index** reads the index
+  blob (`git cat-file --filters`, checked against the session-start content
+  hash). A file that was **dirty, untracked, or outside a git repository**
+  uses its content captured at session start. Halfhand never diffs against
+  `HEAD` or the index for a dirty file, so your uncommitted edits are not
+  attributed to the agent. See `docs/recording.md`, "File changes: where the
+  before-side comes from".
+- **Deletes keep their content**, and **renames record as one change** on the
+  new path with the old path in `renamed_from`. `hh inspect --diff` prints
+  `rename from` / `rename to` the way git does. A rename was previously
+  recorded as a "modified" new file with no before-side, and the old path's
+  delete was dropped.
+- Before-side blobs follow the existing rules: `max_file_size`, the binary
+  opt-out, and record-time redaction. Each one is refcounted by its own
+  `file_changes` row, so `hh rm`/`hh gc` reclaim it, `hh scan`/`hh redact`
+  cover it, and `hh export --bundle`/`hh import` carry it.
+
+### Added — `[record] baseline_budget`, file-change provenance
+
+- `[record] baseline_budget` (default `32MiB`, `0` disables) caps how much
+  dirty, untracked or non-git content `hh run` holds in memory at session
+  start as before-sides. Git-clean files don't count against it. Files past
+  the budget record their first change without a before-side, and `hh run`
+  prints one note saying so.
+- Migration 0006 adds `file_changes.before_source` (`live` | `git` |
+  `baseline` | `none`) and `file_changes.renamed_from`. Both are added behind a
+  `PRAGMA table_info` check, so the migration is idempotent. Rows recorded
+  earlier keep `NULL`. Additive only: `change_kind` keeps its existing
+  values, and a rename is `modified` with `renamed_from` set.
+- `--json`: a `file_change` event's `body` gains `before_source` and, for a
+  rename, `renamed_from` (additive, `schema` stays `2`).
+- `hh-core`: `BeforeSource`, `FileChangeProvenance`,
+  `EventWriter::append_file_change_with_provenance` and
+  `Store::file_change_provenance`, all additive. The new types are
+  `#[non_exhaustive]`. `RecordConfig::baseline_budget` and
+  `DEFAULT_BASELINE_BUDGET` are also new.
+
 ### Deprecated — `--adapter codex-cli`, `--adapter gemini-cli`, `--adapter claude-desktop`
 
 - **The Codex CLI and Gemini CLI adapters never captured structured
