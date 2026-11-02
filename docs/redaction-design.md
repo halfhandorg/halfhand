@@ -100,7 +100,7 @@ guarantees nothing leaves the machine unredacted by accident.
 - **`hh scan <session|last|--all> [--json]`** — runs the detectors over every
   event summary, body, referenced blob, and the session's recorded command
   line. Reports `(type, step, location, hash8)` — never the secret itself.
-  Exit code **4** when findings exist (the documented redaction/policy exit
+  Exit code **4** when findings exist ([Exit codes](./exit-codes.md); the documented redaction/policy exit
   code), 0 when clean: CI can gate on it.
 - **`hh redact <session> [--yes]`** — applies redaction in place:
   1. rewrites `events.summary` / `events.body_json`;

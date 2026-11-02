@@ -24,7 +24,9 @@ until `1.0.0` ships (see `README.md`).
   release. Halfhand does not do major-version-only removals within the CLI —
   a deprecation warning must have shipped first, full stop.
 - Exit codes are part of the contract, tested by
-  `hh/tests/cli_conformance.rs`:
+  `hh/tests/cli_conformance.rs`. The full per-command reference, including
+  `hh run`/`hh mcp-proxy` passing the wrapped command's code through and the
+  known gaps, is [`docs/exit-codes.md`](docs/exit-codes.md):
 
   | Code | Meaning | Where |
   |---|---|---|

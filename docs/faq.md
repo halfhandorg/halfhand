@@ -17,7 +17,8 @@ removes a session and garbage-collects its blobs.
 
 Yes — prompts and outputs may contain secrets you typed or the agent emitted.
 `hh scan` reports what it found (type, step, location — never the secret
-itself) and exits 4 when findings exist, so CI can gate on a clean scan.
+itself) and exits 4 when findings exist, so CI can gate on a clean scan
+([Exit codes](./exit-codes.md)).
 `hh redact` rewrites events and blobs in place, replacing each secret with
 `{{REDACTED:<type>:<hash8>}}` and securely deleting originals. Exports are
 **always redacted by default**; `--no-redact` requires interactive
