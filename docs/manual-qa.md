@@ -90,13 +90,19 @@ hh run -- codex          # small prompt, let it finish
 - [ ] **Linux** — **macOS**: **Records.** `✓ Recorded session <id>`, exit 0.
 - [ ] **Linux** — **macOS**: **Detected as Codex.** `hh list --json` shows
   `agent_kind: "codex-cli"`.
-- [ ] **Linux** — **macOS**: **Structured events.** `hh inspect <id> --json`
-  emits NDJSON with `schema: 2`; tool calls/results correlate.
-- [ ] **Linux** — **macOS**: **Replay + inspect** read back correctly.
+- [ ] **Linux** — **macOS**: **Terminal + file changes only.** The Codex
+  adapter does not capture structured events (`docs/adapters.md`): expect one
+  `adapter degraded` warning on exit and `adapter_status: "degraded"` in
+  `hh list --json`. Terminal output and file changes are present.
+- [ ] **Linux** — **macOS**: **Replay + inspect** read back the terminal and
+  file changes correctly.
+- [ ] **Linux** — **macOS**: **Deprecation warning.**
+  `hh run --adapter codex-cli -- true` prints exactly one
+  `hh: warning: \`--adapter codex-cli\` is deprecated; …` line and exits 0.
 
 If Codex was unavailable on every OS: record **Codex: N/A this release** and
-note it in the release announcement (the adapter + its fuzz target still ship;
-this is a coverage caveat, not a blocker).
+note it in the release announcement (this is a coverage caveat, not a
+blocker).
 
 ---
 

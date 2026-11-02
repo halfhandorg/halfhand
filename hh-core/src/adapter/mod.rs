@@ -6,8 +6,14 @@
 //! [`Event::correlates`], and appends to the single-writer task. The adapter
 //! receives an `Arc<BlobStore>` (for >256 KiB spillover) and a stop flag, but
 //! **no `EventWriter`** — keeping it unit-testable without a database and the
-//! writer ownership in `hh-record`. A future Codex adapter is a new impl + one
-//! new branch in [`select`]; `hh-record` is unchanged.
+//! writer ownership in `hh-record`. A new adapter is a new impl + one new branch
+//! in [`select`]; `hh-record` is unchanged.
+//!
+//! Only the Claude Code adapter (and Claude Desktop, which reuses its parser)
+//! converts transcripts into structured events. The Codex CLI and Gemini CLI
+//! adapters locate their agent's transcript but parse it with the Claude Code
+//! parser, so they convert nothing and degrade; they are deprecated (see
+//! [`CodexAdapter`], [`GeminiAdapter`]).
 //!
 //! ## Cross-event correlation
 //!
@@ -1811,20 +1817,18 @@ fn desktop_index_summary(diag: &DesktopDiag) -> String {
 // Codex CLI adapter
 // ---------------------------------------------------------------------------
 
-/// The Codex CLI adapter: tails `~/.codex/sessions/YYYY/MM/DD/rollout-*.jsonl`
-/// and converts records to `user_message` / `agent_message` / `thinking` /
-/// `tool_call` / `tool_result` events. Stateless; the tailer thread holds all
-/// mutable state.
+/// The Codex CLI adapter: locates `~/.codex/sessions/YYYY/MM/DD/rollout-*.jsonl`
+/// and tails it. Stateless; the tailer thread holds all mutable state.
 ///
-/// ## Experimental
+/// ## Deprecated — does not capture structured events
 ///
-/// This adapter is built against the researched Codex CLI rollout format
-/// (<https://github.com/openai/codex>) without real captured fixture files.
-/// The parser handles the documented record types (`session_meta`,
-/// `turn_context`, `response_item`, `event_msg`) and degrades gracefully on
-/// unknown types. If you encounter a session that produces 0 steps despite
-/// having a transcript, run `HH_DEBUG=1 hh run -- codex ...` and file an issue
-/// with the debug output.
+/// The tailer feeds every line through the Claude Code record parser
+/// ([`parse_record`]), which does not understand the Codex rollout format, so
+/// a real Codex session converts zero records and ends `degraded`
+/// (`jsonl_schema_drift`). Terminal output and file changes are still
+/// recorded. `hh run --adapter codex-cli` prints a deprecation warning and is
+/// scheduled for removal in the next minor release (STABILITY.md (a));
+/// see `docs/adapters.md`.
 #[derive(Debug, Clone)]
 pub struct CodexAdapter;
 
@@ -2137,311 +2141,21 @@ fn tail_codex_file(
 }
 
 // ---------------------------------------------------------------------------
-// Codex CLI record parser
-// ---------------------------------------------------------------------------
-
-/// Parse one Codex CLI JSONL record into events. Pure given `(value, ts_ms,
-/// blobs)`: deterministic output for fixed inputs. Unknown `type`s and
-/// unexpected shapes produce no events (tolerant).
-///
-/// Codex rollout format: each line is `{"type": "<variant>", "timestamp": "...",
-/// "payload": {...}}`. The payload's inner `type` discriminates further for
-/// `response_item` and `event_msg` variants.
-#[must_use]
-#[allow(dead_code)] // called from the tailer thread; not yet wired through parse_and_send
-pub(crate) fn parse_codex_record(
-    value: &serde_json::Value,
-    session_id: &str,
-    ts_ms: i64,
-    blobs: &BlobStore,
-) -> ParsedRecord {
-    let mut out = ParsedRecord::default();
-    let Some(obj) = value.as_object() else {
-        return out;
-    };
-    let ty = obj.get("type").and_then(|v| v.as_str()).unwrap_or("");
-    let payload = obj.get("payload");
-    match ty {
-        "response_item" => {
-            if let Some(p) = payload {
-                parse_codex_response_item(p, session_id, ts_ms, blobs, &mut out);
-            }
-        }
-        "event_msg" => {
-            if let Some(p) = payload {
-                parse_codex_event_msg(p, session_id, ts_ms, blobs, &mut out);
-            }
-        }
-        // session_meta, turn_context, session_state, compacted: skip
-        _ => {}
-    }
-    out
-}
-
-/// Parse a `response_item` payload into events.
-#[allow(dead_code, clippy::too_many_lines)]
-fn parse_codex_response_item(
-    payload: &serde_json::Value,
-    session_id: &str,
-    ts_ms: i64,
-    blobs: &BlobStore,
-    out: &mut ParsedRecord,
-) {
-    let Some(obj) = payload.as_object() else {
-        return;
-    };
-    let inner_ty = obj.get("type").and_then(|v| v.as_str()).unwrap_or("");
-    match inner_ty {
-        "message" => {
-            let role = obj.get("role").and_then(|v| v.as_str()).unwrap_or("");
-            let content = obj.get("content").and_then(|v| v.as_array());
-            let text = content.and_then(|arr| {
-                arr.iter()
-                    .filter_map(|b| b.get("text").and_then(|t| t.as_str()))
-                    .collect::<Vec<_>>()
-                    .join("\n")
-                    .into()
-            });
-            let kind = match role {
-                "assistant" => EventKind::AgentMessage,
-                _ => EventKind::UserMessage,
-            };
-            if let Some(t) = text {
-                out.events
-                    .push(text_event(session_id, ts_ms, kind, &t, blobs));
-            }
-            out.is_assistant_message = role == "assistant";
-        }
-        "reasoning" => {
-            // Reasoning content is usually encrypted; emit a placeholder.
-            let summary = obj
-                .get("summary")
-                .and_then(|v| v.as_array())
-                .map(|arr| {
-                    arr.iter()
-                        .filter_map(|b| b.get("text").and_then(|t| t.as_str()))
-                        .collect::<Vec<_>>()
-                        .join("\n")
-                })
-                .unwrap_or_default();
-            let text = if summary.is_empty() {
-                "reasoning (encrypted)".to_string()
-            } else {
-                summary
-            };
-            out.events.push(text_event(
-                session_id,
-                ts_ms,
-                EventKind::Thinking,
-                &text,
-                blobs,
-            ));
-        }
-        "function_call" | "custom_tool_call" => {
-            let call_id = obj.get("call_id").and_then(|v| v.as_str()).unwrap_or("");
-            let name = obj.get("name").and_then(|v| v.as_str()).unwrap_or("");
-            let input = if inner_ty == "function_call" {
-                // function_call.arguments is a JSON string — double-parse
-                obj.get("arguments")
-                    .and_then(|v| v.as_str())
-                    .and_then(|s| serde_json::from_str(s).ok())
-                    .unwrap_or(serde_json::Value::Null)
-            } else {
-                // custom_tool_call.input is free-form text
-                obj.get("input").cloned().unwrap_or(serde_json::Value::Null)
-            };
-            let body = serde_json::json!({
-                "name": name,
-                "input": input,
-                "correlate_key": call_id,
-            });
-            let (body_json, blob_hash, blob_size) = maybe_spill(body, blobs);
-            out.events.push(Event {
-                session_id: session_id.to_string(),
-                ts_ms,
-                kind: EventKind::ToolCall,
-                step: None,
-                summary: truncate_summary(&format!("tool_call: {name}")),
-                body_json,
-                blob_hash,
-                blob_size,
-                correlates: None,
-            });
-        }
-        "function_call_output" | "custom_tool_call_output" => {
-            let call_id = obj.get("call_id").and_then(|v| v.as_str()).unwrap_or("");
-            let output = obj.get("output").and_then(|v| v.as_str()).unwrap_or("");
-            let body = serde_json::json!({
-                "tool_use_id": call_id,
-                "is_error": false,
-                "content": output,
-                "correlate_key": call_id,
-            });
-            let (body_json, blob_hash, blob_size) = maybe_spill(body, blobs);
-            out.events.push(Event {
-                session_id: session_id.to_string(),
-                ts_ms,
-                kind: EventKind::ToolResult,
-                step: None,
-                summary: truncate_summary(&format!("tool_result: {}", one_line(output))),
-                body_json,
-                blob_hash,
-                blob_size,
-                correlates: None,
-            });
-        }
-        _ => {} // unknown response_item type: skip (tolerant)
-    }
-}
-
-/// Parse an `event_msg` payload into events.
-#[allow(dead_code, clippy::too_many_lines)]
-fn parse_codex_event_msg(
-    payload: &serde_json::Value,
-    session_id: &str,
-    ts_ms: i64,
-    blobs: &BlobStore,
-    out: &mut ParsedRecord,
-) {
-    let Some(obj) = payload.as_object() else {
-        return;
-    };
-    let inner_ty = obj.get("type").and_then(|v| v.as_str()).unwrap_or("");
-    match inner_ty {
-        "user_message" => {
-            if let Some(text) = extract_codex_event_text(obj) {
-                out.events.push(text_event(
-                    session_id,
-                    ts_ms,
-                    EventKind::UserMessage,
-                    &text,
-                    blobs,
-                ));
-            }
-        }
-        "agent_message" => {
-            if let Some(text) = extract_codex_event_text(obj) {
-                out.events.push(text_event(
-                    session_id,
-                    ts_ms,
-                    EventKind::AgentMessage,
-                    &text,
-                    blobs,
-                ));
-            }
-            out.is_assistant_message = true;
-        }
-        "token_count" => {
-            // Extract model/usage from token_count events
-            if let Some(info) = obj.get("info").and_then(|v| v.as_object()) {
-                if info.get("total_token_usage").is_some() {
-                    out.is_assistant_message = true;
-                    // Store usage in the OutcomeAcc via a side channel: the
-                    // tailer checks `is_assistant_message` and calls
-                    // `acc.note_assistant` with the payload. We set the flag
-                    // so the tailer knows to extract usage from this record.
-                    // The actual usage is in `info.total_token_usage`.
-                }
-            }
-        }
-        "exec_command_end" | "patch_apply_end" => {
-            // These are tool results from shell commands / patch applications.
-            let call_id = obj.get("call_id").and_then(|v| v.as_str()).unwrap_or("");
-            let aggregated_output = obj
-                .get("aggregated_output")
-                .and_then(|v| v.as_str())
-                .unwrap_or("");
-            let stdout = obj.get("stdout").and_then(|v| v.as_str()).unwrap_or("");
-            let stderr = obj.get("stderr").and_then(|v| v.as_str()).unwrap_or("");
-            let exit_code = obj
-                .get("exit_code")
-                .and_then(serde_json::Value::as_i64)
-                .unwrap_or(0);
-            let content = if aggregated_output.is_empty() {
-                let mut parts = Vec::new();
-                if !stdout.is_empty() {
-                    parts.push(stdout);
-                }
-                if !stderr.is_empty() {
-                    parts.push(stderr);
-                }
-                parts.join("\n")
-            } else {
-                aggregated_output.to_string()
-            };
-            let body = serde_json::json!({
-                "tool_use_id": call_id,
-                "is_error": exit_code != 0,
-                "content": content,
-                "correlate_key": call_id,
-            });
-            let (body_json, blob_hash, blob_size) = maybe_spill(body, blobs);
-            let summary = if exit_code != 0 {
-                format!("tool_result (error): {}", one_line(&content))
-            } else {
-                format!("tool_result: {}", one_line(&content))
-            };
-            out.events.push(Event {
-                session_id: session_id.to_string(),
-                ts_ms,
-                kind: EventKind::ToolResult,
-                step: None,
-                summary: truncate_summary(&summary),
-                body_json,
-                blob_hash,
-                blob_size,
-                correlates: None,
-            });
-        }
-        _ => {} // unknown event_msg type: skip (tolerant)
-    }
-}
-
-/// Extract text content from a Codex event_msg payload. The text may be in
-/// `content` (string or array of parts) or `text` (direct string).
-#[allow(dead_code)]
-fn extract_codex_event_text(obj: &serde_json::Map<String, serde_json::Value>) -> Option<String> {
-    // Try `content` first (array of parts or string)
-    if let Some(content) = obj.get("content") {
-        match content {
-            serde_json::Value::String(s) => return Some(s.clone()),
-            serde_json::Value::Array(arr) => {
-                let parts: String = arr
-                    .iter()
-                    .filter_map(|b| b.get("text").and_then(|t| t.as_str()))
-                    .collect::<Vec<_>>()
-                    .join("\n");
-                if !parts.is_empty() {
-                    return Some(parts);
-                }
-            }
-            _ => {}
-        }
-    }
-    // Fallback: `text` field
-    if let Some(text) = obj.get("text").and_then(|v| v.as_str()) {
-        return Some(text.to_string());
-    }
-    None
-}
-
-// ---------------------------------------------------------------------------
 // Gemini CLI adapter
 // ---------------------------------------------------------------------------
 
-/// The Gemini CLI adapter: tails `~/.gemini/tmp/<hash>/chats/session-*.jsonl`
-/// and converts records to `user_message` / `agent_message` / `thinking` /
-/// `tool_call` / `tool_result` events. Stateless; the tailer thread holds all
-/// mutable state.
+/// The Gemini CLI adapter: locates `~/.gemini/tmp/<hash>/chats/session-*.jsonl`
+/// and tails it. Stateless; the tailer thread holds all mutable state.
 ///
-/// ## Experimental
+/// ## Deprecated — does not capture structured events
 ///
-/// This adapter is built against the researched Gemini CLI session format
-/// (<https://github.com/google-gemini/gemini-cli>). The parser handles the
-/// documented record types (`session_metadata`, `user`, `gemini`,
-/// `message_update`) and degrades gracefully on unknown types. If you encounter
-/// a session that produces 0 steps despite having a transcript, run
-/// `HH_DEBUG=1 hh run -- gemini ...` and file an issue with the debug output.
+/// The tailer feeds every line through the Claude Code record parser
+/// ([`parse_record`]), which does not understand the Gemini session format, so
+/// a real Gemini session converts zero records and ends `degraded`
+/// (`jsonl_schema_drift`). Terminal output and file changes are still
+/// recorded. `hh run --adapter gemini-cli` prints a deprecation warning and is
+/// scheduled for removal in the next minor release (STABILITY.md (a));
+/// see `docs/adapters.md`.
 #[derive(Debug, Clone)]
 pub struct GeminiAdapter;
 
@@ -2709,163 +2423,6 @@ fn tail_gemini_file(
     }
     drain_complete_lines(&mut buf, &mut line, ctx, tx, start, acc, &mut stats);
     stats
-}
-
-// ---------------------------------------------------------------------------
-// Gemini CLI record parser
-// ---------------------------------------------------------------------------
-
-/// Parse one Gemini CLI JSONL record into events. Pure given `(value, ts_ms,
-/// blobs)`: deterministic output for fixed inputs. Unknown `type`s and
-/// unexpected shapes produce no events (tolerant).
-///
-/// Gemini session format: each line is a JSON object with a `type` field.
-/// Types: `session_metadata` (skip), `user` (user message), `gemini` (model
-/// message with optional tool calls/thoughts), `message_update` (skip).
-#[must_use]
-#[allow(dead_code, clippy::too_many_lines)] // called from the tailer thread; not yet wired through parse_and_send
-pub(crate) fn parse_gemini_record(
-    value: &serde_json::Value,
-    session_id: &str,
-    ts_ms: i64,
-    blobs: &BlobStore,
-) -> ParsedRecord {
-    let mut out = ParsedRecord::default();
-    let Some(obj) = value.as_object() else {
-        return out;
-    };
-    let ty = obj.get("type").and_then(|v| v.as_str()).unwrap_or("");
-    match ty {
-        "user" => {
-            if let Some(text) = extract_gemini_text(obj) {
-                out.events.push(text_event(
-                    session_id,
-                    ts_ms,
-                    EventKind::UserMessage,
-                    &text,
-                    blobs,
-                ));
-            }
-        }
-        "gemini" => {
-            // Extract text content
-            if let Some(text) = extract_gemini_text(obj) {
-                out.events.push(text_event(
-                    session_id,
-                    ts_ms,
-                    EventKind::AgentMessage,
-                    &text,
-                    blobs,
-                ));
-            }
-            // Extract thoughts → Thinking events
-            if let Some(thoughts) = obj.get("thoughts").and_then(|v| v.as_array()) {
-                for thought in thoughts {
-                    if let Some(text) = thought.get("text").and_then(|v| v.as_str()) {
-                        out.events.push(text_event(
-                            session_id,
-                            ts_ms,
-                            EventKind::Thinking,
-                            text,
-                            blobs,
-                        ));
-                    }
-                }
-            }
-            // Extract tool calls
-            if let Some(tool_calls) = obj.get("toolCalls").and_then(|v| v.as_array()) {
-                for tc in tool_calls {
-                    if let Some(tc_obj) = tc.as_object() {
-                        let call_id = tc_obj.get("id").and_then(|v| v.as_str()).unwrap_or("");
-                        let name = tc_obj.get("name").and_then(|v| v.as_str()).unwrap_or("");
-                        let input = tc_obj
-                            .get("input")
-                            .cloned()
-                            .unwrap_or(serde_json::Value::Null);
-                        let body = serde_json::json!({
-                            "name": name,
-                            "input": input,
-                            "correlate_key": call_id,
-                        });
-                        let (body_json, blob_hash, blob_size) = maybe_spill(body, blobs);
-                        out.events.push(Event {
-                            session_id: session_id.to_string(),
-                            ts_ms,
-                            kind: EventKind::ToolCall,
-                            step: None,
-                            summary: truncate_summary(&format!("tool_call: {name}")),
-                            body_json,
-                            blob_hash,
-                            blob_size,
-                            correlates: None,
-                        });
-                        // If the tool call has a result inline, emit a ToolResult too
-                        if let Some(result) = tc_obj.get("result").and_then(|v| v.as_array()) {
-                            let result_text: String = result
-                                .iter()
-                                .filter_map(|p| p.get("text").and_then(|t| t.as_str()))
-                                .collect::<Vec<_>>()
-                                .join("\n");
-                            let body = serde_json::json!({
-                                "tool_use_id": call_id,
-                                "is_error": false,
-                                "content": result_text,
-                                "correlate_key": call_id,
-                            });
-                            let (body_json, blob_hash, blob_size) = maybe_spill(body, blobs);
-                            out.events.push(Event {
-                                session_id: session_id.to_string(),
-                                ts_ms,
-                                kind: EventKind::ToolResult,
-                                step: None,
-                                summary: truncate_summary(&format!(
-                                    "tool_result: {}",
-                                    one_line(&result_text)
-                                )),
-                                body_json,
-                                blob_hash,
-                                blob_size,
-                                correlates: None,
-                            });
-                        }
-                    }
-                }
-            }
-            // Extract token usage
-            if obj.get("tokens").is_some() {
-                out.is_assistant_message = true;
-            }
-            // Extract model
-            if let Some(_model) = obj.get("model").and_then(|v| v.as_str()) {
-                out.is_assistant_message = true;
-            }
-        }
-        // session_metadata, message_update: skip
-        _ => {}
-    }
-    out
-}
-
-/// Extract text content from a Gemini message record. The content is an array
-/// of parts, each with a `text` field, or a direct string.
-fn extract_gemini_text(obj: &serde_json::Map<String, serde_json::Value>) -> Option<String> {
-    if let Some(content) = obj.get("content") {
-        match content {
-            serde_json::Value::String(s) => return Some(s.clone()),
-            serde_json::Value::Array(arr) => {
-                let parts: String = arr
-                    .iter()
-                    .filter_map(|b| b.get("text").and_then(|t| t.as_str()))
-                    .collect::<Vec<_>>()
-                    .join("\n");
-                if !parts.is_empty() {
-                    return Some(parts);
-                }
-            }
-            _ => {}
-        }
-    }
-    None
 }
 
 // ---------------------------------------------------------------------------
@@ -3228,16 +2785,16 @@ fn file_mtime_ms(path: &Path) -> i64 {
         .map_or(0, system_time_to_unix_ms)
 }
 
-/// Fuzz-only entry points into the otherwise-private Claude/Codex/Gemini JSONL
-/// parsers (`cargo fuzz` targets `claude_jsonl`, `codex_jsonl`, `gemini_jsonl`).
+/// Fuzz-only entry points into the otherwise-private Claude JSONL parser and
+/// Claude Desktop discovery (`cargo fuzz` targets `claude_jsonl`,
+/// `claude_desktop_jsonl`, `claude_desktop_index`). The Codex CLI and Gemini
+/// CLI tailers feed every line through the same [`parse_record`] path, so
+/// `claude_jsonl` covers what they run too.
 /// Gated behind the `fuzzing` feature so it never widens the crate's normal
 /// public API.
 #[cfg(feature = "fuzzing")]
 pub mod fuzzing {
-    use super::{
-        parse_codex_record, parse_desktop_index, parse_gemini_record, parse_record,
-        record_entrypoint, BlobStore,
-    };
+    use super::{parse_desktop_index, parse_record, record_entrypoint, BlobStore};
     use std::sync::OnceLock;
 
     /// A blob store rooted in a process-unique temp dir, reused across fuzz
@@ -3293,36 +2850,22 @@ pub mod fuzzing {
         let _ = parse_desktop_index(bytes);
     }
 
-    /// Mirrors the Codex CLI tailer's per-line path: UTF-8 validate → trim →
-    /// JSON parse → [`parse_codex_record`]. Must never panic.
+    /// Mirrors the Codex CLI tailer's per-line path, which is the Claude Code
+    /// path ([`fuzz_parse_line`]): the tailer never had a Codex-specific
+    /// parser wired in. Kept only so this public (feature-gated) API stays
+    /// semver-compatible (STABILITY.md (e)); no fuzz target calls it.
+    #[deprecated(note = "the Codex CLI tailer runs the Claude Code parser; use `fuzz_parse_line`")]
     pub fn fuzz_parse_codex_line(bytes: &[u8]) {
-        let Ok(s) = std::str::from_utf8(bytes) else {
-            return;
-        };
-        let s = s.trim();
-        if s.is_empty() {
-            return;
-        }
-        let Ok(value) = serde_json::from_str::<serde_json::Value>(s) else {
-            return;
-        };
-        let _ = parse_codex_record(&value, "fuzz-session", 0, blobs());
+        fuzz_parse_line(bytes);
     }
 
-    /// Mirrors the Gemini CLI tailer's per-line path: UTF-8 validate → trim →
-    /// JSON parse → [`parse_gemini_record`]. Must never panic.
+    /// Mirrors the Gemini CLI tailer's per-line path, which is the Claude
+    /// Code path ([`fuzz_parse_line`]): the tailer never had a Gemini-specific
+    /// parser wired in. Kept only so this public (feature-gated) API stays
+    /// semver-compatible (STABILITY.md (e)); no fuzz target calls it.
+    #[deprecated(note = "the Gemini CLI tailer runs the Claude Code parser; use `fuzz_parse_line`")]
     pub fn fuzz_parse_gemini_line(bytes: &[u8]) {
-        let Ok(s) = std::str::from_utf8(bytes) else {
-            return;
-        };
-        let s = s.trim();
-        if s.is_empty() {
-            return;
-        }
-        let Ok(value) = serde_json::from_str::<serde_json::Value>(s) else {
-            return;
-        };
-        let _ = parse_gemini_record(&value, "fuzz-session", 0, blobs());
+        fuzz_parse_line(bytes);
     }
 }
 
@@ -4885,228 +4428,6 @@ mod tests {
         assert!(r.contains("1 new candidate(s)"), "{r}");
         assert!(r.contains("1 rejected for a different cwd"), "{r}");
         assert!(r.contains("1 candidate(s) were directories"), "{r}");
-    }
-
-    // -----------------------------------------------------------------------
-    // Codex CLI parser tests
-    // -----------------------------------------------------------------------
-
-    fn parse_codex(value: &Value, ts_ms: i64) -> ParsedRecord {
-        let tmp = tempfile::TempDir::new().unwrap();
-        let blobs = BlobStore::new(tmp.path().join("blobs"));
-        parse_codex_record(value, SID, ts_ms, &blobs)
-    }
-
-    fn snap_codex(pr: &ParsedRecord) -> String {
-        serde_json::to_string_pretty(&serde_json::json!({
-            "events": pr.events,
-            "is_assistant_message": pr.is_assistant_message,
-        }))
-        .unwrap()
-    }
-
-    fn codex_rec(json: &str) -> Value {
-        serde_json::from_str(json).unwrap()
-    }
-
-    #[test]
-    fn codex_parse_user_message() {
-        let v = codex_rec(
-            r#"{"type":"event_msg","timestamp":"2026-07-02T06:14:40.699Z","payload":{"type":"user_message","content":[{"text":"hello"}]}}"#,
-        );
-        let pr = parse_codex(&v, iso("2026-07-02T06:14:40.699Z"));
-        insta::assert_snapshot!(snap_codex(&pr));
-        assert_eq!(pr.events.len(), 1);
-        assert_eq!(pr.events[0].kind, EventKind::UserMessage);
-    }
-
-    #[test]
-    fn codex_parse_agent_message() {
-        let v = codex_rec(
-            r#"{"type":"event_msg","timestamp":"2026-07-02T06:14:41.500Z","payload":{"type":"agent_message","content":[{"text":"I can help with that"}]}}"#,
-        );
-        let pr = parse_codex(&v, iso("2026-07-02T06:14:41.500Z"));
-        insta::assert_snapshot!(snap_codex(&pr));
-        assert_eq!(pr.events.len(), 1);
-        assert_eq!(pr.events[0].kind, EventKind::AgentMessage);
-        assert!(pr.is_assistant_message);
-    }
-
-    #[test]
-    fn codex_parse_response_item_message() {
-        let v = codex_rec(
-            r#"{"type":"response_item","timestamp":"2026-07-02T06:14:41.500Z","payload":{"type":"message","role":"assistant","content":[{"type":"output_text","text":"Here is the solution"}]}}"#,
-        );
-        let pr = parse_codex(&v, iso("2026-07-02T06:14:41.500Z"));
-        insta::assert_snapshot!(snap_codex(&pr));
-        assert_eq!(pr.events.len(), 1);
-        assert_eq!(pr.events[0].kind, EventKind::AgentMessage);
-    }
-
-    #[test]
-    fn codex_parse_function_call_and_output() {
-        let v = codex_rec(
-            r#"{"type":"response_item","timestamp":"2026-07-02T06:14:42.000Z","payload":{"type":"function_call","call_id":"call_1","name":"Bash","arguments":"{\"command\":\"ls\"}"}}"#,
-        );
-        let pr = parse_codex(&v, iso("2026-07-02T06:14:42.000Z"));
-        insta::assert_snapshot!(snap_codex(&pr));
-        assert_eq!(pr.events.len(), 1);
-        assert_eq!(pr.events[0].kind, EventKind::ToolCall);
-        assert_eq!(
-            pr.events[0].body_json.as_ref().unwrap()["correlate_key"],
-            "call_1"
-        );
-
-        let v2 = codex_rec(
-            r#"{"type":"response_item","timestamp":"2026-07-02T06:14:43.000Z","payload":{"type":"function_call_output","call_id":"call_1","output":"total 42"}}"#,
-        );
-        let pr2 = parse_codex(&v2, iso("2026-07-02T06:14:43.000Z"));
-        assert_eq!(pr2.events.len(), 1);
-        assert_eq!(pr2.events[0].kind, EventKind::ToolResult);
-        assert_eq!(
-            pr2.events[0].body_json.as_ref().unwrap()["correlate_key"],
-            "call_1"
-        );
-    }
-
-    #[test]
-    fn codex_parse_reasoning() {
-        let v = codex_rec(
-            r#"{"type":"response_item","timestamp":"2026-07-02T06:14:41.000Z","payload":{"type":"reasoning","summary":[],"content":null,"encrypted_content":"gAAAAABp5lf5..."}}"#,
-        );
-        let pr = parse_codex(&v, iso("2026-07-02T06:14:41.000Z"));
-        insta::assert_snapshot!(snap_codex(&pr));
-        assert_eq!(pr.events.len(), 1);
-        assert_eq!(pr.events[0].kind, EventKind::Thinking);
-    }
-
-    #[test]
-    fn codex_parse_skips_session_meta() {
-        let v = codex_rec(
-            r#"{"type":"session_meta","timestamp":"2026-07-02T06:14:40.000Z","payload":{"id":"abc","cwd":"/tmp","originator":"codex-tui"}}"#,
-        );
-        let pr = parse_codex(&v, 0);
-        assert!(pr.events.is_empty());
-    }
-
-    #[test]
-    fn codex_parse_skips_unknown_type() {
-        let v = codex_rec(
-            r#"{"type":"unknown_type","timestamp":"2026-07-02T06:14:40.000Z","payload":{}}"#,
-        );
-        let pr = parse_codex(&v, 0);
-        assert!(pr.events.is_empty());
-    }
-
-    #[test]
-    fn codex_parse_non_object_value() {
-        for v in [codex_rec("[]"), codex_rec("null"), codex_rec("\"oops\"")] {
-            assert!(parse_codex(&v, 0).events.is_empty());
-        }
-    }
-
-    // -----------------------------------------------------------------------
-    // Gemini CLI parser tests
-    // -----------------------------------------------------------------------
-
-    fn parse_gemini(value: &Value, ts_ms: i64) -> ParsedRecord {
-        let tmp = tempfile::TempDir::new().unwrap();
-        let blobs = BlobStore::new(tmp.path().join("blobs"));
-        parse_gemini_record(value, SID, ts_ms, &blobs)
-    }
-
-    fn snap_gemini(pr: &ParsedRecord) -> String {
-        serde_json::to_string_pretty(&serde_json::json!({
-            "events": pr.events,
-            "is_assistant_message": pr.is_assistant_message,
-        }))
-        .unwrap()
-    }
-
-    fn gemini_rec(json: &str) -> Value {
-        serde_json::from_str(json).unwrap()
-    }
-
-    #[test]
-    fn gemini_parse_user_message() {
-        let v = gemini_rec(
-            r#"{"type":"user","id":"msg1","timestamp":"2026-07-02T06:14:40.699Z","content":[{"text":"hello"}]}"#,
-        );
-        let pr = parse_gemini(&v, iso("2026-07-02T06:14:40.699Z"));
-        insta::assert_snapshot!(snap_gemini(&pr));
-        assert_eq!(pr.events.len(), 1);
-        assert_eq!(pr.events[0].kind, EventKind::UserMessage);
-    }
-
-    #[test]
-    fn gemini_parse_agent_message() {
-        let v = gemini_rec(
-            r#"{"type":"gemini","id":"msg2","timestamp":"2026-07-02T06:14:41.500Z","content":[{"text":"Hi! How can I help?"}],"model":"gemini-2.5-pro"}"#,
-        );
-        let pr = parse_gemini(&v, iso("2026-07-02T06:14:41.500Z"));
-        insta::assert_snapshot!(snap_gemini(&pr));
-        assert_eq!(pr.events.len(), 1);
-        assert_eq!(pr.events[0].kind, EventKind::AgentMessage);
-    }
-
-    #[test]
-    fn gemini_parse_with_tool_calls() {
-        let v = gemini_rec(
-            r#"{"type":"gemini","id":"msg3","timestamp":"2026-07-02T06:14:42.000Z","content":[{"text":"Let me check"}],"toolCalls":[{"id":"tc_1","name":"Bash","input":{"command":"ls"}}]}"#,
-        );
-        let pr = parse_gemini(&v, iso("2026-07-02T06:14:42.000Z"));
-        insta::assert_snapshot!(snap_gemini(&pr));
-        assert_eq!(pr.events.len(), 2); // agent_message + tool_call
-        assert_eq!(pr.events[0].kind, EventKind::AgentMessage);
-        assert_eq!(pr.events[1].kind, EventKind::ToolCall);
-        assert_eq!(
-            pr.events[1].body_json.as_ref().unwrap()["correlate_key"],
-            "tc_1"
-        );
-    }
-
-    #[test]
-    fn gemini_parse_with_thoughts() {
-        let v = gemini_rec(
-            r#"{"type":"gemini","id":"msg4","timestamp":"2026-07-02T06:14:41.000Z","content":[{"text":"answer"}],"thoughts":[{"text":"I need to think about this"}]}"#,
-        );
-        let pr = parse_gemini(&v, iso("2026-07-02T06:14:41.000Z"));
-        insta::assert_snapshot!(snap_gemini(&pr));
-        assert_eq!(pr.events.len(), 2); // agent_message + thinking
-        assert_eq!(pr.events[0].kind, EventKind::AgentMessage);
-        assert_eq!(pr.events[1].kind, EventKind::Thinking);
-    }
-
-    #[test]
-    fn gemini_parse_skips_session_metadata() {
-        let v = gemini_rec(
-            r#"{"type":"session_metadata","sessionId":"abc","projectHash":"xyz","startTime":"2026-07-02T06:14:40.000Z"}"#,
-        );
-        let pr = parse_gemini(&v, 0);
-        assert!(pr.events.is_empty());
-    }
-
-    #[test]
-    fn gemini_parse_skips_message_update() {
-        let v = gemini_rec(
-            r#"{"type":"message_update","id":"msg2","timestamp":"2026-07-02T06:14:41.000Z","tokens":{"input":5,"output":4}}"#,
-        );
-        let pr = parse_gemini(&v, 0);
-        assert!(pr.events.is_empty());
-    }
-
-    #[test]
-    fn gemini_parse_skips_unknown_type() {
-        let v = gemini_rec(r#"{"type":"unknown","id":"x","timestamp":"2026-07-02T06:14:40.000Z"}"#);
-        let pr = parse_gemini(&v, 0);
-        assert!(pr.events.is_empty());
-    }
-
-    #[test]
-    fn gemini_parse_non_object_value() {
-        for v in [gemini_rec("[]"), gemini_rec("null")] {
-            assert!(parse_gemini(&v, 0).events.is_empty());
-        }
     }
 
     // -----------------------------------------------------------------------

@@ -78,14 +78,18 @@ input (errors only), a fuzz target, and a fixture corpus.
 2. **Add the parser** in `hh-core/src/adapter.rs`: a new `Adapter` impl, a new
    `AgentKind` variant in `hh-core/src/event.rs`, a new branch in `select()`
    (the `"name" => Some(Box::new(...))` match), and a detection rule — a
-   basename match like `is_codex_cli` when the agent is a command, or a
+   basename match like `is_claude_code` when the agent is a command, or a
    discovery rule over the agent's own on-disk session index when it is not
    (see `ClaudeDesktopAdapter`, which has no command to detect). The parser
-   function (e.g. `parse_codex_record`) must return `Result`/`Option` and never
-   panic — feed it garbage in unit tests.
+   function (e.g. `parse_record`) must return `Result`/`Option` and never
+   panic — feed it garbage in unit tests. **Wire it into the tailer**: the
+   tailer's per-line path must call *your* parser, and an end-to-end test
+   against the real fixture must show non-zero structured events. (The Codex
+   and Gemini adapters shipped with parsers the tailer never called; see
+   `docs/adapters.md`.)
 
 3. **Add a fuzz target** under `fuzz/fuzz_targets/<adapter>_jsonl.rs` mirroring
-   `claude_jsonl.rs` / `codex_jsonl.rs` / `gemini_jsonl.rs`, and register it in
+   `claude_jsonl.rs` / `claude_desktop_jsonl.rs`, and register it in
    `fuzz/Cargo.toml`. The harness calls the parser on arbitrary bytes; it must
    never crash. Add the target name to `just fuzz-all` in the `justfile`.
 
@@ -98,9 +102,10 @@ input (errors only), a fuzz target, and a fixture corpus.
 ## Fuzzing
 
 Fuzz targets live in `fuzz/` (a detached crate using `cargo-fuzz` + nightly).
-There are ten: `claude_jsonl`, `claude_desktop_jsonl`, `claude_desktop_index`,
-`codex_jsonl`, `gemini_jsonl`, `mcp_frame`, `import_bundle`, `config_toml`,
-`blob_decompress`, `redact_detect`.
+There are eight: `claude_jsonl`, `claude_desktop_jsonl`, `claude_desktop_index`,
+`mcp_frame`, `import_bundle`, `config_toml`, `blob_decompress`, `redact_detect`.
+(The Codex and Gemini CLI tailers run every line through the Claude Code
+parser, so `claude_jsonl` covers them.)
 
 ```bash
 cargo install cargo-fuzz        # once

@@ -52,6 +52,12 @@ gh attestation verify ./hh --repo halfhandorg/halfhand
   engaged for a binary literally named `claude-desktop`, which is not how
   Desktop is launched, so Desktop runs recorded no structured steps. Fixed in
   1.1.0 — see `docs/adapters.md`, "Recording a Claude Desktop session".
+  *Erratum (Unreleased):* the Codex CLI and Gemini CLI adapters never
+  captured structured events — their tailers parsed every line with the
+  Claude Code parser, so real sessions converted zero records and degraded.
+  Those sessions still recorded terminal output and file changes. The
+  `--adapter codex-cli`, `--adapter gemini-cli` and `--adapter claude-desktop`
+  flags are now deprecated; see `docs/adapters.md`.
 - **Search** — `hh search` is FTS5 full-text across all sessions, with filters
   and `--json`.
 - **Windows** — builds on Windows every push (runtime PTY is best-effort per
