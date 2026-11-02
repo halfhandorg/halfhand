@@ -2,7 +2,7 @@
 source: hh/tests/cli_conformance.rs
 expression: "String::from_utf8_lossy(&out.stdout)"
 ---
-Summarize the store: sessions, events, disk usage, largest sessions (Area 3)
+Summarize the store: sessions, events, disk usage, largest sessions
 
 Usage: hh stats [OPTIONS]
 
@@ -11,7 +11,7 @@ Options:
       --json       Emit machine-readable JSON instead of a table
   -h, --help       Print help
 
-Example:
-  hh stats
-  hh stats --json
-  hh stats --top 10
+Examples:
+  hh stats           store summary
+  hh stats --json    machine-readable summary
+  hh stats --top 10  list the 10 largest sessions

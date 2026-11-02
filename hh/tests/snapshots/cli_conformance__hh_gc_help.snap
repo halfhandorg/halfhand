@@ -2,7 +2,7 @@
 source: hh/tests/cli_conformance.rs
 expression: "String::from_utf8_lossy(&out.stdout)"
 ---
-Reclaim disk space: prune orphaned blobs and vacuum the database (Area 3)
+Reclaim disk space: prune orphaned blobs and vacuum the database
 
 Usage: hh gc [OPTIONS]
 
@@ -11,7 +11,7 @@ Options:
       --json       Emit machine-readable JSON instead of plain lines
   -h, --help       Print help
 
-Example:
-  hh gc
-  hh gc --json
-  hh gc --no-vacuum
+Examples:
+  hh gc              prune orphaned blobs, then vacuum
+  hh gc --json       machine-readable report
+  hh gc --no-vacuum  prune only; skip the slow VACUUM

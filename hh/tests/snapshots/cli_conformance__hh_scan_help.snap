@@ -2,7 +2,7 @@
 source: hh/tests/cli_conformance.rs
 expression: "String::from_utf8_lossy(&out.stdout)"
 ---
-Scan recorded sessions for secrets (docs/redaction.md).
+Scan recorded sessions for secrets and report what was found.
 
 Reports what was detected (type, step, location, correlation tag) — never the secret itself. Exits 4 when findings exist, so CI can gate on a clean scan; 0 when clean.
 
@@ -22,7 +22,9 @@ Options:
   -h, --help
           Print help (see a summary with '-h')
 
-Example:
-  hh scan last
-  hh scan a1b2c3 --json
-  hh scan --all
+Examples:
+  hh scan last           scan the most recent session
+  hh scan a1b2c3 --json  machine-readable findings
+  hh scan --all          scan every session (exits 4 on any finding)
+
+Docs: https://halfhand.org/docs/redaction/
