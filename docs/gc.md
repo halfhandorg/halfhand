@@ -60,7 +60,8 @@ $ hh gc --no-vacuum
 | `0` | GC completed. |
 | `1` | A prune or vacuum error (e.g. another `hh` process holds the data dir — see the hint). |
 
-(These match Halfhand's exit-code contract: `0` ok, `1` generic error.)
+(These match Halfhand's exit-code contract: `0` ok, `1` generic error, plus `2` for a
+usage error. See [Exit codes](./exit-codes.md).)
 
 ## Notes
 

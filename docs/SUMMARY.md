@@ -27,6 +27,7 @@
 - [Adapters](./adapters.md)
 - [MCP proxy](./mcp-proxy.md)
 - [JSON reference](./json.md)
+- [Exit codes](./exit-codes.md)
 - [Shell completions & man page](./completions.md)
 - [Stability policy](./stability.md)
 - [Performance](./performance.md)

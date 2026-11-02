@@ -83,7 +83,7 @@ $ hh scan last
 
 `hh scan --all` sweeps every session; `--json` emits a stable object (see
 [json.md](json.md)). The exit code is part of the contract: **0** clean,
-**4** findings — wire `hh scan --all` into CI to keep a shared runner's
+**4** findings, **3** if the session doesn't exist ([Exit codes](./exit-codes.md)) — wire `hh scan --all` into CI to keep a shared runner's
 store clean.
 
 ## Redacting in place
@@ -170,6 +170,9 @@ registries, and database URLs with embedded credentials — see the full
 
 ## Exit codes
 
-Part of the CLI contract (see the README): `0` ok · `1` generic error ·
+Part of the CLI contract: `0` ok · `1` generic error ·
 `2` usage error · `3` session not found · **`4` redaction/policy block**
-(`hh scan` with findings).
+(`hh scan` with findings). See [Exit codes](./exit-codes.md) for every
+command. Note that the other redaction refusals (`hh redact` without `--yes`
+in a non-interactive shell, `hh export --no-redact` without confirmation)
+exit `1`, not `4`.
