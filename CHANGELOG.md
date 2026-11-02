@@ -11,6 +11,35 @@ in CI rather than tracking `latest` until 1.0.
 
 ## [Unreleased]
 
+### Deprecated — `--adapter codex-cli`, `--adapter gemini-cli`, `--adapter claude-desktop`
+
+- **The Codex CLI and Gemini CLI adapters never captured structured
+  events.** Their tailers ran every transcript line through the Claude Code
+  record parser, so a real Codex or Gemini session converted zero records
+  and ended `degraded` with a schema-drift reason. Earlier README and docs
+  versions listed both as supported; they now say plainly that Claude Code
+  is the only agent with structured transcript capture and that every other
+  agent records terminal output and file changes. `docs/adapters.md` has a
+  support matrix with a "Verified" column.
+- **`hh run --adapter codex-cli`, `--adapter gemini-cli` and
+  `--adapter claude-desktop` are deprecated and scheduled for removal in the
+  next minor release** (STABILITY.md (a)). Each still works exactly as before
+  and prints one `hh: warning: … is deprecated; …` line to stderr.
+  Auto-detection (`hh run -- codex`, `hh run -- gemini`) is unchanged and
+  does not warn. `agent_kind` values, `--json` output and the DB schema are
+  unchanged.
+
+### Removed — unreachable Codex/Gemini parser code
+
+- Deleted the never-called Codex and Gemini record parsers (and their private
+  helpers, unit tests and insta snapshots). Nothing outside their own tests
+  ever called them. Removed the `codex_jsonl` and `gemini_jsonl` fuzz
+  targets, which fuzzed only that dead code; the live Codex/Gemini path is
+  the Claude Code parser, already covered by `claude_jsonl`. Also removed
+  four orphaned insta snapshots under `hh-core/src/snapshots/` (duplicates of
+  the live ones in `hh-core/src/adapter/snapshots/`). No user-visible
+  behavior change.
+
 ### Changed — docs live at halfhand.org/docs
 
 - **The docs site is now <https://halfhand.org/docs/>.** The mdbook site at
@@ -185,6 +214,8 @@ reads correctly under 1.0 — proven by the permanent
   redacted by default**; opting out needs an interactive TTY confirmation.
 - **Codex CLI, Gemini CLI, and Claude Desktop adapters** in addition to
   Claude Code, each with a fuzz target that never panics on malformed input.
+  *Erratum:* the Codex and Gemini adapters never captured structured events
+  (their tailers used the Claude Code parser); see [Unreleased].
 - **Cross-session FTS5 search** (`hh search`): words, phrases, prefix `*`,
   AND/OR/NOT, with `--agent`/`--kind`/`--since`/`--path` filters and `--json`.
 - **Windows support** (build-only per SRS §2.2): CI builds on
@@ -284,6 +315,9 @@ reads correctly under 1.0 — proven by the permanent
 - **Gemini CLI adapter**: tails `~/.gemini/tmp/<hash>/chats/session-*.jsonl`,
   converting `user`/`gemini` records (tool calls, thoughts, tokens)
   (`agent_kind = gemini-cli`).
+- *Erratum:* neither the Codex nor the Gemini parser above was ever called
+  by its tailer, which used the Claude Code parser instead, so neither
+  adapter captured structured events. See [Unreleased].
 - **Claude Desktop adapter**: reuses the Claude Code JSONL tailer/parser
   (identical transcript format) under its own `agent_kind = claude-desktop`
   so `hh list`/`hh inspect` distinguish the two.

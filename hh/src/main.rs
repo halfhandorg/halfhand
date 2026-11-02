@@ -158,8 +158,51 @@ fn record_redactor(
     Ok(Some(std::sync::Arc::new(detectors)))
 }
 
+/// Deprecated `hh run --adapter` values (STABILITY.md (a)): `(name, warning
+/// id, why)`. Each still selects its adapter exactly as before; passing one
+/// prints a single standard deprecation line first. Scheduled for removal in
+/// the next minor release — see `docs/adapters.md`, "Deprecated flags".
+const DEPRECATED_ADAPTERS: &[(&str, &str, &str)] = &[
+    (
+        "codex-cli",
+        "run-adapter-codex-cli",
+        "the Codex CLI adapter never captured structured events",
+    ),
+    (
+        "gemini-cli",
+        "run-adapter-gemini-cli",
+        "the Gemini CLI adapter never captured structured events",
+    ),
+    (
+        "claude-desktop",
+        "run-adapter-claude-desktop",
+        "Claude Desktop capture is unverified",
+    ),
+];
+
+/// Print the deprecation warning for a deprecated `--adapter` value, if
+/// `adapter` is one. Returns `true` if a warning was printed.
+fn warn_if_deprecated_adapter(adapter: Option<&str>) -> bool {
+    let Some(name) = adapter else {
+        return false;
+    };
+    let Some((name, id, why)) = DEPRECATED_ADAPTERS.iter().find(|(n, _, _)| *n == name) else {
+        return false;
+    };
+    hh_core::warn_deprecated(
+        id,
+        &format!("`--adapter {name}`"),
+        &format!(
+            "{why} and the flag will be removed in the next minor release; \
+             drop it to record terminal output and file changes \
+             (see https://halfhand.org/docs/adapters/)"
+        ),
+    )
+}
+
 /// `hh run` (FR-1): record an agent session.
 fn run_command(args: cli::RunArgs) -> anyhow::Result<ExitCode> {
+    warn_if_deprecated_adapter(args.adapter.as_deref());
     let (store, paths, config) = open_store()?;
 
     let cwd = std::env::current_dir()
@@ -1138,6 +1181,18 @@ mod tests {
     use super::*;
     use hh_core::{AdapterStatus, AgentKind, SessionRow, SessionStatus};
     use std::path::PathBuf;
+
+    #[test]
+    fn only_deprecated_adapter_values_warn() {
+        assert!(!warn_if_deprecated_adapter(None));
+        assert!(!warn_if_deprecated_adapter(Some("claude-code")));
+        assert!(!warn_if_deprecated_adapter(Some("no-such-adapter")));
+        // Each deprecated value warns once per process (warn_deprecated dedup).
+        for name in ["codex-cli", "gemini-cli", "claude-desktop"] {
+            assert!(warn_if_deprecated_adapter(Some(name)), "{name} warns");
+            assert!(!warn_if_deprecated_adapter(Some(name)), "{name} warns once");
+        }
+    }
 
     fn row(short: &str, status: SessionStatus, adapter: AdapterStatus, steps: i64) -> SessionRow {
         // `SessionRow` is `#[non_exhaustive]` (a growth-prone read model) —

@@ -1,0 +1,5 @@
+---
+source: hh/tests/adapter_deprecation.rs
+expression: line
+---
+hh: warning: `--adapter codex-cli` is deprecated; the Codex CLI adapter never captured structured events and the flag will be removed in the next minor release; drop it to record terminal output and file changes (see https://halfhand.org/docs/adapters/)
