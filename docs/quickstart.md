@@ -21,7 +21,7 @@ brew install hh
 [GitHub release](https://github.com/halfhandorg/halfhand/releases)):
 
 ```bash
-curl --proto '=https' --tlsv1.2 -sSf https://halfhandorg.github.io/halfhand/install.sh | sh
+curl --proto '=https' --tlsv1.2 -LsSf https://halfhand.org/install.sh | sh
 ```
 
 > The installer places `hh` in `~/.halfhand/bin` by default; add it to your

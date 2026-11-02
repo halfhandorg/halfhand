@@ -11,6 +11,20 @@ in CI rather than tracking `latest` until 1.0.
 
 ## [Unreleased]
 
+### Changed — docs live at halfhand.org/docs
+
+- **The docs site is now <https://halfhand.org/docs/>.** The mdbook site at
+  `halfhandorg.github.io/halfhand/` is retired; its pages now redirect to the
+  matching halfhand.org/docs page. `docs/` in this repo stays the source of
+  truth and halfhand.org renders it, so the two can no longer drift.
+- **`hh --help` ends with a `Docs:` link.** Additive help-text change.
+- **Fixed the quickstart's shell-installer URL.** It pointed at
+  `halfhandorg.github.io/halfhand/install.sh`, which the mdbook site never
+  served. It now uses `https://halfhand.org/install.sh`, and the old URL
+  forwards to the release installer.
+- crates.io `homepage` is now `https://halfhand.org`, and `documentation`
+  is set to `https://halfhand.org/docs/`.
+
 ### Fixed — Claude Desktop adapter records structured steps (SRS v1.1.0, BUG-1)
 
 - **`hh run --adapter claude-desktop` now finds the Desktop session.** The

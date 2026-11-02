@@ -160,8 +160,13 @@ and keyless Sigstore attestations, publishes the shell/powershell installers,
 generates completion scripts + the `hh.1` man page via `hh-dist`, and pushes
 the Homebrew formula to `halfhand-org/homebrew-tap`.
 
-The docs site (mdbook under `docs/`) publishes to GitHub Pages on release via
-`.github/workflows/docs.yml`.
+The docs site is <https://halfhand.org/docs/>. Its Markdown source is `docs/`
+in this repo, so update docs in the same PR as the feature. The site lives in
+[halfhandorg/halfhand.org](https://github.com/halfhandorg/halfhand.org), which
+renders this folder at build time; `.github/workflows/docs.yml` asks it to
+rebuild when `docs/` changes. Pages listed in `docs/SUMMARY.md` appear in the
+site's sidebar. To preview locally, clone halfhand.org next to this repo and
+run `npm run sync-docs && npm run dev` there.
 
 ## Release assets (completions + man page)
 

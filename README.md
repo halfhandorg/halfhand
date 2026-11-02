@@ -74,7 +74,7 @@ was cut short (`hh` killed mid-run) replays the partial timeline and is marked
 | `hh completions <shell>` | Print a shell completion script. |
 
 Every subcommand takes `--help` with a usage example. Run `hh --help` for the
-overview. Full reference: the [docs site](docs/index.md).
+overview. Full reference: the [docs site](https://halfhand.org/docs/).
 
 ## Adapters
 
