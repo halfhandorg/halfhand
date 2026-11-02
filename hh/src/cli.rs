@@ -268,7 +268,7 @@ fn examples(rows: &[(&str, &str)]) -> String {
         out.push_str(cmd);
         if !desc.is_empty() {
             let pad = width - cmd.chars().count() + 2;
-            out.extend(std::iter::repeat(' ').take(pad));
+            out.extend(std::iter::repeat_n(' ', pad));
             out.push_str(desc);
         }
     }
