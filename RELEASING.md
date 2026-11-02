@@ -150,9 +150,17 @@ Once the cargo-dist workflow finishes:
 
 ## 8. Publish the docs site
 
-The `docs.yml` workflow deploys mdbook to GitHub Pages on release tags. Confirm
-`https://halfhandorg.github.io/halfhand/` reflects the new version. If it
-didn't trigger, run the workflow manually from the Actions tab.
+The docs are published at `https://halfhand.org/docs/` by the
+[halfhandorg/halfhand.org](https://github.com/halfhandorg/halfhand.org) repo,
+which renders this repo's `docs/` at build time. Pushing `docs/` changes to
+`main` triggers a rebuild via `docs.yml`, and the site also rebuilds daily.
+Confirm the new version's pages are live. If not, run the halfhand.org
+"Deploy to GitHub Pages" workflow manually from its Actions tab.
+
+The old mdbook site at `https://halfhandorg.github.io/halfhand/` is retired.
+`docs.yml` keeps it as redirect stubs to halfhand.org/docs. Once those have
+been live for at least one release, unpublish it under Settings → Pages and
+delete the `gh-pages` branch.
 
 ## 9. Announce
 

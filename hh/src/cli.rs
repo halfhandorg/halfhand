@@ -26,7 +26,8 @@ use crate::HH_VERSION;
                   \n\
                   Recorded sessions can contain secrets present in prompts and\n\
                   outputs — use `hh delete` to remove them.",
-    after_help = "Examples:\n  hh run -- claude              record a Claude Code session\n  hh replay last                 replay the most recent session\n  hh inspect a1b2c3 --json       print session detail as JSON\n  hh list                        list recorded sessions"
+    after_help = "Examples:\n  hh run -- claude              record a Claude Code session\n  hh replay last                 replay the most recent session\n  hh inspect a1b2c3 --json       print session detail as JSON\n  hh list                        list recorded sessions\n\n\
+                  Docs: https://halfhand.org/docs/"
 )]
 pub struct Cli {
     /// Subcommand to run.

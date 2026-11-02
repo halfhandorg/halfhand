@@ -1,20 +1,24 @@
 name: docs
 
-# Build the mdbook site and publish it to GitHub Pages (gh-pages branch).
+# The Halfhand docs are published only at https://halfhand.org/docs/, by the
+# halfhandorg/halfhand.org repo, which renders this repo's docs/ folder at
+# build time. This repo's docs/ stays the source of truth so docs ship in the
+# same PR as the feature they describe.
 #
-# Triggers:
-#   - release published  -> the "official" site for the released version
-#   - push to main       -> live preview of in-progress docs
-#
-# Site URL: https://halfhandorg.github.io/halfhand/  (project-page path, so
-# docs/book.toml sets site-url = "/halfhand/").
-#
-# mdbook's source root is `docs/` itself (book.toml `src = "."`), so the
-# existing docs/*.md and docs/adr/*.md are rendered in place — no moves.
+# This workflow does two things:
+#   1. Tells halfhand.org to rebuild when docs change (repository_dispatch).
+#      Needs the DOCS_DISPATCH_TOKEN secret (fine-grained token with
+#      "Contents: read and write" on halfhandorg/halfhand.org). Without it the
+#      step is skipped and halfhand.org still picks changes up on its daily
+#      scheduled build.
+#   2. Keeps the retired GitHub Pages site (halfhandorg.github.io/halfhand/,
+#      formerly an mdbook build) as redirect stubs, so old links and search
+#      results land on the matching halfhand.org/docs page. Each stub has a
+#      rel=canonical link and a meta refresh. Once search engines have caught
+#      up, unpublish Pages in the repo settings and delete gh-pages; see
+#      RELEASING.md.
 
 on:
-  release:
-    types: [published]
   push:
     branches: [main]
     paths:
@@ -27,29 +31,39 @@ on:
 permissions:
   contents: write # peaceiris/actions-gh-pages pushes to the gh-pages branch
 
-# Allow only one concurrent deploy; cancel in-progress, don't queue.
 concurrency:
   group: docs-pages
   cancel-in-progress: true
 
 jobs:
-  build-deploy:
+  notify-site:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Ask halfhand.org to rebuild its docs
+        env:
+          TOKEN: ${{ secrets.DOCS_DISPATCH_TOKEN }}
+        run: |
+          if [ -z "$TOKEN" ]; then
+            echo "DOCS_DISPATCH_TOKEN not set; halfhand.org will sync on its daily build."
+            exit 0
+          fi
+          curl -fsS -X POST \
+            -H "Authorization: Bearer $TOKEN" \
+            -H "Accept: application/vnd.github+json" \
+            https://api.github.com/repos/halfhandorg/halfhand.org/dispatches \
+            -d '{"event_type":"docs-updated"}'
+
+  redirect-stubs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
 
-      - name: Install mdbook
-        uses: peaceiris/actions-mdbook@v2
-        with:
-          mdbook-version: "0.4.40"
+      - name: Generate redirect stubs
+        run: ./.github/scripts/docs-redirects.sh docs site
 
-      - name: Build the book
-        run: mdbook build docs
-
-      - name: Deploy to GitHub Pages
+      - name: Deploy redirect stubs to GitHub Pages
         uses: peaceiris/actions-gh-pages@v4
         with:
           github_token: ${{ secrets.GITHUB_TOKEN }}
-          publish_dir: docs/book
-          # Keep the deploy branch clean; this is a generated artifact tree.
+          publish_dir: site
           force_orphan: true

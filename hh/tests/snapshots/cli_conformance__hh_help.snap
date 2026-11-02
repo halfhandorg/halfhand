@@ -41,3 +41,5 @@ Examples:
   hh replay last                 replay the most recent session
   hh inspect a1b2c3 --json       print session detail as JSON
   hh list                        list recorded sessions
+
+Docs: https://halfhand.org/docs/

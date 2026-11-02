@@ -59,5 +59,5 @@ overwritten on the next release. To release a new version, tag the
 ## More
 
 - Halfhand source: <https://github.com/halfhandorg/halfhand>
-- Docs: <https://halfhandorg.github.io/halfhand/>
+- Docs: <https://halfhand.org/docs/>
 - Stability policy: see STABILITY.md in the main repo
