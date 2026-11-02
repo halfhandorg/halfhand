@@ -6,7 +6,7 @@ Three ways to move a session off the recording machine:
 | --- | --- |
 | Machine-readable JSON (`jq`-friendly) | `hh export [session]` |
 | A portable archive you can `hh import` elsewhere | `hh export [session] --bundle -o FILE` |
-| A page to share/open in a browser | `hh export [session] --html -o FILE`, or `hh replay [session] --web` |
+| A page to share/open in a browser | `hh export [session] --html -o FILE`, or `hh replay [session] --web [--open]` |
 
 All three are **redacted by default** — see [`docs/redaction.md`](redaction.md).
 `--no-redact` requires an interactive typed confirmation and is refused on a
@@ -21,7 +21,7 @@ $ hh import session.hh
 ✓ Imported session f9e8d7 (from a1b2c3) · 12 steps · hh replay f9e8d7
 
 $ hh replay last --web
-✓ Exported session a1b2c3 → /tmp/hh-replay-a1b2c3.html (html, redacted) — open it in a browser
+✓ Exported session a1b2c3 → ~/.local/share/halfhand/exports/hh-session-a1b2c3.html (html, redacted) — open it in a browser
 ```
 
 ## The bundle format (`--bundle`)
@@ -155,9 +155,18 @@ telemetry, safe to open from `file://` or host anywhere.
 
 - **Header**: session id, status, agent kind, command, cwd, and (if
   applicable) which session it was imported from.
-- **Timeline**: every step-bearing event, clickable. `terminal_output` is
-  elided — this mirrors the replay TUI's default and keeps the page a step
-  report, not a byte-faithful terminal transcript.
+- **Terminal output**: a collapsed "terminal output · N KiB" section under
+  the header, expanded with a click (rendered lazily on first open). This is
+  everything the agent wrote to its terminal, in order — for sessions with
+  no structured transcript (any agent other than Claude Code) it is most of
+  the session. ANSI colors and bold/dim/italic/underline become styles;
+  every other escape sequence (cursor movement, window titles, OSC 8
+  hyperlinks) is stripped, `\r` progress-bar redraws collapse to their
+  final state, and keystrokes recorded with `--record-input` are left out.
+  Non-UTF-8 output chunks are not decoded; the summary line reports how many
+  bytes were omitted.
+- **Timeline**: every other event, clickable. Terminal output chunks are not
+  timeline rows (they are not steps).
 - **Detail pane**: plain text for text-bearing events, pretty-printed JSON
   for structured events, and a real diff view for file changes (hunks are
   precomputed server-side, so the page never implements a diff algorithm).
@@ -176,23 +185,75 @@ content. The page's hand-written JS reads that tag's `textContent` (never
 `innerHTML`), `JSON.parse`s it, and builds every other DOM node with
 `createElement`/`textContent`. Nothing recorded is ever assigned to
 `innerHTML`, so nothing recorded can ever be interpreted as markup — a
-`<script>` tag or `onerror=` attribute in a summary, a tool result, or a
-diff line renders as inert text, never as live HTML.
+`<script>` tag or `onerror=` attribute in a summary, a tool result, a
+diff line, or terminal output renders as inert text, never as live HTML.
+
+Terminal output gets two more guards: escape sequences are parsed and
+discarded server-side (none reach the page), and each styled run's CSS
+class is built from a fixed `hh-t-*` vocabulary and re-checked by the page
+against that pattern before use.
+
+### Redaction and size budget for terminal output
+
+Terminal output is redacted like everything else on the page — and it is
+redacted on the **joined** transcript, so a secret split across two output
+chunks, or by a color change mid-token, is still caught.
+
+Terminal output is usually the largest part of a session, so the page caps
+it at **2 MiB** by default (the whole page stays within ~5 MiB for a typical
+session). Past the cap, the page keeps the head and tail of the transcript
+around a visible `… N truncated — raise [export] html_terminal_max_bytes …`
+marker. Truncation happens *after* redaction, so a cut can never split a
+secret into halves that escape detection. Raise or remove the cap in
+`config.toml`:
+
+```toml
+[export]
+html_terminal_max_bytes = "8MiB"   # or an integer byte count; 0 = no limit
+```
+
+### Where the file goes, and `--open`
+
+| Invocation | Output |
+| --- | --- |
+| `hh replay [session] --web` | `<data_dir>/exports/hh-session-<short_id>.html`; path printed on stdout |
+| `hh replay [session] --web -o page.html` | `page.html`; path printed on stdout |
+| `hh replay [session] --web -o -` | HTML on stdout, nothing else |
+| `hh export [session] --html` | HTML on stdout (unchanged) |
+| `hh export [session] --html -o page.html` | `page.html`; path printed on stdout |
+| `hh export [session] --html -o -` | HTML on stdout (`-o -` works for every export format) |
+| `hh export [session] --html --open` | `<data_dir>/exports/hh-session-<short_id>.html`, then opened |
+
+`<data_dir>` is the Halfhand data directory (`HH_DATA_DIR`, `[storage]
+data_dir`, or the platform default — `hh doctor` prints it). Pages there are
+not reaped by the OS like a temp dir; re-exporting a session overwrites its
+page, and `rm -r <data_dir>/exports` is always safe.
+
+`--open` (with `--html` or `--web`) opens the page in your default browser
+(`xdg-open` on Linux, `open` on macOS). It is honoured **only** when stdout
+is a terminal and the `CI` environment variable is not set; otherwise the
+page is still written, the path is printed, and one line on stderr says why
+no browser opened. If no opener is available (headless Linux, an SSH
+session), the command still succeeds and prints the path with a one-line
+hint. `--no-open` cancels an earlier `--open` (handy behind a shell alias).
+
+The stdout epilogue line is unchanged — `✓ Exported session <id> → <path>
+(html, redacted)` — so scripts that parse the path after `→ ` keep working.
 
 ### `hh replay --web`
 
 Sugar for the common "just let me look at this in a browser" case:
 
 ```
-hh replay [session] --web
+hh replay [session] --web [--open] [-o FILE|-]
 ```
 
 Builds the same redacted HTML page `hh export --html` would, writes it to
-`$TMPDIR/hh-replay-<short_id>.html`, and prints the path. Needs no
-terminal (unlike plain `hh replay`, which opens the interactive TUI and
-requires one). Does **not** open a browser or start a server — v1 is
-print-the-path only; piping the path to `open`/`xdg-open` yourself is a
-one-liner if you want that.
+`<data_dir>/exports/hh-session-<short_id>.html` (earlier versions used
+`$TMPDIR/hh-replay-<short_id>.html`, which the OS could delete), and prints
+the path. Needs no terminal (unlike plain `hh replay`, which opens the
+interactive TUI and requires one), and never starts a server. Add `--open`
+to launch your browser too (see above).
 
 ## See also
 

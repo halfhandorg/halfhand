@@ -70,6 +70,7 @@ pub enum Command {
         ("hh replay last", "replay the most recent session"),
         ("hh replay a1b2c3", "replay a session by short id"),
         ("hh replay last --web", "write a self-contained HTML replay instead"),
+        ("hh replay last --web --open", "…and open it in your browser"),
     ]))]
     Replay(ReplayArgs),
 
@@ -194,6 +195,7 @@ pub enum Command {
         ("hh export last --out session.json", "redacted JSON bundle to a file"),
         ("hh export last --bundle -o session.hh", "portable archive for `hh import`"),
         ("hh export a1b2c3 --html --out session.html", "self-contained HTML replay page"),
+        ("hh export last --html --open", "HTML page under the data dir, opened in your browser"),
         ("hh export last | jq .session", "JSON bundle to stdout"),
     ]))]
     Export(ExportArgs),
@@ -315,17 +317,31 @@ pub struct RedactArgs {
 
 /// Arguments for `hh export`.
 #[derive(Args, Debug)]
+// Each bool is an independent clap flag (`--html`, `--bundle`, `--open`,
+// `--no-open`, `--no-redact`); a state enum would not map to the CLI surface.
+#[allow(clippy::struct_excessive_bools)]
 pub struct ExportArgs {
     /// Session short id, full id, or `last`. Defaults to `last`.
     pub session: Option<String>,
 
-    /// Write to this file instead of stdout.
+    /// Write to this file instead of stdout (`-o -` is stdout explicitly).
     #[arg(long, short = 'o')]
     pub out: Option<std::path::PathBuf>,
 
     /// Export a self-contained HTML page instead of the JSON bundle.
     #[arg(long, conflicts_with = "bundle")]
     pub html: bool,
+
+    /// With `--html`: open the page in your default browser. Without `-o`,
+    /// the page is written to `<data_dir>/exports/`. Only honoured when
+    /// stdout is a terminal and `CI` is unset; never fails the command.
+    #[arg(long, requires = "html", overrides_with = "no_open")]
+    pub open: bool,
+
+    /// Do not open a browser (overrides an earlier `--open`, e.g. from an
+    /// alias).
+    #[arg(long, overrides_with = "open")]
+    pub no_open: bool,
 
     /// Export a portable `.hh` archive (manifest + events + referenced
     /// blobs, zstd-compressed) instead of the plain JSON bundle. Import it
@@ -410,11 +426,26 @@ pub struct ReplayArgs {
     /// Session short id, full id, or `last` (most recent). Defaults to `last`.
     pub session: Option<String>,
 
-    /// Export a self-contained HTML replay page to a temp file and print its
-    /// path, instead of opening the interactive TUI. Does not need a
-    /// terminal, does not open a browser, and does not start a server.
+    /// Export a self-contained HTML replay page and print its path, instead
+    /// of opening the interactive TUI. Written to
+    /// `<data_dir>/exports/hh-session-<id>.html` unless `-o` says otherwise.
+    /// Does not need a terminal and does not start a server.
     #[arg(long)]
     pub web: bool,
+
+    /// With `--web`: write the page here instead (`-o -` writes the HTML to
+    /// stdout).
+    #[arg(long, short = 'o', requires = "web")]
+    pub out: Option<std::path::PathBuf>,
+
+    /// With `--web`: open the page in your default browser. Only honoured
+    /// when stdout is a terminal and `CI` is unset; never fails the command.
+    #[arg(long, requires = "web", overrides_with = "no_open")]
+    pub open: bool,
+
+    /// Do not open a browser (the default; overrides an earlier `--open`).
+    #[arg(long, overrides_with = "open")]
+    pub no_open: bool,
 }
 
 /// Arguments for `hh inspect`.

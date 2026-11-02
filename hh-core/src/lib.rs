@@ -32,8 +32,8 @@ pub use bundle::{Bundle, FORMAT_VERSION};
 pub use config::{
     legacy_config_hint, legacy_config_hint_marker_path, parse_bytes,
     print_legacy_config_hint_if_needed, print_legacy_config_hint_if_needed_with, Config,
-    ConfigSource, Paths, RecordConfig, RedactionConfig, RedactionRule, ReplayConfig, StorageConfig,
-    Theme,
+    ConfigSource, ExportConfig, Paths, RecordConfig, RedactionConfig, RedactionRule, ReplayConfig,
+    StorageConfig, Theme,
 };
 pub use deprecation::warn_deprecated;
 pub use error::{BlobError, BundleError, ConfigError, Error, ResolveError, Result, StorageError};

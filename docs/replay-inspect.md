@@ -6,12 +6,22 @@
 hh replay last          # interactive TUI on the most recent session
 hh replay a1b2c3        # by id
 hh replay last --web    # write a self-contained HTML page and print its path
+hh replay last --web --open   # …and open it in your default browser
+hh replay last --web -o -     # write the HTML to stdout instead
 ```
 
 The TUI shows a step timeline alongside a detail pane (message text, tool
 calls and results, unified diffs for file changes). `--web` exports the same
-content as a single offline HTML file — no terminal, browser, or server
-needed; the path is printed to stdout.
+content as a single offline HTML file — including the session's terminal
+output, in a collapsed section under the header (colors kept, other escape
+sequences stripped, redacted, capped at 2 MiB by default with a visible
+truncation marker). No terminal or server is needed. The file is written to
+`<data_dir>/exports/hh-session-<id>.html` (or `-o FILE`) and its path is
+printed on stdout. `--open` launches your browser only when stdout is a
+terminal and `CI` is unset; if no opener exists (headless, SSH) the path is
+still printed and the command still succeeds. See
+[`docs/export-import.md`](export-import.md#the-html-replay-page---html-hh-replay---web)
+for the safety model, size cap, and destinations.
 
 ### What "faithful" means (and where it ends)
 

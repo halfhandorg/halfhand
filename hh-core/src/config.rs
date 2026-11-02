@@ -132,6 +132,29 @@ pub struct ReplayConfig {
     pub theme: Theme,
 }
 
+/// Export options (`[export]`, docs/export-import.md).
+#[derive(Debug, Clone, PartialEq, Eq)]
+#[non_exhaustive]
+pub struct ExportConfig {
+    /// Maximum bytes of (ANSI-stripped, redacted) terminal output embedded
+    /// in an HTML export / `hh replay --web` page (default 2 MiB). Longer
+    /// transcripts keep their head and tail around a visible truncation
+    /// marker. `0` disables the limit.
+    pub html_terminal_max_bytes: u64,
+}
+
+/// Default for [`ExportConfig::html_terminal_max_bytes`]: 2 MiB keeps a
+/// typical page inside the ~5 MiB budget alongside the structured steps.
+pub const DEFAULT_HTML_TERMINAL_MAX_BYTES: u64 = 2 * 1024 * 1024;
+
+impl Default for ExportConfig {
+    fn default() -> Self {
+        Self {
+            html_terminal_max_bytes: DEFAULT_HTML_TERMINAL_MAX_BYTES,
+        }
+    }
+}
+
 /// One user-defined secret detector (`[redaction] rules`, see
 /// docs/redaction-design.md). The `pattern` is compiled by
 /// [`crate::redact::Detectors::new`]; an invalid regex is an actionable error
@@ -181,6 +204,8 @@ pub struct Config {
     pub replay: ReplayConfig,
     /// `[redaction]`
     pub redaction: RedactionConfig,
+    /// `[export]`
+    pub export: ExportConfig,
 }
 
 /// Which config file (if any) supplied a loaded [`Config`]. Returned by
@@ -463,6 +488,7 @@ const KNOWN: &[(&str, &[&str])] = &[
     ("storage", &["data_dir"]),
     ("replay", &["theme"]),
     ("redaction", &["at_record", "entropy", "rules"]),
+    ("export", &["html_terminal_max_bytes"]),
 ];
 
 /// Walk the parsed table and warn on stderr about any key we do not recognize.
@@ -490,7 +516,7 @@ fn warn_unknown_keys(table: &toml::Table) {
 fn merge_table(cfg: &mut Config, table: &toml::Table) -> Result<()> {
     if let Some(record) = table.get("record").and_then(toml::Value::as_table) {
         if let Some(v) = record.get("max_file_size") {
-            cfg.record.max_file_size = value_to_bytes(v)?;
+            cfg.record.max_file_size = value_to_bytes("record.max_file_size", v)?;
         }
         if let Some(v) = record.get("record_input").and_then(toml::Value::as_bool) {
             cfg.record.record_input = v;
@@ -524,6 +550,12 @@ fn merge_table(cfg: &mut Config, table: &toml::Table) -> Result<()> {
                     .into())
                 }
             };
+        }
+    }
+    if let Some(export) = table.get("export").and_then(toml::Value::as_table) {
+        if let Some(v) = export.get("html_terminal_max_bytes") {
+            cfg.export.html_terminal_max_bytes =
+                value_to_bytes("export.html_terminal_max_bytes", v)?;
         }
     }
     if let Some(redaction) = table.get("redaction").and_then(toml::Value::as_table) {
@@ -582,14 +614,13 @@ fn parse_redaction_rules(v: &toml::Value) -> Result<Vec<RedactionRule>> {
     Ok(rules)
 }
 
-fn value_to_bytes(v: &toml::Value) -> Result<u64> {
+fn value_to_bytes(key: &str, v: &toml::Value) -> Result<u64> {
     match v {
-        toml::Value::Integer(n) => u64::try_from(*n).map_err(|_| {
-            ConfigError::Value(format!("max_file_size cannot be negative: {n}")).into()
-        }),
+        toml::Value::Integer(n) => u64::try_from(*n)
+            .map_err(|_| ConfigError::Value(format!("{key} cannot be negative: {n}")).into()),
         toml::Value::String(s) => Ok(parse_bytes(s).map_err(ConfigError::Value)?),
         other => Err(ConfigError::Value(format!(
-            "max_file_size must be a string or integer, got {}",
+            "{key} must be a string or integer, got {}",
             other.type_str()
         ))
         .into()),
@@ -728,6 +759,37 @@ mod tests {
         assert_eq!(cfg.record.ignore, [] as [String; 0]);
         assert_eq!(cfg.replay.theme, Theme::Auto);
         assert!(cfg.storage.data_dir.as_os_str().is_empty());
+        assert_eq!(
+            cfg.export.html_terminal_max_bytes,
+            DEFAULT_HTML_TERMINAL_MAX_BYTES
+        );
+    }
+
+    /// `[export] html_terminal_max_bytes` accepts a size string or an
+    /// integer (0 = unlimited), and a negative value is an actionable error
+    /// that names the key.
+    #[test]
+    fn config_loads_export_terminal_limit() {
+        let tmp = TempDir::new().unwrap();
+        let path = write_config(
+            tmp.path(),
+            "[export]\nhtml_terminal_max_bytes = \"64KiB\"\n",
+        );
+        assert_eq!(
+            Config::load(&path).unwrap().export.html_terminal_max_bytes,
+            64 * 1024
+        );
+        let path = write_config(tmp.path(), "[export]\nhtml_terminal_max_bytes = 0\n");
+        assert_eq!(
+            Config::load(&path).unwrap().export.html_terminal_max_bytes,
+            0
+        );
+        let path = write_config(tmp.path(), "[export]\nhtml_terminal_max_bytes = -1\n");
+        let err = Config::load(&path).unwrap_err().to_string();
+        assert!(
+            err.contains("export.html_terminal_max_bytes"),
+            "error names the key: {err}"
+        );
     }
 
     #[test]

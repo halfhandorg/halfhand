@@ -1,6 +1,5 @@
 ---
 source: hh/src/export.rs
-assertion_line: 717
 expression: html
 ---
 <!doctype html>
@@ -63,6 +62,23 @@ body {
 .hh-diff-hunk { color: var(--accent); margin-top: .5rem; }
 .hh-diff-line { white-space: pre-wrap; word-break: break-word; }
 .hh-diff-insert { color: var(--user); } .hh-diff-delete { color: var(--err); }
+#hh-terminal { flex: 0 0 auto; border-bottom: 1px solid var(--border); }
+#hh-terminal > summary { padding: .4rem 1rem; cursor: pointer; color: var(--dim); }
+#hh-terminal[open] > summary { color: var(--fg); }
+.hh-term {
+  margin: 0; padding: .6rem 1rem; max-height: 45vh; overflow: auto; background: var(--panel);
+  white-space: pre-wrap; word-break: break-word;
+}
+.hh-t-marker { color: var(--accent); font-style: italic; }
+.hh-t-b { font-weight: 700; } .hh-t-d { opacity: .65; } .hh-t-i { font-style: italic; } .hh-t-u { text-decoration: underline; }
+.hh-t-f0 { color: #5c6370; } .hh-t-f1 { color: var(--err); } .hh-t-f2 { color: var(--user); } .hh-t-f3 { color: var(--tool); }
+.hh-t-f4 { color: var(--file); } .hh-t-f5 { color: var(--mcp); } .hh-t-f6 { color: var(--agent); } .hh-t-f7 { color: var(--fg); }
+.hh-t-f8 { color: var(--dim); } .hh-t-f9 { color: #ff8787; } .hh-t-f10 { color: #8ce99a; } .hh-t-f11 { color: #ffe066; }
+.hh-t-f12 { color: #74c0fc; } .hh-t-f13 { color: #e599f7; } .hh-t-f14 { color: #66d9e8; } .hh-t-f15 { color: var(--fg); font-weight: 600; }
+.hh-t-g0 { background: #2b2f36; } .hh-t-g1 { background: #5c1f1f; } .hh-t-g2 { background: #1f4d1f; } .hh-t-g3 { background: #5c4a14; }
+.hh-t-g4 { background: #1f3360; } .hh-t-g5 { background: #4d1f5c; } .hh-t-g6 { background: #14505c; } .hh-t-g7 { background: #6b7280; }
+.hh-t-g8 { background: #3b4048; } .hh-t-g9 { background: #7a2e2e; } .hh-t-g10 { background: #2e6b2e; } .hh-t-g11 { background: #7a6420; }
+.hh-t-g12 { background: #2e4a8a; } .hh-t-g13 { background: #6b2e7a; } .hh-t-g14 { background: #20707a; } .hh-t-g15 { background: #9ca3af; }
 footer { flex: 0 0 auto; padding: .5rem 1rem; color: var(--dim); font-size: .75em; border-top: 1px solid var(--border); }
 noscript { display: block; padding: 1rem; color: var(--dim); }
 
@@ -70,10 +86,11 @@ noscript { display: block; padding: 1rem; color: var(--dim); }
 </head>
 <body>
 <noscript>This replay page needs JavaScript to render — the session data below is otherwise inert.</noscript>
-<script type="application/json" id="hh-data">{"events":[{"body":{"text":"prompt with \u003c/script\u003e\u003cimg src=x onerror=alert(2)\u003e"},"kind":"user_message","step":1,"summary":"hello \u003cscript\u003ealert(1)\u003c/script\u003e","ts_ms":12},{"body":{"path":"\u003csvg onload=alert(3)\u003e.txt"},"diff":{"change_kind":"created","hunks":[{"header":null,"lines":[{"tag":"insert","text":"\u003c/script\u003e\u003cscript\u003ealert(4)\u003c/script\u003e"}]}],"is_binary":false,"note":null,"path":"\u003csvg onload=alert(3)\u003e.txt"},"kind":"file_change","step":2,"summary":"\u003csvg onload=alert(3)\u003e.txt created","ts_ms":20}],"hh_version":"test","kind":"hh-export-html","schema":2,"session":{"agent_kind":"generic","command":["agent","--flag"],"cwd":"/tmp/work","imported_from":null,"short_id":"a1b2c3","status":"ok"}}</script>
+<script type="application/json" id="hh-data">{"events":[{"body":{"text":"prompt with \u003c/script\u003e\u003cimg src=x onerror=alert(2)\u003e"},"kind":"user_message","step":1,"summary":"hello \u003cscript\u003ealert(1)\u003c/script\u003e","ts_ms":12},{"body":{"path":"\u003csvg onload=alert(3)\u003e.txt"},"diff":{"change_kind":"created","hunks":[{"header":null,"lines":[{"tag":"insert","text":"\u003c/script\u003e\u003cscript\u003ealert(4)\u003c/script\u003e"}]}],"is_binary":false,"note":null,"path":"\u003csvg onload=alert(3)\u003e.txt"},"kind":"file_change","step":2,"summary":"\u003csvg onload=alert(3)\u003e.txt created","ts_ms":20}],"hh_version":"test","kind":"hh-export-html","schema":2,"session":{"agent_kind":"generic","command":["agent","--flag"],"cwd":"/tmp/work","imported_from":null,"short_id":"a1b2c3","status":"ok"},"terminal":{"bytes":64,"omitted_binary_bytes":0,"segments":[["$ make\n",""],["\u003c/script\u003e\u003cscript\u003ealert(5)\u003c/script\u003e\u003ciframe srcdoc=x\u003e","hh-t-f1 hh-t-b"],["styled","\" onmouseover=alert(6) x=\""]],"truncated_bytes":0}}</script>
 <button id="hh-theme-toggle" type="button" aria-label="Toggle light/dark theme">◐</button>
 <div id="app">
   <header id="hh-header"></header>
+  <details id="hh-terminal" hidden><summary id="hh-terminal-summary">terminal output</summary><pre id="hh-terminal-body" class="hh-term"></pre></details>
   <div id="hh-main">
     <nav id="hh-timeline" aria-label="Step timeline"></nav>
     <main id="hh-detail" aria-label="Step detail"></main>
@@ -182,6 +199,41 @@ noscript { display: block; padding: 1rem; color: var(--dim); }
     container.appendChild(wrap);
   }
 
+  // Terminal transcript: collapsed by default, rendered lazily on first
+  // open. Each segment is [text, class]; text goes through textContent
+  // only, and the class must match the fixed `hh-t-*` vocabulary.
+  var CLASS_OK = /^(hh-t-[a-z0-9]+)( hh-t-[a-z0-9]+)*$/;
+  function fmtBytes(n) {
+    n = n || 0;
+    if (n < 1024) return n + ' B';
+    if (n < 1048576) return (n / 1024).toFixed(1) + ' KiB';
+    return (n / 1048576).toFixed(1) + ' MiB';
+  }
+  function renderTerminal() {
+    var term = DATA.terminal;
+    if (!term || typeof term !== 'object') return;
+    var details = document.getElementById('hh-terminal');
+    var summary = document.getElementById('hh-terminal-summary');
+    var label = 'terminal output · ' + fmtBytes(term.bytes);
+    if (term.truncated_bytes) label += ' · ' + fmtBytes(term.truncated_bytes) + ' truncated';
+    if (term.omitted_binary_bytes) label += ' · ' + fmtBytes(term.omitted_binary_bytes) + ' non-UTF-8 omitted';
+    summary.textContent = label;
+    details.hidden = false;
+    var drawn = false;
+    details.addEventListener('toggle', function () {
+      if (!details.open || drawn) return;
+      drawn = true;
+      var pre = document.getElementById('hh-terminal-body');
+      var frag = document.createDocumentFragment();
+      (Array.isArray(term.segments) ? term.segments : []).forEach(function (seg) {
+        if (!Array.isArray(seg)) return;
+        var cls = typeof seg[1] === 'string' && CLASS_OK.test(seg[1]) ? seg[1] : null;
+        frag.appendChild(el('span', cls, String(seg[0])));
+      });
+      pre.appendChild(frag);
+    });
+  }
+
   function renderDetail(ev) {
     var main = document.getElementById('hh-detail');
     main.textContent = '';
@@ -228,11 +280,14 @@ noscript { display: block; padding: 1rem; color: var(--dim); }
 
   initTheme();
   renderHeader();
+  renderTerminal();
   renderTimeline();
   if (rows.length > 0) {
     select(0);
   } else {
-    document.getElementById('hh-detail').appendChild(el('div', 'hh-empty', 'no steps in this session'));
+    var emptyMsg = DATA.terminal ? 'no structured steps in this session — expand terminal output above'
+      : 'no steps in this session';
+    document.getElementById('hh-detail').appendChild(el('div', 'hh-empty', emptyMsg));
   }
 })();
 

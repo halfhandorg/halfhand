@@ -20,6 +20,11 @@ arbitrary = { version = "1", features = ["derive"] }
 path = "../hh-core"
 features = ["fuzzing"]
 
+# The `html_terminal` target drives the HTML export's ANSI parser, which
+# lives in the `halfhand` package's library target.
+[dependencies.halfhand]
+path = "../hh"
+
 [dependencies.hh-record]
 path = "../hh-record"
 features = ["fuzzing"]
@@ -76,6 +81,13 @@ bench = false
 [[bin]]
 name = "claude_desktop_index"
 path = "fuzz_targets/claude_desktop_index.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "html_terminal"
+path = "fuzz_targets/html_terminal.rs"
 test = false
 doc = false
 bench = false

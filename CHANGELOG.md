@@ -11,6 +11,42 @@ in CI rather than tracking `latest` until 1.0.
 
 ## [Unreleased]
 
+### Fixed — HTML replay pages had no terminal output
+
+- **`hh export --html` and `hh replay --web` now include terminal output.**
+  The page builder discarded every `terminal_output` event, so a session
+  without structured transcript events (any agent other than Claude Code)
+  exported as a nearly empty page while `hh replay` showed the whole
+  session. Terminal output now appears in a collapsed section under the
+  header. ANSI colors and attributes become styles, and every other escape
+  sequence is stripped server-side. The text reaches the DOM only through
+  `textContent`, and redaction runs on the joined transcript, so a secret
+  split across chunks or by a color change is still caught.
+- **The terminal transcript has a size cap.** It is capped at 2 MiB by
+  default, keeping the head and tail around a visible truncation marker.
+  It is configurable with the new `[export] html_terminal_max_bytes` key
+  (`0` = no limit). Truncation runs after redaction.
+
+### Changed — `hh replay --web` writes to a durable path
+
+- `hh replay --web` now writes to
+  `<data_dir>/exports/hh-session-<short_id>.html` instead of
+  `$TMPDIR/hh-replay-<short_id>.html`, which the OS could reap. The stdout
+  epilogue keeps its exact format, so scripts that parse the path after `→ `
+  keep working.
+
+### Added — `--open`, `--no-open`, `-o -`
+
+- `hh replay --web` and `hh export --html` accept `--open`, which opens the
+  page in the default browser. It is honoured only when stdout is a TTY and
+  `CI` is unset. A missing opener (headless, SSH) prints a hint and never
+  fails the command. `--no-open` cancels an earlier `--open`. Without `-o`,
+  `hh export --html --open` writes under `<data_dir>/exports/`.
+  Plain `hh export --html` still writes to stdout, as before.
+- `hh replay --web -o FILE` picks the destination. On every `hh export`
+  format and on `hh replay --web`, `-o -` means stdout. (Previously,
+  `hh export -o -` created a file literally named `-`.)
+
 ### Deprecated — `--adapter codex-cli`, `--adapter gemini-cli`, `--adapter claude-desktop`
 
 - **The Codex CLI and Gemini CLI adapters never captured structured
