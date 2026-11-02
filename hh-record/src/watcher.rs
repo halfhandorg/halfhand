@@ -54,7 +54,7 @@ static INJECT_PANIC_FOR_TEST: AtomicBool = AtomicBool::new(false);
 /// `events seen: []` flake in `watcher_captures_write_then_immediate_stop`).
 /// Tests that spawn a real long-running watcher take this mutex for their
 /// duration so the injection flag is only ever seen by the worker it was meant
-/// for. `const`-constructible since Rust 1.63, so fine at the 1.75 MSRV.
+/// for. `const`-constructible since Rust 1.63, so fine at the 1.88 MSRV.
 #[cfg(test)]
 static REAL_RUN_LOOP_MUTEX: Mutex<()> = Mutex::new(());
 
@@ -87,6 +87,47 @@ const GRACE_QUIET: Duration = Duration::from_millis(150);
 /// common case, so this cap only bites a pathologically busy directory still
 /// emitting events long after the child is gone.
 const GRACE_MAX: Duration = Duration::from_secs(1);
+
+/// Environment variable read by the `test-seams` fault-injection seam (see
+/// [`forced_unwatchable`]). Only exists in builds with that feature.
+#[cfg(feature = "test-seams")]
+pub const TEST_UNWATCHABLE_CWD_ENV: &str = "HH_TEST_UNWATCHABLE_CWD";
+
+/// Test seam (feature `test-seams`, dev-only): when
+/// [`TEST_UNWATCHABLE_CWD_ENV`] is set, every attempt to watch the recording's
+/// cwd fails as if the OS had refused it (`EACCES`). This drives the real
+/// degradation path — recursive watch fails, per-directory fallback fails on
+/// the root, file-change recording is disabled with a warning — for any uid
+/// on any OS. A permission trick (`chmod 000`) cannot do that: root ignores
+/// it. Without the feature this is a constant `false` the optimizer removes.
+fn forced_unwatchable(path: &Path, cwd: &Path) -> bool {
+    #[cfg(feature = "test-seams")]
+    {
+        path == cwd && std::env::var_os(TEST_UNWATCHABLE_CWD_ENV).is_some()
+    }
+    #[cfg(not(feature = "test-seams"))]
+    {
+        let _ = (path, cwd);
+        false
+    }
+}
+
+/// `watcher.watch(path, mode)`, routed through the [`forced_unwatchable`]
+/// seam so tests can fail the cwd watch without filesystem permissions.
+fn watch_path(
+    watcher: &mut RecommendedWatcher,
+    path: &Path,
+    mode: RecursiveMode,
+    cwd: &Path,
+) -> notify::Result<()> {
+    if forced_unwatchable(path, cwd) {
+        return Err(
+            notify::Error::io(std::io::Error::from(std::io::ErrorKind::PermissionDenied))
+                .add_path(path.to_path_buf()),
+        );
+    }
+    watcher.watch(path, mode)
+}
 
 /// Options for the filesystem watcher (FR-1.4).
 #[derive(Debug, Clone)]
@@ -179,7 +220,8 @@ pub fn spawn_watcher(
 
     // Try one recursive watch; on failure fall back to per-directory watches,
     // skipping unreadable / ignored subtrees (FR-1.4 best-effort).
-    let cwd_watched = match watcher.watch(&opts.cwd, RecursiveMode::Recursive) {
+    let cwd_watched = match watch_path(&mut watcher, &opts.cwd, RecursiveMode::Recursive, &opts.cwd)
+    {
         Ok(()) => true,
         Err(e) => {
             eprintln!(
@@ -265,7 +307,7 @@ fn add_per_dir_watches(
     let mut dirs_watched = 0usize;
     let mut warned_skip = false;
     while let Some(dir) = stack.pop() {
-        match watcher.watch(&dir, RecursiveMode::NonRecursive) {
+        match watch_path(watcher, &dir, RecursiveMode::NonRecursive, root) {
             Ok(()) => dirs_watched += 1,
             Err(e) => {
                 if dir == root {

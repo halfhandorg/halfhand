@@ -11,9 +11,8 @@
 <img src="docs/assets/halfhand-cli.png" alt="Halfhand" width="120">
 
 Halfhand wraps any agent command in a PTY, captures terminal output and file
-changes as they happen, and — for agents it recognizes — also records the
-agent's internal turns (prompts, tool calls, tool results) as structured
-events. Everything lands in a local SQLite database you can replay, inspect,
+changes as they happen, and — for Claude Code — also records the agent's
+internal turns (prompts, tool calls, tool results) as structured events. Everything lands in a local SQLite database you can replay, inspect,
 list, and delete. Recordings never leave your machine.
 
 ## Install
@@ -65,7 +64,7 @@ was cut short (`hh` killed mid-run) replays the partial timeline and is marked
 | `hh inspect <id\|last>` | Non-interactive detail: `--step N`, `--json`, `--diff`, `--failed`. |
 | `hh list` | List sessions, newest first; `--json`, `--limit`. |
 | `hh search <query>` | Full-text search over events (FTS5); `--agent`, `--kind`, `--json`. |
-| `hh scan <id\|last\|--all>` | Report recorded secrets (never the secret itself); exits 4 on findings. |
+| `hh scan <id\|last\|--all>` | Report recorded secrets (never the secret itself); exits 4 on findings ([exit codes](docs/exit-codes.md)). |
 | `hh redact <id\|last>` | Irreversibly remove detected secrets in place. |
 | `hh export <id\|last>` | JSON bundle, portable `--bundle`, or `--html` page — **redacted by default**. |
 | `hh import <file>` | Import a `--bundle` as a new local session. |
@@ -78,16 +77,20 @@ overview. Full reference: the [docs site](https://halfhand.org/docs/).
 
 ## Adapters
 
-Every `hh run` captures terminal output and file changes regardless of what
-you run. On top of that, Halfhand detects certain agents and records their
-internal turns as structured events: **Claude Code**, **OpenAI Codex CLI**,
-and **Google Gemini CLI** (auto-detected from the command; force one with
-`--adapter`), plus **Claude Desktop** Code-tab sessions via
-`hh run --adapter claude-desktop -- $SHELL` (confirmed on Linux; macOS and
-Windows paths are unverified). If a transcript can't be found, it degrades gracefully — you
-still get the full terminal and file-change recording, just without the
-structured breakdown. See
-[Adapters](docs/adapters.md).
+Every `hh run` captures terminal output and file changes, whatever you run.
+**Claude Code is the only agent whose internal turns (prompts, tool calls,
+tool results) are also captured as structured events** — auto-detected from
+`hh run -- claude`. Any other agent, including OpenAI Codex CLI and Google
+Gemini CLI, records terminal output and file changes only.
+
+The `--adapter codex-cli`, `--adapter gemini-cli` and
+`--adapter claude-desktop` flags are deprecated and scheduled for removal in
+the next minor release: the Codex and Gemini adapters never converted a real
+transcript into structured events, and Claude Desktop capture is unverified.
+They still work as before and print a one-line deprecation warning. If an
+adapter can't find or read a transcript, the session degrades gracefully —
+you still get the full terminal and file-change recording, with the reason
+recorded. See [Adapters](docs/adapters.md).
 
 ## Configuration
 

@@ -24,7 +24,9 @@ until `1.0.0` ships (see `README.md`).
   release. Halfhand does not do major-version-only removals within the CLI —
   a deprecation warning must have shipped first, full stop.
 - Exit codes are part of the contract, tested by
-  `hh/tests/cli_conformance.rs`:
+  `hh/tests/cli_conformance.rs`. The full per-command reference, including
+  `hh run`/`hh mcp-proxy` passing the wrapped command's code through and the
+  known gaps, is [`docs/exit-codes.md`](docs/exit-codes.md):
 
   | Code | Meaning | Where |
   |---|---|---|
@@ -82,11 +84,19 @@ until `1.0.0` ships (see `README.md`).
 
 ## (d) MSRV
 
-- The minimum supported Rust version is stated once, in the workspace
-  `Cargo.toml` (`rust-version.workspace = true` in `hh-core`/`hh-record`/
-  `hh`; currently `1.75`).
-- An MSRV bump only happens in a **minor** release, never a patch release,
-  and is called out in `CHANGELOG.md`.
+- The minimum supported Rust version is **1.88**. It is stated once, in the
+  workspace `Cargo.toml` (`rust-version`; the crates inherit it with
+  `rust-version.workspace = true`), and every other document repeats that
+  number.
+- It is the real floor, not an aspiration: the oldest toolchain that builds
+  the committed `Cargo.lock`. CI's `msrv` job installs exactly the declared
+  version and runs `cargo check --workspace --locked`, so a dependency
+  update that needs a newer compiler fails CI instead of silently raising
+  the MSRV.
+- **Raising the MSRV is a minor-version change.** It only happens in a
+  **minor** release, never a patch release, and is called out in
+  `CHANGELOG.md`. A dependency update that would raise it is held back (or
+  pinned with `cargo update --precise`) until a minor release.
 
 ## (e) `hh-core` semver policy
 

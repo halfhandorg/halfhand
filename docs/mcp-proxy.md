@@ -34,6 +34,10 @@ priority over recording completeness).
   actionable error: it does not create an orphan session. The epilogue prints
   `✓ MCP proxy attached to session <id> · exit <n>`.
 
+`hh mcp-proxy` exits with the MCP server's own exit code. A missing
+`HH_SESSION_ID` session exits `1` (not `3`). See
+[Exit codes](./exit-codes.md).
+
 Within the proxy process a single `EventWriter` behind a `Mutex` serializes
 appends (the intra-process single-writer rule). Attached mode is a separate
 process from the parent `hh run`, so cross-process SQLite/WAL concurrency

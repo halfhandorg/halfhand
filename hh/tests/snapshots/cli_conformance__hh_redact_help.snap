@@ -1,11 +1,10 @@
 ---
 source: hh/tests/cli_conformance.rs
-assertion_line: 83
 expression: "String::from_utf8_lossy(&out.stdout)"
 ---
 Irreversibly redact secrets from a recorded session in place.
 
-Rewrites events and affected blobs, replacing each secret with `{{REDACTED:<type>:<hash8>}}`; originals are securely deleted and the database is compacted so no plaintext copy survives. See docs/redaction.md for the guarantees and their limits.
+Rewrites events and affected blobs, replacing each secret with `{{REDACTED:<type>:<hash8>}}`; originals are securely deleted and the database is compacted so no plaintext copy survives. The docs page below lists the guarantees and their limits.
 
 Usage: hh redact [OPTIONS] <SESSION>
 
@@ -20,6 +19,8 @@ Options:
   -h, --help
           Print help (see a summary with '-h')
 
-Example:
-  hh redact a1b2c3
-  hh redact last --yes
+Examples:
+  hh redact a1b2c3      redact a session (asks first)
+  hh redact last --yes  redact the most recent session without asking
+
+Docs: https://halfhand.org/docs/redaction/

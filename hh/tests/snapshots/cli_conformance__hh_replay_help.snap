@@ -2,7 +2,7 @@
 source: hh/tests/cli_conformance.rs
 expression: "String::from_utf8_lossy(&out.stdout)"
 ---
-Faithfully play back a recorded session in an interactive TUI (SRS FR-3)
+Faithfully play back a recorded session in an interactive TUI
 
 Usage: hh replay [OPTIONS] [SESSION]
 
@@ -13,7 +13,7 @@ Options:
       --web   Export a self-contained HTML replay page to a temp file and print its path, instead of opening the interactive TUI. Does not need a terminal, does not open a browser, and does not start a server
   -h, --help  Print help
 
-Example:
-  hh replay last
-  hh replay a1b2c3
-  hh replay last --web
+Examples:
+  hh replay last        replay the most recent session
+  hh replay a1b2c3      replay a session by short id
+  hh replay last --web  write a self-contained HTML replay instead

@@ -141,8 +141,11 @@ redaction state, whatever `hh export` produced (redacted by default, or
 | `2` | Usage error (clap). |
 
 There is no dedicated "corrupt bundle" exit code in Halfhand's documented
-contract (`0`/`1`/`2`/`3`/`4`); a corrupt or invalid bundle is a generic `1`,
-by design — this is called out explicitly rather than left as an oversight.
+contract (`0`/`1`/`2`/`3`/`4`, see [Exit codes](./exit-codes.md)); a corrupt
+or invalid bundle is a generic `1`, by design — this is called out
+explicitly rather than left as an oversight. `hh export` exits `3` when the
+session doesn't exist, and `1` when `--no-redact` is refused for lack of an
+interactive confirmation.
 
 ## The HTML replay page (`--html`, `hh replay --web`)
 

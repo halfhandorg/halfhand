@@ -27,7 +27,7 @@ use tempfile::TempDir;
 /// serializes every test that reads or writes either var: a test takes the
 /// guard before mutating the env and holds it until the end of its body, so
 /// no two such tests ever observe each other's env state. `const`-constructible
-/// since Rust 1.63, so fine at the 1.75 MSRV.
+/// since Rust 1.63, so fine at the 1.88 MSRV.
 static ENV_GUARD: Mutex<()> = Mutex::new(());
 
 /// Write `contents` to `dir/config.toml` and return its path.

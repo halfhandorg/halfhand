@@ -15,6 +15,6 @@ Options:
   -h, --help
           Print help (see a summary with '-h')
 
-Example:
-  hh doctor
-  hh doctor --json | jq
+Examples:
+  hh doctor              run every check
+  hh doctor --json | jq  machine-readable results

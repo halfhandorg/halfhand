@@ -2,7 +2,7 @@
 source: hh/tests/cli_conformance.rs
 expression: "String::from_utf8_lossy(&out.stdout)"
 ---
-Print non-interactive detail about a session (SRS FR-4)
+Print non-interactive detail about a session
 
 Usage: hh inspect [OPTIONS] [SESSION]
 
@@ -16,8 +16,8 @@ Options:
       --failed       Jump to the first error/failed step
   -h, --help         Print help
 
-Example:
-  hh inspect last
-  hh inspect a1b2c3 --step 7
-  hh inspect last --json | jq
-  hh inspect last --diff
+Examples:
+  hh inspect last              summarize the most recent session
+  hh inspect a1b2c3 --step 7   show the full detail of step 7
+  hh inspect last --json | jq  stream the session as JSON
+  hh inspect last --diff       print the file changes as a unified diff

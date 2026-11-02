@@ -36,7 +36,7 @@ Options:
   -h, --help
           Print help (see a summary with '-h')
 
-Example:
-  hh search "error"
-  hh search "create file" --kind tool_call
-  hh search "api key" --agent claude-code --json
+Examples:
+  hh search "error"                               every event mentioning error
+  hh search "create file" --kind tool_call        only tool calls
+  hh search "api key" --agent claude-code --json  Claude Code sessions, as JSON

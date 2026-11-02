@@ -1,23 +1,76 @@
 # Adapters
 
-An **adapter** teaches Halfhand how to parse a specific agent's JSONL stream
+An **adapter** teaches Halfhand how to parse a specific agent's transcript
 into structured events (prompts, tool calls, tool results). When you
-`hh run -- <cmd>`, Halfhand auto-detects the adapter from the command; force
-one with `--adapter`.
+`hh run -- <cmd>`, Halfhand auto-detects the adapter from the command.
 
-## Recognized adapters
+**Every `hh run` records terminal output and file changes, whatever the
+command and whether or not an adapter works for it.** An adapter only adds
+the structured breakdown on top. An agent without a working adapter is still
+recorded, replayable, inspectable and searchable — you just get the PTY output
+and file changes, not the parsed agent turns.
 
-| Adapter         | Detect from                                   | Records                                 |
-|-----------------|-----------------------------------------------|-----------------------------------------|
-| `claude-code`   | `claude`                                      | Claude Code's JSONL turns               |
-| `claude-desktop`| `--adapter claude-desktop` only (see below)   | Claude Desktop Code-tab turns           |
-| `codex-cli`     | `codex`                                       | OpenAI Codex CLI turns                  |
-| `gemini-cli`    | `gemini`                                      | Gemini CLI turns                        |
+## Support matrix
 
-Any command without a matching adapter is still recorded — you get the PTY
-output and file changes, just not the parsed agent turns.
+| Agent | Adapter | Detect from | Structured events | Verified |
+|-------|---------|-------------|-------------------|----------|
+| Claude Code | `claude-code` | `claude` | Yes — prompts, tool calls, tool results, model and usage | **Verified** 2026-11-02 |
+| OpenAI Codex CLI | `codex-cli` | `codex` | **No — not working.** Deprecated | No |
+| Google Gemini CLI | `gemini-cli` | `gemini` | **No — not working.** Deprecated | No |
+| Claude Desktop (Code tab) | `claude-desktop` | `--adapter claude-desktop` only | Unverified. Deprecated | No |
 
-## Recording a Claude Desktop session
+"Verified" means checked against the agent's real current transcript
+format on the date shown. Anything else records terminal output and file
+changes only, or is not something we can vouch for.
+
+### Codex CLI and Gemini CLI: not working
+
+The Codex CLI and Gemini CLI adapters have never captured structured events.
+Each one finds its agent's transcript (`~/.codex/sessions/YYYY/MM/DD/rollout-*.jsonl`,
+`~/.gemini/tmp/<hash>/chats/session-*.jsonl`) but then parses it with the
+**Claude Code** parser, which does not understand either format. A real Codex
+or Gemini session converts zero records, so the session ends with
+`adapter_status = degraded` and a schema-drift reason
+(`jsonl_schema_drift`), and `hh` prints one `adapter degraded` warning when
+the command exits.
+
+The terminal output and file changes of those sessions **are** recorded in
+full. That is the supported way to record Codex CLI and Gemini CLI today.
+
+Earlier README and docs versions listed both as supported. That was wrong.
+
+## Deprecated flags
+
+These `hh run` flags are **deprecated and scheduled for removal in the next
+minor release** (see the [Stability policy](./stability.md): a deprecation
+warning ships for at least one minor release before anything is removed).
+
+| Flag | Why |
+|------|-----|
+| `--adapter codex-cli` | The Codex adapter never converted a real transcript (above). |
+| `--adapter gemini-cli` | The Gemini adapter never converted a real transcript (above). |
+| `--adapter claude-desktop` | Desktop capture has not been verified end-to-end. |
+
+Until removal each flag **keeps working exactly as before** and prints one
+line to stderr when `hh run` starts, in the standard deprecation format:
+
+```text
+hh: warning: `--adapter codex-cli` is deprecated; ...
+```
+
+What to do instead: drop the flag. `hh run -- codex` and `hh run -- gemini`
+still record terminal output and file changes; for the Claude Code agent
+inside Claude Desktop, run `hh run -- claude` in a terminal instead.
+
+`--adapter claude-code` is not deprecated. Auto-detection is unchanged:
+`hh run -- codex` and `hh run -- gemini` still select their adapter (and still
+degrade, as above) without a warning, because no flag was passed.
+
+## Recording a Claude Desktop session (deprecated)
+
+> `--adapter claude-desktop` is deprecated and scheduled for removal in the
+> next minor release (see [Deprecated flags](#deprecated-flags)). It works
+> as described below until then.
 
 Claude Desktop is a GUI app, so there is no command for `hh run` to wrap and
 nothing to auto-detect from argv. Instead, `hh run --adapter claude-desktop`
@@ -58,7 +111,7 @@ parser unchanged. What differs is discovery:
 
 | OS      | Session index                                                        | Transcript                                      | Status                     |
 |---------|----------------------------------------------------------------------|-------------------------------------------------|----------------------------|
-| Linux   | `$XDG_CONFIG_HOME/Claude/claude-code-sessions/` (default `~/.config/Claude/…`) | `~/.claude/projects/<cwd-slug>/<id>.jsonl` | **Confirmed** (fixture captured here) |
+| Linux   | `$XDG_CONFIG_HOME/Claude/claude-code-sessions/` (default `~/.config/Claude/…`) | `~/.claude/projects/<cwd-slug>/<id>.jsonl` | Index discovery tested against a captured fixture |
 | macOS   | `~/Library/Application Support/Claude/claude-code-sessions/`         | `~/.claude/projects/<cwd-slug>/<id>.jsonl`      | Unverified — expected by analogy; please report |
 | Windows | `%APPDATA%\Claude\claude-code-sessions\`                             | `%USERPROFILE%\.claude\projects\<cwd-slug>\<id>.jsonl` | Unverified — the slug rule for drive letters has not been checked |
 
