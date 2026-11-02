@@ -3672,6 +3672,33 @@ mod tests {
         let home = tempfile::TempDir::new().unwrap();
         let sessions = home.path().join("Claude").join("claude-code-sessions");
         let cwd = Path::new(DESKTOP_FIXTURE_CWD);
+        // Write order is the whole test: any poll that sees the transcript
+        // before both exclusions are on disk would rightly tail it. So the
+        // tombstone goes down before its index record (else `local_gone.json`
+        // briefly qualifies), and both records are written before the tailer
+        // spawns, so its first pass reads them complete and excludes the
+        // session id before tier 2 can see the transcript. The records are
+        // recent, so without the archived flag / tombstone they would qualify.
+        let account_dir = sessions.join("org-uuid").join("account-uuid");
+        std::fs::create_dir_all(&account_dir).unwrap();
+        std::fs::write(account_dir.join("deleted_gone"), b"1752800000000").unwrap();
+        write_desktop_index(
+            &sessions,
+            "arch",
+            DESKTOP_FIXTURE_CWD,
+            DESKTOP_CLI_SESSION_ID,
+            true,
+        );
+        write_desktop_index(
+            &sessions,
+            "gone",
+            DESKTOP_FIXTURE_CWD,
+            DESKTOP_CLI_SESSION_ID,
+            false,
+        );
+        // The transcript is written after the snapshot latch, so it is NEW and
+        // tier 2 would adopt it (it is tagged `claude-desktop`) unless the
+        // index's exclusions carry over.
         let h = spawn_desktop_tailer(home.path(), cwd, Some(sessions.clone()));
         let slug_dir = h.projects.join(slugify(cwd));
         std::fs::create_dir_all(&slug_dir).unwrap();
@@ -3680,21 +3707,6 @@ mod tests {
             &format!("{DESKTOP_CLI_SESSION_ID}.jsonl"),
             DESKTOP_FIXTURE,
         );
-        write_desktop_index(
-            &sessions,
-            "arch",
-            DESKTOP_FIXTURE_CWD,
-            DESKTOP_CLI_SESSION_ID,
-            true,
-        );
-        let deleted = write_desktop_index(
-            &sessions,
-            "gone",
-            DESKTOP_FIXTURE_CWD,
-            DESKTOP_CLI_SESSION_ID,
-            false,
-        );
-        std::fs::write(deleted.with_file_name("deleted_gone"), b"1752800000000").unwrap();
         let (outcome, events) = h.stop_and_join();
         assert_eq!(events.len(), 0, "no events expected");
         assert_eq!(outcome.status, AdapterStatus::Degraded);
