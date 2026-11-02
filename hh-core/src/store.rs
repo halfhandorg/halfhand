@@ -585,7 +585,7 @@ impl Store {
                     |r| r.get::<_, i64>(0),
                 )
                 .optional()?;
-            let is_orphan = refcount.map_or(true, |r| r <= 0);
+            let is_orphan = refcount.is_none_or(|r| r <= 0);
             if is_orphan {
                 let path = self.blobs.blob_path(&hash);
                 let bytes = fs::metadata(&path).map_or(0, |m| m.len());

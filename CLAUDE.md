@@ -6,7 +6,8 @@ treat its FR/NFR/DR numbers as the source of truth. If a task conflicts with the
 SRS, say so before writing code.
 
 ## Rust standards (non-negotiable)
-- Edition 2021, MSRV 1.78. Workspace crates: hh-core, hh-record, hh (bin).
+- Edition 2021, MSRV 1.88 (`rust-version` in the workspace Cargo.toml,
+  enforced by CI's `msrv` job). Workspace crates: hh-core, hh-record, hh (bin).
 - No unwrap()/expect() outside #[cfg(test)] and the top of main(). Use ? with
   context. thiserror for library error enums, anyhow::Context in the binary.
 - cargo clippy --workspace --all-targets -- -D warnings must pass after every

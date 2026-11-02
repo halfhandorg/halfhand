@@ -9,7 +9,7 @@ apply to every change.
 
 ## Dev setup
 
-You need Rust 1.75+ (MSRV) and `just` for the convenience tasks.
+You need Rust 1.88+ (MSRV) and `just` for the convenience tasks.
 
 ```bash
 git clone https://github.com/halfhandorg/halfhand

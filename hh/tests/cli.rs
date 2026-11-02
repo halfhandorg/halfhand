@@ -1673,32 +1673,29 @@ fn claude_adapter_degrades_on_missing_projects_dir() {
 }
 
 /// FR-1.5 best-effort (regression for the "recording failed" abort): when the
-/// cwd itself is unwatchable (no read permission → `notify` rejects the watch
-/// with `EACCES`), `hh run` must NOT abort with "recording failed". It degrades:
-/// prints a watcher warning pointing at `hh doctor` and still records the PTY
-/// session (`status=ok`). This is the direct guard for the reported symptom —
-/// `hh run` on an unwatchable cwd used to abort the whole recording.
-#[cfg(unix)]
-#[cfg(not(target_os = "macos"))]
+/// cwd itself is unwatchable (`notify` rejects the watch, e.g. `EACCES`), `hh
+/// run` must NOT abort with "recording failed". It degrades: prints a watcher
+/// warning pointing at `hh doctor` and still records the PTY session
+/// (`status=ok`). This is the direct guard for the reported symptom — `hh run`
+/// on an unwatchable cwd used to abort the whole recording.
+///
+/// The unwatchable condition comes from hh-record's `test-seams` fault
+/// injection (`HH_TEST_UNWATCHABLE_CWD`), which fails every watch of the cwd
+/// exactly as the OS would. It used to come from `chmod 0o300` on the work
+/// dir, which only holds for a non-root uid on Linux: root reads the
+/// directory anyway, so the watch succeeded and the warning never fired. The
+/// seam holds for any uid on any OS, so the test needs no platform or uid gate.
 #[test]
 fn run_warns_and_continues_when_cwd_unwatchable() {
-    use std::os::unix::fs::PermissionsExt;
     let temp = Temp::new();
-    // A work dir the recorder cannot watch: execute (so the process can run in
-    // it) but no read (so inotify rejects the watch with EACCES).
-    let unw = tempfile::tempdir().expect("temp work dir");
-    std::fs::set_permissions(unw.path(), std::fs::Permissions::from_mode(0o300))
-        .expect("chmod no-read");
-
     let out = hh()
         .args(["run", "--", "true"])
         .env("HH_DATA_DIR", temp.data.path())
-        .current_dir(unw.path())
+        .env("HH_TEST_UNWATCHABLE_CWD", "1")
+        .current_dir(temp.work.path())
         .stdin(Stdio::null())
         .output()
         .expect("hh run should execute");
-    // Restore read so TempDir can clean up on drop even if assertions below fail.
-    let _ = std::fs::set_permissions(unw.path(), std::fs::Permissions::from_mode(0o700));
 
     assert!(
         out.status.success(),
