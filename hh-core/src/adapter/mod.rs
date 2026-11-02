@@ -2849,6 +2849,24 @@ pub mod fuzzing {
     pub fn fuzz_parse_desktop_index(bytes: &[u8]) {
         let _ = parse_desktop_index(bytes);
     }
+
+    /// Mirrors the Codex CLI tailer's per-line path, which is the Claude Code
+    /// path ([`fuzz_parse_line`]): the tailer never had a Codex-specific
+    /// parser wired in. Kept only so this public (feature-gated) API stays
+    /// semver-compatible (STABILITY.md (e)); no fuzz target calls it.
+    #[deprecated(note = "the Codex CLI tailer runs the Claude Code parser; use `fuzz_parse_line`")]
+    pub fn fuzz_parse_codex_line(bytes: &[u8]) {
+        fuzz_parse_line(bytes);
+    }
+
+    /// Mirrors the Gemini CLI tailer's per-line path, which is the Claude
+    /// Code path ([`fuzz_parse_line`]): the tailer never had a Gemini-specific
+    /// parser wired in. Kept only so this public (feature-gated) API stays
+    /// semver-compatible (STABILITY.md (e)); no fuzz target calls it.
+    #[deprecated(note = "the Gemini CLI tailer runs the Claude Code parser; use `fuzz_parse_line`")]
+    pub fn fuzz_parse_gemini_line(bytes: &[u8]) {
+        fuzz_parse_line(bytes);
+    }
 }
 
 #[cfg(test)]

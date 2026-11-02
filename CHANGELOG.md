@@ -35,7 +35,10 @@ in CI rather than tracking `latest` until 1.0.
   helpers, unit tests and insta snapshots). Nothing outside their own tests
   ever called them. Removed the `codex_jsonl` and `gemini_jsonl` fuzz
   targets, which fuzzed only that dead code; the live Codex/Gemini path is
-  the Claude Code parser, already covered by `claude_jsonl`. Also removed
+  the Claude Code parser, already covered by `claude_jsonl`. The
+  `fuzzing`-feature functions `fuzz_parse_codex_line` and
+  `fuzz_parse_gemini_line` stay (public `hh-core` API) but are
+  `#[deprecated]` and now run that same Claude Code path. Also removed
   four orphaned insta snapshots under `hh-core/src/snapshots/` (duplicates of
   the live ones in `hh-core/src/adapter/snapshots/`). No user-visible
   behavior change.
