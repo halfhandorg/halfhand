@@ -2722,6 +2722,125 @@ fn replay_web_writes_html_without_a_tty() {
         !html.contains(FAKE_AWS_KEY) && !html.contains(FAKE_GH_TOKEN),
         "replay --web output must be redacted"
     );
+    // Durable, discoverable location (not the OS temp dir), and the
+    // terminal output the fixture printed is present (it was dropped before).
+    let exports = temp.data.path().join("exports");
+    assert!(
+        std::path::Path::new(path_str.trim()).starts_with(&exports),
+        "replay --web writes under <data_dir>/exports: {path_str}"
+    );
+    assert!(
+        html.contains("agent starting") && html.contains("hh-terminal"),
+        "terminal output appears in the page"
+    );
+    assert!(
+        stdout.contains("— open it in a browser"),
+        "historical epilogue kept: {stdout}"
+    );
+}
+
+/// `-o -` writes the page to stdout (no epilogue), `-o PATH` to that path,
+/// for both `replay --web` and `export --html`; the planted terminal secret
+/// is redacted in every one.
+#[test]
+fn html_destinations_stdout_and_explicit_path() {
+    let temp = Temp::new();
+    record_secret_session(&temp);
+    for args in [
+        vec!["replay", "last", "--web", "-o", "-"],
+        vec!["export", "last", "--html", "-o", "-"],
+        vec!["export", "last", "--html"], // legacy: stdout
+    ] {
+        let out = hh()
+            .args(&args)
+            .env("HH_DATA_DIR", temp.data.path())
+            .stdin(Stdio::null())
+            .output()
+            .unwrap();
+        assert_eq!(out.status.code(), Some(0), "{args:?}");
+        let html = String::from_utf8_lossy(&out.stdout);
+        assert!(html.starts_with("<!doctype html>"), "{args:?}: {html}");
+        assert!(
+            html.contains("agent starting"),
+            "{args:?}: terminal output present"
+        );
+        assert!(
+            !html.contains(FAKE_AWS_KEY),
+            "{args:?}: terminal secret redacted"
+        );
+    }
+    let dest = temp.work.path().join("page.html");
+    let out = hh()
+        .args(["replay", "last", "--web", "-o"])
+        .arg(&dest)
+        .env("HH_DATA_DIR", temp.data.path())
+        .output()
+        .unwrap();
+    assert_eq!(out.status.code(), Some(0));
+    assert!(String::from_utf8_lossy(&out.stdout).contains(&dest.display().to_string()));
+    assert!(std::fs::read_to_string(&dest)
+        .unwrap()
+        .starts_with("<!doctype html>"));
+}
+
+/// `--open` under `CI=1` never launches a browser — it writes the page,
+/// prints the path, says why it did not open, and exits 0. A fake
+/// `xdg-open`/`open` on PATH records any launch attempt.
+#[cfg(unix)] // the fake opener is a shell script
+#[test]
+fn open_is_suppressed_under_ci() {
+    let temp = Temp::new();
+    record_secret_session(&temp);
+    let bin = temp.work.path().join("fakebin");
+    std::fs::create_dir_all(&bin).unwrap();
+    let marker = temp.work.path().join("opened");
+    for name in ["xdg-open", "open"] {
+        let p = bin.join(name);
+        std::fs::write(&p, format!("#!/bin/sh\ntouch '{}'\n", marker.display())).unwrap();
+        make_executable(&p);
+    }
+    let path_env = format!(
+        "{}:{}",
+        bin.display(),
+        std::env::var("PATH").unwrap_or_default()
+    );
+    for args in [
+        vec!["replay", "last", "--web", "--open"],
+        vec!["export", "last", "--html", "--open"],
+    ] {
+        let out = hh()
+            .args(&args)
+            .env("HH_DATA_DIR", temp.data.path())
+            .env("CI", "1")
+            .env("PATH", &path_env)
+            .output()
+            .unwrap();
+        assert_eq!(out.status.code(), Some(0), "{args:?}");
+        let stdout = String::from_utf8_lossy(&out.stdout);
+        assert!(stdout.contains(".html"), "{args:?} prints a path: {stdout}");
+        assert!(
+            String::from_utf8_lossy(&out.stderr).contains("CI is set"),
+            "{args:?} explains the skipped open"
+        );
+        assert!(
+            !marker.exists(),
+            "{args:?} must not launch a browser under CI"
+        );
+    }
+    assert!(temp.data.path().join("exports").is_dir());
+}
+
+/// `--open` needs `--html` / `--web`: a usage error (exit 2), not a
+/// silently ignored flag.
+#[test]
+fn open_without_html_is_a_usage_error() {
+    for args in [
+        vec!["export", "last", "--open"],
+        vec!["replay", "last", "--open"],
+    ] {
+        let out = hh().args(&args).output().unwrap();
+        assert_eq!(out.status.code(), Some(2), "{args:?}");
+    }
 }
 
 #[test]

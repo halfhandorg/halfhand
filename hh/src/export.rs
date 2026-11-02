@@ -23,7 +23,7 @@ use std::process::ExitCode;
 /// bundle is a binary zstd stream. Keeping both variants (rather than
 /// forcing everything through `String`) lets the file/stdout writer below be
 /// one binary-safe path for all three formats.
-enum ExportOutput {
+pub(crate) enum ExportOutput {
     /// JSON or HTML — written as UTF-8 text.
     Text(String),
     /// The `--bundle` archive — written as raw bytes.
@@ -41,7 +41,7 @@ impl ExportOutput {
 
 /// `hh export [session] [--out FILE] [--html | --bundle] [--no-redact]`.
 pub(crate) fn export_command(args: &cli::ExportArgs) -> anyhow::Result<ExitCode> {
-    let (store, _paths, config) = crate::open_store()?;
+    let (store, paths, config) = crate::open_store()?;
     let hint = args.session.as_deref().unwrap_or("last");
     let id = crate::resolve_session_arg(&store, hint)?;
     let session = store
@@ -51,10 +51,6 @@ pub(crate) fn export_command(args: &cli::ExportArgs) -> anyhow::Result<ExitCode>
     if args.no_redact {
         confirm_unredacted_export(&session)?;
     }
-    if args.bundle && args.out.is_none() {
-        refuse_binary_to_tty()?;
-    }
-
     let output = if args.bundle {
         let detectors = if args.no_redact {
             None
@@ -70,7 +66,12 @@ pub(crate) fn export_command(args: &cli::ExportArgs) -> anyhow::Result<ExitCode>
         } else {
             Some(crate::secrets::detectors(&config)?)
         };
-        ExportOutput::Text(build_redacted_html(&store, &session, detectors.as_ref())?)
+        ExportOutput::Text(build_redacted_html(
+            &store,
+            &session,
+            detectors.as_ref(),
+            config.export.html_terminal_max_bytes,
+        )?)
     } else {
         let mut bundle = build_bundle(&store, &session)?;
         // THE chokepoint (enforcement point 2): every string in the bundle
@@ -93,40 +94,195 @@ pub(crate) fn export_command(args: &cli::ExportArgs) -> anyhow::Result<ExitCode>
     } else {
         "json"
     };
-
-    if let Some(path) = &args.out {
-        std::fs::write(path, output.as_bytes()).map_err(|e| {
-            anyhow::anyhow!(
-                "could not write export to {}\n  why: {e}\n  hint: check the directory exists and is writable",
-                path.display()
-            )
-        })?;
-        let color = render::use_color();
-        let check = if color {
-            "✓".green().to_string()
-        } else {
-            "✓".to_string()
-        };
-        let redacted = if args.no_redact {
-            "UNREDACTED"
-        } else {
-            "redacted"
-        };
-        println!(
-            "{check} Exported session {sid} → {path} ({format}, {redacted})",
-            sid = session.short_id,
-            path = path.display(),
-        );
+    let redacted = if args.no_redact {
+        "UNREDACTED"
     } else {
-        use std::io::Write;
-        // Pipe-safe: a downstream `head`/closed pager is a clean stop.
-        if let Err(e) = std::io::stdout().write_all(output.as_bytes()) {
-            if e.kind() != std::io::ErrorKind::BrokenPipe {
-                return Err(anyhow::anyhow!("could not write export\n  why: {e}"));
+        "redacted"
+    };
+
+    // Destination (additive over v1.x): `-o -` is stdout; `-o PATH` a file;
+    // no `-o` stays stdout for every format, *except* `--html --open`, which
+    // needs a file to open and so lands under `<data_dir>/exports/`.
+    let dest = match &args.out {
+        Some(p) if p.as_os_str() == "-" => Destination::Stdout,
+        Some(p) => Destination::File(p.clone()),
+        None if args.html && args.open => Destination::File(default_export_path(&paths, &session)?),
+        None => Destination::Stdout,
+    };
+    if args.bundle && matches!(dest, Destination::Stdout) {
+        refuse_binary_to_tty()?;
+    }
+    if let Some(path) = deliver(&output, &dest, &session, format, redacted, "")? {
+        maybe_open(&path, args.open && !args.no_open);
+    }
+    Ok(ExitCode::SUCCESS)
+}
+
+/// Where an export's bytes go.
+pub(crate) enum Destination {
+    /// Raw bytes on stdout, no epilogue (pipe-safe).
+    Stdout,
+    /// A file; an epilogue line naming it is printed on stdout.
+    File(std::path::PathBuf),
+}
+
+/// The durable, discoverable default location for an HTML page:
+/// `<data_dir>/exports/hh-session-<short_id>.html` (re-exporting a session
+/// overwrites its page). Unlike the OS temp dir, nothing reaps it.
+pub(crate) fn default_export_path(
+    paths: &hh_core::Paths,
+    session: &SessionRow,
+) -> anyhow::Result<std::path::PathBuf> {
+    let dir = paths.data_dir.join("exports");
+    std::fs::create_dir_all(&dir).map_err(|e| {
+        anyhow::anyhow!(
+            "could not create the exports directory {}\n  why: {e}\n  \
+             hint: check the data directory is writable, or pass `-o FILE`",
+            dir.display()
+        )
+    })?;
+    Ok(dir.join(format!("hh-session-{}.html", session.short_id)))
+}
+
+/// Write `output` to `dest`. For a file, prints the `✓ Exported session …
+/// → PATH (format, redacted)` epilogue on stdout (scripts parse the path
+/// after `→ `) and returns the path. `suffix` is appended verbatim to the
+/// epilogue (`hh replay --web` keeps its historical `— open it in a browser`).
+pub(crate) fn deliver(
+    output: &ExportOutput,
+    dest: &Destination,
+    session: &SessionRow,
+    format: &str,
+    redacted: &str,
+    suffix: &str,
+) -> anyhow::Result<Option<std::path::PathBuf>> {
+    match dest {
+        Destination::File(path) => {
+            std::fs::write(path, output.as_bytes()).map_err(|e| {
+                anyhow::anyhow!(
+                    "could not write export to {}\n  why: {e}\n  hint: check the directory exists and is writable",
+                    path.display()
+                )
+            })?;
+            let check = if render::use_color() {
+                "✓".green().to_string()
+            } else {
+                "✓".to_string()
+            };
+            println!(
+                "{check} Exported session {sid} → {path} ({format}, {redacted}){suffix}",
+                sid = session.short_id,
+                path = path.display(),
+            );
+            Ok(Some(path.clone()))
+        }
+        Destination::Stdout => {
+            use std::io::Write;
+            // Pipe-safe: a downstream `head`/closed pager is a clean stop.
+            if let Err(e) = std::io::stdout().write_all(output.as_bytes()) {
+                if e.kind() != std::io::ErrorKind::BrokenPipe {
+                    return Err(anyhow::anyhow!("could not write export\n  why: {e}"));
+                }
+            }
+            Ok(None)
+        }
+    }
+}
+
+/// Why a requested `--open` did or did not launch a browser.
+#[derive(Debug, PartialEq, Eq)]
+pub(crate) enum OpenDecision {
+    /// Not requested (or `--no-open` won).
+    No,
+    /// Requested, but stdout is not a terminal (piped / scripted).
+    SkipNotTty,
+    /// Requested, but `CI` is set.
+    SkipCi,
+    /// Launch the opener.
+    Open,
+}
+
+/// Pure decision for `--open`: honoured only on an interactive stdout with
+/// no `CI` variable set, so scripts and CI never spawn a browser.
+pub(crate) fn open_decision(requested: bool, stdout_tty: bool, ci_set: bool) -> OpenDecision {
+    if !requested {
+        OpenDecision::No
+    } else if ci_set {
+        OpenDecision::SkipCi
+    } else if !stdout_tty {
+        OpenDecision::SkipNotTty
+    } else {
+        OpenDecision::Open
+    }
+}
+
+/// Open `path` in the default browser when `requested` and allowed by
+/// [`open_decision`]. Never fails the command: a skipped or failed open
+/// prints one line of guidance on stderr (the path is already on stdout).
+pub(crate) fn maybe_open(path: &std::path::Path, requested: bool) {
+    use std::io::IsTerminal;
+    let decision = open_decision(
+        requested,
+        std::io::stdout().is_terminal(),
+        std::env::var_os("CI").is_some(),
+    );
+    let note = |msg: &str| {
+        let dot = if render::use_color_stderr() {
+            "●".yellow().to_string()
+        } else {
+            "●".to_string()
+        };
+        eprintln!("{dot} {msg}");
+    };
+    match decision {
+        OpenDecision::No => {}
+        OpenDecision::SkipCi => note("not opening a browser: CI is set"),
+        OpenDecision::SkipNotTty => note("not opening a browser: stdout is not a terminal"),
+        OpenDecision::Open => {
+            if let Err(why) = launch_opener(path) {
+                note(&format!(
+                    "could not open a browser ({why}) — open the file above manually, \
+                     or copy it to a machine with a browser"
+                ));
             }
         }
     }
-    Ok(ExitCode::SUCCESS)
+}
+
+/// Spawn the platform opener on `path` and wait for it (they all return
+/// promptly after handing off to the browser).
+fn launch_opener(path: &std::path::Path) -> Result<(), String> {
+    use std::process::{Command, Stdio};
+    let mut cmd = if cfg!(target_os = "macos") {
+        Command::new("open")
+    } else if cfg!(windows) {
+        // rundll32 takes the path as one argv entry — no `cmd /C start`
+        // shell parsing of the path.
+        let mut c = Command::new("rundll32");
+        c.arg("url.dll,FileProtocolHandler");
+        c
+    } else {
+        Command::new("xdg-open")
+    };
+    let program = cmd.get_program().to_string_lossy().into_owned();
+    let status = cmd
+        .arg(path)
+        .stdin(Stdio::null())
+        .stdout(Stdio::null())
+        .stderr(Stdio::null())
+        .status()
+        .map_err(|e| {
+            if e.kind() == std::io::ErrorKind::NotFound {
+                format!("no `{program}` on PATH")
+            } else {
+                format!("`{program}` failed to start: {e}")
+            }
+        })?;
+    if status.success() {
+        Ok(())
+    } else {
+        Err(format!("`{program}` exited with {status}"))
+    }
 }
 
 /// Refuse `--bundle` with no `-o` on an interactive stdout: the bundle is a
@@ -171,12 +327,21 @@ fn build_bundle(store: &Store, session: &SessionRow) -> anyhow::Result<serde_jso
 /// --web` always passes `Some`, since it has no `--no-redact` surface).
 /// Shared by `export --html` and `hh replay --web` so the two produce
 /// byte-identical pages for the same session.
+///
+/// `terminal_max_bytes` (`[export] html_terminal_max_bytes`, `0` =
+/// unlimited) caps the embedded terminal transcript; it is applied *after*
+/// redaction (see [`crate::html_terminal`]).
 pub(crate) fn build_redacted_html(
     store: &Store,
     session: &SessionRow,
     detectors: Option<&hh_core::Detectors>,
+    terminal_max_bytes: u64,
 ) -> anyhow::Result<String> {
     let mut payload = build_html_payload(store, session)?;
+    // Terminal first: redacted on its joined text (cross-chunk/cross-color
+    // secrets), then truncated. The whole-tree pass below then covers every
+    // other string — and re-checks each terminal segment, harmlessly.
+    halfhand::html_terminal::finalize_payload_terminal(&mut payload, detectors, terminal_max_bytes);
     if let Some(d) = detectors {
         let _ = d.redact_json(&mut payload);
     }
@@ -184,17 +349,20 @@ pub(crate) fn build_redacted_html(
 }
 
 /// Build the JSON payload embedded in the HTML replay page: session
-/// metadata plus every *step-bearing* event (`terminal_output` is elided,
-/// matching the replay TUI's default `show_terminal = false` — this is a
-/// step report, not a byte-faithful terminal transcript). Each `file_change`
+/// metadata, every non-terminal event for the step timeline, and a separate
+/// `terminal` transcript (ANSI parsed into styled segments by
+/// [`crate::html_terminal`]; `null` when nothing was recorded) that the page
+/// renders collapsed beneath the header. Each `file_change`
 /// event additionally carries precomputed diff hunks
 /// ([`crate::inspect::file_change_diff_json`]), so the page's client-side JS
 /// never needs to implement a diff algorithm.
 fn build_html_payload(store: &Store, session: &SessionRow) -> anyhow::Result<serde_json::Value> {
     let mut events: Vec<serde_json::Value> = Vec::new();
+    let mut transcript = halfhand::html_terminal::Transcript::default();
     store
         .for_each_event_detail(&session.id, |detail| {
             if detail.kind == hh_core::EventKind::TerminalOutput {
+                transcript.push_chunk(detail.body_json.as_ref());
                 return Ok(());
             }
             let mut ev = crate::inspect::event_to_json(&detail, session);
@@ -216,6 +384,7 @@ fn build_html_payload(store: &Store, session: &SessionRow) -> anyhow::Result<ser
         "hh_version": crate::HH_VERSION,
         "session": crate::session_to_json(session),
         "events": events,
+        "terminal": transcript.finish(),
     }))
 }
 
@@ -339,6 +508,7 @@ fn render_html(payload: &serde_json::Value) -> String {
 <button id="hh-theme-toggle" type="button" aria-label="Toggle light/dark theme">◐</button>
 <div id="app">
   <header id="hh-header"></header>
+  <details id="hh-terminal" hidden><summary id="hh-terminal-summary">terminal output</summary><pre id="hh-terminal-body" class="hh-term"></pre></details>
   <div id="hh-main">
     <nav id="hh-timeline" aria-label="Step timeline"></nav>
     <main id="hh-detail" aria-label="Step detail"></main>
@@ -418,6 +588,23 @@ body {
 .hh-diff-hunk { color: var(--accent); margin-top: .5rem; }
 .hh-diff-line { white-space: pre-wrap; word-break: break-word; }
 .hh-diff-insert { color: var(--user); } .hh-diff-delete { color: var(--err); }
+#hh-terminal { flex: 0 0 auto; border-bottom: 1px solid var(--border); }
+#hh-terminal > summary { padding: .4rem 1rem; cursor: pointer; color: var(--dim); }
+#hh-terminal[open] > summary { color: var(--fg); }
+.hh-term {
+  margin: 0; padding: .6rem 1rem; max-height: 45vh; overflow: auto; background: var(--panel);
+  white-space: pre-wrap; word-break: break-word;
+}
+.hh-t-marker { color: var(--accent); font-style: italic; }
+.hh-t-b { font-weight: 700; } .hh-t-d { opacity: .65; } .hh-t-i { font-style: italic; } .hh-t-u { text-decoration: underline; }
+.hh-t-f0 { color: #5c6370; } .hh-t-f1 { color: var(--err); } .hh-t-f2 { color: var(--user); } .hh-t-f3 { color: var(--tool); }
+.hh-t-f4 { color: var(--file); } .hh-t-f5 { color: var(--mcp); } .hh-t-f6 { color: var(--agent); } .hh-t-f7 { color: var(--fg); }
+.hh-t-f8 { color: var(--dim); } .hh-t-f9 { color: #ff8787; } .hh-t-f10 { color: #8ce99a; } .hh-t-f11 { color: #ffe066; }
+.hh-t-f12 { color: #74c0fc; } .hh-t-f13 { color: #e599f7; } .hh-t-f14 { color: #66d9e8; } .hh-t-f15 { color: var(--fg); font-weight: 600; }
+.hh-t-g0 { background: #2b2f36; } .hh-t-g1 { background: #5c1f1f; } .hh-t-g2 { background: #1f4d1f; } .hh-t-g3 { background: #5c4a14; }
+.hh-t-g4 { background: #1f3360; } .hh-t-g5 { background: #4d1f5c; } .hh-t-g6 { background: #14505c; } .hh-t-g7 { background: #6b7280; }
+.hh-t-g8 { background: #3b4048; } .hh-t-g9 { background: #7a2e2e; } .hh-t-g10 { background: #2e6b2e; } .hh-t-g11 { background: #7a6420; }
+.hh-t-g12 { background: #2e4a8a; } .hh-t-g13 { background: #6b2e7a; } .hh-t-g14 { background: #20707a; } .hh-t-g15 { background: #9ca3af; }
 footer { flex: 0 0 auto; padding: .5rem 1rem; color: var(--dim); font-size: .75em; border-top: 1px solid var(--border); }
 noscript { display: block; padding: 1rem; color: var(--dim); }
 "#;
@@ -528,6 +715,41 @@ const HTML_JS: &str = r"
     container.appendChild(wrap);
   }
 
+  // Terminal transcript: collapsed by default, rendered lazily on first
+  // open. Each segment is [text, class]; text goes through textContent
+  // only, and the class must match the fixed `hh-t-*` vocabulary.
+  var CLASS_OK = /^(hh-t-[a-z0-9]+)( hh-t-[a-z0-9]+)*$/;
+  function fmtBytes(n) {
+    n = n || 0;
+    if (n < 1024) return n + ' B';
+    if (n < 1048576) return (n / 1024).toFixed(1) + ' KiB';
+    return (n / 1048576).toFixed(1) + ' MiB';
+  }
+  function renderTerminal() {
+    var term = DATA.terminal;
+    if (!term || typeof term !== 'object') return;
+    var details = document.getElementById('hh-terminal');
+    var summary = document.getElementById('hh-terminal-summary');
+    var label = 'terminal output · ' + fmtBytes(term.bytes);
+    if (term.truncated_bytes) label += ' · ' + fmtBytes(term.truncated_bytes) + ' truncated';
+    if (term.omitted_binary_bytes) label += ' · ' + fmtBytes(term.omitted_binary_bytes) + ' non-UTF-8 omitted';
+    summary.textContent = label;
+    details.hidden = false;
+    var drawn = false;
+    details.addEventListener('toggle', function () {
+      if (!details.open || drawn) return;
+      drawn = true;
+      var pre = document.getElementById('hh-terminal-body');
+      var frag = document.createDocumentFragment();
+      (Array.isArray(term.segments) ? term.segments : []).forEach(function (seg) {
+        if (!Array.isArray(seg)) return;
+        var cls = typeof seg[1] === 'string' && CLASS_OK.test(seg[1]) ? seg[1] : null;
+        frag.appendChild(el('span', cls, String(seg[0])));
+      });
+      pre.appendChild(frag);
+    });
+  }
+
   function renderDetail(ev) {
     var main = document.getElementById('hh-detail');
     main.textContent = '';
@@ -574,11 +796,14 @@ const HTML_JS: &str = r"
 
   initTheme();
   renderHeader();
+  renderTerminal();
   renderTimeline();
   if (rows.length > 0) {
     select(0);
   } else {
-    document.getElementById('hh-detail').appendChild(el('div', 'hh-empty', 'no steps in this session'));
+    var emptyMsg = DATA.terminal ? 'no structured steps in this session — expand terminal output above'
+      : 'no steps in this session';
+    document.getElementById('hh-detail').appendChild(el('div', 'hh-empty', emptyMsg));
   }
 })();
 ";
@@ -640,6 +865,16 @@ mod tests {
                     },
                 },
             ],
+            "terminal": {
+                "segments": [
+                    ["$ make\n", ""],
+                    ["</script><script>alert(5)</script><iframe srcdoc=x>", "hh-t-f1 hh-t-b"],
+                    ["styled", "\" onmouseover=alert(6) x=\""],
+                ],
+                "bytes": 64,
+                "truncated_bytes": 0,
+                "omitted_binary_bytes": 0,
+            },
         })
     }
 
@@ -690,6 +925,10 @@ mod tests {
             "escaped svg tag inside the data blob: {data}"
         );
         assert!(
+            data.contains("\\u003ciframe"),
+            "escaped terminal-output iframe inside the data blob: {data}"
+        );
+        assert!(
             !data.contains('<'),
             "no literal `<` inside the data blob: {data}"
         );
@@ -703,6 +942,9 @@ mod tests {
             "onload=alert",
             "<img",
             "<svg",
+            "<iframe",
+            "alert(5)",
+            "onmouseover",
         ] {
             assert!(
                 !before.contains(needle) && !after.contains(needle),
@@ -718,12 +960,58 @@ mod tests {
         insta::assert_snapshot!(html);
     }
 
-    /// `build_html_payload` (the server-side half) elides `terminal_output`
-    /// from the timeline and attaches precomputed diff hunks to
-    /// `file_change` events, so the client never implements a diff
-    /// algorithm.
+    /// The page's terminal renderer never touches `innerHTML` and gates
+    /// segment classes through the fixed `hh-t-*` vocabulary — the
+    /// client-side half of the terminal-output XSS defence.
     #[test]
-    fn build_html_payload_elides_terminal_output_and_carries_diffs() {
+    fn terminal_renderer_uses_text_content_and_validates_classes() {
+        assert!(!HTML_JS.contains("innerHTML"), "no innerHTML anywhere");
+        assert!(!HTML_JS.contains("insertAdjacentHTML") && !HTML_JS.contains("document.write"));
+        assert!(HTML_JS.contains("CLASS_OK.test(seg[1])"));
+        let html = render_html(&payload());
+        assert!(
+            html.contains("<details id=\"hh-terminal\" hidden>"),
+            "terminal output is collapsed (closed <details>) by default"
+        );
+        assert!(!html.contains("<details id=\"hh-terminal\" open"));
+    }
+
+    /// The page is one self-contained file: no external URL of any kind in
+    /// the page-owned chrome (CSS/JS/markup) — no CDN script, stylesheet,
+    /// web font, image, or `@import` — and none at all for a payload that
+    /// itself carries no URLs.
+    #[test]
+    fn html_contains_no_external_urls() {
+        let html = render_html(&payload());
+        let lower = html.to_ascii_lowercase();
+        for needle in ["http://", "https://", "ftp://", "//cdn"] {
+            assert!(!lower.contains(needle), "external URL `{needle}` in page");
+        }
+        // Page-owned chrome (everything but the inert JSON data blob, which
+        // deliberately carries `src=`-shaped XSS probes as escaped text).
+        let marker = "id=\"hh-data\">";
+        let start = lower.find(marker).unwrap() + marker.len();
+        let end = start + lower[start..].find("</script>").unwrap();
+        let chrome = format!("{}{}", &lower[..start], &lower[end..]);
+        for needle in [
+            "src=",
+            "href=",
+            "url(",
+            "@import",
+            "@font-face",
+            "<link",
+            "<iframe",
+        ] {
+            assert!(
+                !chrome.contains(needle),
+                "external reference `{needle}` in page chrome"
+            );
+        }
+    }
+
+    /// Fixture session for the store-backed tests: a terminal chunk carrying
+    /// `terminal_text`, then a `file_change`.
+    fn store_with_session(terminal_text: &str) -> (TempDir, Store, hh_core::SessionRow) {
         let tmp = TempDir::new().unwrap();
         let store = Store::open(&tmp.path().join("hh.db"), &tmp.path().join("blobs")).unwrap();
         let created = store
@@ -751,7 +1039,7 @@ mod tests {
                 kind: EventKind::TerminalOutput,
                 step: None,
                 summary: "terminal output 12 bytes".into(),
-                body_json: Some(serde_json::json!({"text": "$ ls\n"})),
+                body_json: Some(serde_json::json!({"text": terminal_text, "encoding": "utf8"})),
                 blob_hash: None,
                 blob_size: None,
                 correlates: None,
@@ -787,13 +1075,31 @@ mod tests {
             .finalize_session(&sid, 100, Some(0), SessionStatus::Ok)
             .unwrap();
         let session = store.get_session(&sid).unwrap();
+        (tmp, store, session)
+    }
 
+    /// `build_html_payload` (the server-side half) moves `terminal_output`
+    /// out of the step timeline into the `terminal` transcript (ANSI parsed
+    /// into styled segments) and attaches precomputed diff hunks to
+    /// `file_change` events, so the client never implements a diff
+    /// algorithm.
+    #[test]
+    fn build_html_payload_carries_terminal_output_and_diffs() {
+        let (_tmp, store, session) = store_with_session("$ ls\n\u{1b}[32mok\u{1b}[0m\n");
         let payload = build_html_payload(&store, &session).unwrap();
         let events = payload["events"].as_array().unwrap();
         assert!(
             events.iter().all(|e| e["kind"] != "terminal_output"),
-            "terminal_output must be elided from the HTML timeline: {events:?}"
+            "terminal chunks are not timeline rows: {events:?}"
         );
+        assert_eq!(
+            payload["terminal"]["segments"],
+            serde_json::json!([["$ ls\n", ""], ["ok", "hh-t-f2"], ["\n", ""]])
+        );
+        // End to end through the page: the terminal text is present.
+        let html = build_redacted_html(&store, &session, None, 0).unwrap();
+        assert!(html.contains("$ ls"), "terminal output appears in the page");
+        assert!(!html.contains('\u{1b}'), "no raw ESC bytes reach the page");
         let fc = events
             .iter()
             .find(|e| e["kind"] == "file_change")
@@ -805,5 +1111,57 @@ mod tests {
             .unwrap()
             .iter()
             .any(|l| l["text"] == "line one"));
+    }
+
+    /// Redaction still applies to terminal output: a secret planted in a
+    /// terminal chunk (and one split by a color change) never reaches the
+    /// page.
+    #[test]
+    fn planted_terminal_secret_is_redacted_in_html() {
+        let (_tmp, store, session) = store_with_session(
+            "aws key: AKIAIOSFODNN7EXAMPLE\ntoken ghp_FAKEFAKEFAKEFAKE\u{1b}[1mFAKEFAKEFAKEFAKE0001\u{1b}[0m\n",
+        );
+        let detectors = hh_core::Detectors::new(&hh_core::RedactionConfig::default()).unwrap();
+        let html = build_redacted_html(&store, &session, Some(&detectors), 0).unwrap();
+        assert!(
+            !html.contains("AKIAIOSFODNN7EXAMPLE"),
+            "planted AWS key leaked"
+        );
+        assert!(
+            !html.contains("FAKEFAKEFAKEFAKE0001"),
+            "split GitHub token leaked"
+        );
+        assert!(!html.contains("ghp_FAKE"), "split GitHub token head leaked");
+        assert!(html.contains("REDACTED:"), "redaction tokens present");
+    }
+
+    /// Over-budget terminal output is truncated with a visible marker, and
+    /// the threshold is the caller's (config-driven) choice.
+    #[test]
+    fn terminal_output_truncates_with_visible_marker() {
+        let long = "x".repeat(10_000);
+        let (_tmp, store, session) = store_with_session(&long);
+        let html = build_redacted_html(&store, &session, None, 1000).unwrap();
+        assert!(html.contains("truncated — raise [export] html_terminal_max_bytes"));
+        assert!(
+            html.contains("\"truncated_bytes\":9000"),
+            "dropped byte count recorded"
+        );
+        assert!(!html.contains(&long), "the full transcript is not embedded");
+        let full = build_redacted_html(&store, &session, None, 0).unwrap();
+        assert!(
+            full.contains(&long) && !full.contains("truncated —"),
+            "0 = unlimited"
+        );
+    }
+
+    /// `--open` is honoured only on an interactive stdout with `CI` unset.
+    #[test]
+    fn open_decision_respects_ci_and_tty() {
+        assert_eq!(open_decision(false, true, false), OpenDecision::No);
+        assert_eq!(open_decision(true, true, true), OpenDecision::SkipCi);
+        assert_eq!(open_decision(true, false, true), OpenDecision::SkipCi);
+        assert_eq!(open_decision(true, false, false), OpenDecision::SkipNotTty);
+        assert_eq!(open_decision(true, true, false), OpenDecision::Open);
     }
 }

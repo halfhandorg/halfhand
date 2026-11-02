@@ -14,10 +14,16 @@ Arguments:
 
 Options:
   -o, --out <OUT>
-          Write to this file instead of stdout
+          Write to this file instead of stdout (`-o -` is stdout explicitly)
 
       --html
           Export a self-contained HTML page instead of the JSON bundle
+
+      --open
+          With `--html`: open the page in your default browser. Without `-o`, the page is written to `<data_dir>/exports/`. Only honoured when stdout is a terminal and `CI` is unset; never fails the command
+
+      --no-open
+          Do not open a browser (overrides an earlier `--open`, e.g. from an alias)
 
       --bundle
           Export a portable `.hh` archive (manifest + events + referenced blobs, zstd-compressed) instead of the plain JSON bundle. Import it elsewhere with `hh import`
@@ -32,4 +38,5 @@ Examples:
   hh export last --out session.json           redacted JSON bundle to a file
   hh export last --bundle -o session.hh       portable archive for `hh import`
   hh export a1b2c3 --html --out session.html  self-contained HTML replay page
+  hh export last --html --open                HTML page under the data dir, opened in your browser
   hh export last | jq .session                JSON bundle to stdout

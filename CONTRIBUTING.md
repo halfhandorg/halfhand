@@ -103,7 +103,7 @@ input (errors only), a fuzz target, and a fixture corpus.
 
 Fuzz targets live in `fuzz/` (a detached crate using `cargo-fuzz` + nightly).
 There are eight: `claude_jsonl`, `claude_desktop_jsonl`, `claude_desktop_index`,
-`mcp_frame`, `import_bundle`, `config_toml`, `blob_decompress`, `redact_detect`.
+`mcp_frame`, `import_bundle`, `config_toml`, `blob_decompress`, `redact_detect`, `html_terminal`.
 (The Codex and Gemini CLI tailers run every line through the Claude Code
 parser, so `claude_jsonl` covers them.)
 

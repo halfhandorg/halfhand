@@ -268,37 +268,40 @@ fn replay_command(args: &cli::ReplayArgs) -> anyhow::Result<ExitCode> {
 }
 
 /// `hh replay --web` (sugar): builds the same redacted HTML page `hh export
-/// --html` would, writes it to a temp file, and prints the path — no
-/// terminal, browser auto-open, or server, per v1 scope.
+/// --html` would, writes it under `<data_dir>/exports/` (or `-o`), and
+/// prints the path; `--open` additionally launches the default browser when
+/// interactive. No terminal or server needed.
 fn replay_web_command(args: &cli::ReplayArgs) -> anyhow::Result<ExitCode> {
-    let (store, _paths, config) = open_store()?;
+    let (store, paths, config) = open_store()?;
     let hint = args.session.as_deref().unwrap_or("last");
     let session_id = resolve_session_arg(&store, hint)?;
     let session = store
         .get_session(&session_id)
         .map_err(|e| anyhow::anyhow!("could not load session\n  why: {e}"))?;
     let detectors = secrets::detectors(&config)?;
-    let html = export::build_redacted_html(&store, &session, Some(&detectors))?;
+    let html = export::build_redacted_html(
+        &store,
+        &session,
+        Some(&detectors),
+        config.export.html_terminal_max_bytes,
+    )?;
 
-    let path = std::env::temp_dir().join(format!("hh-replay-{}.html", session.short_id));
-    std::fs::write(&path, &html).map_err(|e| {
-        anyhow::anyhow!(
-            "could not write replay page to {}\n  why: {e}",
-            path.display()
-        )
-    })?;
-
-    let color = render::use_color();
-    let check = if color {
-        "✓".green().to_string()
-    } else {
-        "✓".to_string()
+    let dest = match &args.out {
+        Some(p) if p.as_os_str() == "-" => export::Destination::Stdout,
+        Some(p) => export::Destination::File(p.clone()),
+        None => export::Destination::File(export::default_export_path(&paths, &session)?),
     };
-    println!(
-        "{check} Exported session {sid} → {path} (html, redacted) — open it in a browser",
-        sid = session.short_id,
-        path = path.display(),
-    );
+    let output = export::ExportOutput::Text(html);
+    if let Some(path) = export::deliver(
+        &output,
+        &dest,
+        &session,
+        "html",
+        "redacted",
+        " — open it in a browser",
+    )? {
+        export::maybe_open(&path, args.open && !args.no_open);
+    }
     Ok(ExitCode::SUCCESS)
 }
 

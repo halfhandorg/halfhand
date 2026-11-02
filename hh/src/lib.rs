@@ -11,8 +11,10 @@
 //! this package) preserves `cargo install halfhand` installing exactly one
 //! binary (`hh`) — a 1.0 backward-compatibility invariant.
 //!
-//! `cli` is the only module re-exported; the binary's other modules (replay,
-//! export, …) stay private to `main.rs`.
+//! `cli` is the only supported module; `html_terminal` is also public but
+//! `#[doc(hidden)]`, solely so the fuzz harness can reach its parser of
+//! untrusted terminal output (the binary uses it from here). The binary's
+//! other modules (replay, export, …) stay private to `main.rs`.
 //!
 //! # Version
 //! `cli::Cli` derives `#[command(version = HH_VERSION)]`. In the binary that
@@ -21,6 +23,12 @@
 //! correct and sufficient, so we define `HH_VERSION` from `CARGO_PKG_VERSION`.
 
 pub mod cli;
+
+/// Terminal-output → HTML-transcript pipeline used by `hh export --html` /
+/// `hh replay --web`. Public only so the `html_terminal` fuzz target can
+/// reach the ANSI parser; not a supported API.
+#[doc(hidden)]
+pub mod html_terminal;
 
 /// Package version, without the git sha. Used only when compiling this lib
 /// for asset generation; the real `hh` binary embeds the sha via `build.rs`.
