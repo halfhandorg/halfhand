@@ -69,6 +69,26 @@ in CI rather than tracking `latest` until 1.0.
   `claude-desktop` basename rule still work; no CLI, `--json`, schema or
   exit-code change.
 
+### Changed — MSRV is 1.88, and CI enforces it
+
+- **The minimum supported Rust version is now 1.88** (was declared 1.75,
+  with 1.78 in other documents). The old value was not merely stale but
+  false: the committed lockfile could not build on it. 1.88 is the measured
+  floor: toolchain 1.87 refuses `time` 0.3.53 (`rust-version = 1.88`), and
+  with `--ignore-rust-version` fails to compile `time-macros`, which uses
+  let-chains (stable in 1.88). `Cargo.toml`, `CLAUDE.md`, `STABILITY.md`
+  (and `docs/stability.md`, which includes it), `CONTRIBUTING.md` and the 1.0
+  definition of done all say 1.88. Raising the MSRV is a minor-version
+  change (STABILITY.md (d)).
+- **New CI job `msrv`** installs exactly the declared `rust-version` and runs
+  `cargo check --workspace --locked`.
+- **New CI job `test-root`** runs the test suite as uid 0.
+- `run_warns_and_continues_when_cwd_unwatchable` no longer depends on
+  `chmod` (which root ignores). It makes the cwd unwatchable through a new
+  dev-only `test-seams` feature of `hh-record` (`HH_TEST_UNWATCHABLE_CWD`),
+  which is never compiled into release or `cargo install` builds. The test
+  now runs on every OS instead of Linux only.
+
 ### Security
 
 - **zstd 0.13 → 0.14** (`zstd` 0.14.3, `zstd-safe` 8.2.0, `zstd-sys` 2.1.2):

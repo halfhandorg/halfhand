@@ -55,6 +55,49 @@ jobs:
           cargo tree --workspace -e features --depth 1 > tree.txt
           ! grep -Ei '^(ureq|reqwest|hyper|isahc|attohttpc|minreq|surf) ' tree.txt
 
+  # The declared MSRV must actually build. Installs exactly the
+  # `rust-version` from the workspace Cargo.toml (read here, so the job can
+  # never drift from the declaration) and checks the committed lockfile.
+  # A dependency update that needs a newer compiler fails this job instead
+  # of silently raising the MSRV (STABILITY.md (d)). Required for merge.
+  msrv:
+    name: msrv (declared rust-version builds --locked)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: read rust-version from Cargo.toml
+        id: msrv
+        run: |
+          v=$(sed -n 's/^rust-version = "\(.*\)"$/\1/p' Cargo.toml)
+          test -n "$v" || { echo "no rust-version in Cargo.toml"; exit 1; }
+          echo "declared MSRV: $v"
+          echo "version=$v" >> "$GITHUB_OUTPUT"
+      - uses: dtolnay/rust-toolchain@master
+        with:
+          toolchain: ${{ steps.msrv.outputs.version }}
+      - name: cargo check --workspace --locked (MSRV toolchain)
+        run: |
+          rustc --version
+          cargo +${{ steps.msrv.outputs.version }} check --workspace --locked
+
+  # The suite as uid 0. Many containers run tests as root, where permission
+  # tricks (chmod 000) stop working; this catches a test that only passes for
+  # a non-root uid instead of rediscovering it. Same command as `test`, under
+  # sudo with the runner's toolchain.
+  test-root:
+    name: test (ubuntu-latest, as root)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - name: cargo test --workspace (uid 0)
+        run: |
+          sudo --preserve-env=CARGO_TERM_COLOR,RUSTFLAGS,CARGO_UNSTABLE_SPARSE_REGISTRY \
+            env "PATH=$PATH" "HOME=$HOME" \
+                "CARGO_HOME=${CARGO_HOME:-$HOME/.cargo}" \
+                "RUSTUP_HOME=${RUSTUP_HOME:-$HOME/.rustup}" \
+            sh -c 'test "$(id -u)" = 0 || { echo "not running as root"; exit 1; }; cargo test --workspace --locked'
+
   build-windows:
     name: build (windows, build-only per SRS §2.2)
     runs-on: windows-latest
