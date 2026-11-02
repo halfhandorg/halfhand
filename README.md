@@ -64,7 +64,7 @@ was cut short (`hh` killed mid-run) replays the partial timeline and is marked
 | `hh inspect <id\|last>` | Non-interactive detail: `--step N`, `--json`, `--diff`, `--failed`. |
 | `hh list` | List sessions, newest first; `--json`, `--limit`. |
 | `hh search <query>` | Full-text search over events (FTS5); `--agent`, `--kind`, `--json`. |
-| `hh scan <id\|last\|--all>` | Report recorded secrets (never the secret itself); exits 4 on findings. |
+| `hh scan <id\|last\|--all>` | Report recorded secrets (never the secret itself); exits 4 on findings ([exit codes](docs/exit-codes.md)). |
 | `hh redact <id\|last>` | Irreversibly remove detected secrets in place. |
 | `hh export <id\|last>` | JSON bundle, portable `--bundle`, or `--html` page — **redacted by default**. |
 | `hh import <file>` | Import a `--bundle` as a new local session. |
