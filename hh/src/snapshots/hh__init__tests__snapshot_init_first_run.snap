@@ -1,0 +1,15 @@
+---
+source: hh/src/init.rs
+expression: "render_plain(&report(Status::Created, vec![]), false)"
+---
+✓ Halfhand is set up
+
+  config    created  /home/u/.config/halfhand/config.toml
+  data dir  created  /home/u/.local/share/halfhand
+  database  created  /home/u/.local/share/halfhand/hh.db
+  blobs     created  /home/u/.local/share/halfhand/blobs
+  exports   created  /home/u/.local/share/halfhand/exports
+
+● Sessions hold prompts and source code, so new directories are private (mode 0700).
+
+Next: hh run -- <agent>   e.g. hh run -- claude

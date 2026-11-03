@@ -81,6 +81,7 @@ fn help_lists_every_subcommand_and_examples() {
     assert!(out.status.success());
     let stdout = String::from_utf8_lossy(&out.stdout);
     for sub in [
+        "init",
         "run",
         "replay",
         "inspect",
@@ -108,6 +109,7 @@ fn help_lists_every_subcommand_and_examples() {
 #[test]
 fn every_subcommand_help_has_an_example() {
     for sub in [
+        "init",
         "run",
         "replay",
         "inspect",

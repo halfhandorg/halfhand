@@ -1,6 +1,6 @@
 # Redaction design (v0.2)
 
-Status: implemented. This is the design doc SRS §8 requested for the
+Status: implemented. This is the design doc for the
 redaction/secret-scrubbing pipeline, written before the implementation and
 kept as the reference for its invariants. User-facing docs live in
 [redaction.md](redaction.md); the disclosure policy lives in
@@ -10,7 +10,7 @@ kept as the reference for its invariants. User-facing docs live in
 
 Halfhand records everything an agent does — prompts, tool output, MCP
 payloads, file snapshots, raw terminal bytes. Real sessions therefore contain
-real secrets (SRS NFR-4 already warns about this). Two failure modes matter:
+real secrets (the recording docs already warn about this). Two failure modes matter:
 
 1. A secret is recorded and later *leaves the machine* in an export.
 2. A secret sits in the local store longer than the user intended.
@@ -158,7 +158,7 @@ rules = [              # user-defined detectors (kind = "custom:<name>")
 ]
 ```
 
-Unknown keys warn (SRS §4.2); an invalid `pattern` is an actionable error at
+Unknown keys warn; an invalid `pattern` is an actionable error at
 load time, not a silent no-op.
 
 ## Compatibility

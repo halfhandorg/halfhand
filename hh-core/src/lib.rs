@@ -33,10 +33,11 @@ pub use adapter::{
 pub use blob::{BlobStore, PutOutcome};
 pub use bundle::{Bundle, FORMAT_VERSION};
 pub use config::{
-    legacy_config_hint, legacy_config_hint_marker_path, parse_bytes,
-    print_legacy_config_hint_if_needed, print_legacy_config_hint_if_needed_with, Config,
-    ConfigSource, ExportConfig, Paths, RecordConfig, RedactionConfig, RedactionRule, ReplayConfig,
-    StorageConfig, Theme, DEFAULT_BASELINE_BUDGET,
+    legacy_config_hint, legacy_config_hint_marker_path, parse_bytes, platform_config_dir,
+    platform_default_data_dir, print_legacy_config_hint_if_needed,
+    print_legacy_config_hint_if_needed_with, starter_config_template, Config, ConfigSource,
+    ExportConfig, Paths, RecordConfig, RedactionConfig, RedactionRule, ReplayConfig, StorageConfig,
+    Theme, DEFAULT_BASELINE_BUDGET, STARTER_IGNORE,
 };
 pub use deprecation::warn_deprecated;
 pub use error::{BlobError, BundleError, ConfigError, Error, ResolveError, Result, StorageError};

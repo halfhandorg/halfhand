@@ -421,8 +421,9 @@ const NONCANONICAL_CONFIG_NAMES: &[&str] = &["halfhand.toml", "hh.toml"];
 /// the same directory as `config_path`, in [`NONCANONICAL_CONFIG_NAMES`] order,
 /// or `None` when none is present. Callers are responsible for only treating
 /// this as a fallback when the canonical `config.toml` is absent (the canonical
-/// path always wins).
-fn legacy_fallback_path(config_path: &Path) -> Option<PathBuf> {
+/// path always wins). `hh init --migrate-config` renames this file.
+#[must_use]
+pub fn legacy_fallback_path(config_path: &Path) -> Option<PathBuf> {
     let dir = config_path.parent()?;
     NONCANONICAL_CONFIG_NAMES
         .iter()
@@ -719,6 +720,127 @@ fn platform_config_path() -> Result<PathBuf> {
     Ok(platform_dirs()?.config_dir().join("config.toml"))
 }
 
+/// The platform-default config directory (`<config dir>/halfhand`), before
+/// any override. `config.toml` and the legacy `halfhand.toml` live here.
+/// See docs/init.md for the per-platform table.
+pub fn platform_config_dir() -> Result<PathBuf> {
+    Ok(platform_dirs()?.config_dir().to_path_buf())
+}
+
+/// The platform-default data directory (`<data dir>/halfhand`), before
+/// `HH_DATA_DIR` / `[storage] data_dir` overrides. On macOS this is the same
+/// directory as [`platform_config_dir`].
+pub fn platform_default_data_dir() -> Result<PathBuf> {
+    platform_data_dir()
+}
+
+/// The ignore patterns `hh init` writes into a starter `config.toml`, in
+/// addition to the watcher's built-in `.git/`, `node_modules/` and `target/`
+/// (the starter list repeats those in `**/` form so they also apply in nested
+/// workspaces, and adds editor/OS noise and Claude Code worktrees).
+pub const STARTER_IGNORE: &[&str] = &[
+    "**/target/**",
+    "**/.git/**",
+    "**/node_modules/**",
+    "**/.DS_Store",
+    "**/.claude/worktrees/**",
+];
+
+/// Render a byte count the way the config file spells it: the largest exact
+/// binary unit (`"4MiB"`, `"512KiB"`), or a bare integer when no unit divides
+/// it evenly. Round-trips through [`parse_bytes`].
+fn toml_bytes(n: u64) -> String {
+    const UNITS: &[(u64, &str)] = &[(1 << 30, "GiB"), (1 << 20, "MiB"), (1 << 10, "KiB")];
+    for (size, suffix) in UNITS {
+        if n != 0 && n.is_multiple_of(*size) {
+            return format!("\"{}{suffix}\"", n / size);
+        }
+    }
+    n.to_string()
+}
+
+/// The commented starter `config.toml` that `hh init` writes when no config
+/// file exists. Every value is the real built-in default (read from
+/// [`Config::default`], not restated), except `[record] ignore`, which is
+/// seeded with [`STARTER_IGNORE`]. Loading the template therefore yields the
+/// defaults plus that ignore list — a unit test pins this.
+#[must_use]
+pub fn starter_config_template() -> String {
+    let d = Config::default();
+    let mut ignore = String::new();
+    for p in STARTER_IGNORE {
+        ignore.push_str("  \"");
+        ignore.push_str(p);
+        ignore.push_str("\",\n");
+    }
+    format!(
+        r#"# Halfhand configuration, written by `hh init`.
+#
+# Every key is optional. The values below are the built-in defaults (except
+# the ignore list): delete a line, or this whole file, and the same default
+# applies. Unknown keys print a warning and are otherwise ignored.
+# Byte sizes take B, KiB, MiB or GiB ("512KiB") or a plain integer.
+#
+# Docs: https://halfhand.org/docs/init/
+
+# [record]: what `hh run` captures while an agent works.
+[record]
+# Largest file whose contents are captured when it changes. Larger files
+# are not captured.
+max_file_size = {max_file_size}
+# Record your own keystrokes typed into the session. Off by default because
+# keystrokes can include passwords; `hh run --record-input` enables it once.
+record_input = {record_input}
+# Store the contents of binary files (images, archives, ...).
+record_binary = {record_binary}
+# Memory budget for the contents of files that already exist when a session
+# starts, so their first change has a "before" side. Files clean in git cost
+# nothing here. 0 disables it.
+baseline_budget = {baseline_budget}
+# Paths the file watcher skips (gitignore syntax), on top of the built-in
+# .git/, node_modules/ and target/ and your project's .gitignore.
+ignore = [
+{ignore}]
+
+# [storage]: where recorded sessions live.
+[storage]
+# Data directory holding the database, blobs and exports. Unset means the
+# platform default (see the docs above). HH_DATA_DIR overrides this.
+# data_dir = "/path/to/halfhand-data"
+
+# [replay]: the interactive `hh replay` viewer.
+[replay]
+# Color theme: "auto" (follow the terminal), "dark" or "light".
+theme = "{theme}"
+
+# [redaction]: secret detection.
+[redaction]
+# Scrub secrets before they are written to disk while recording. Off by
+# default: sessions stay raw locally, and exports are always redacted.
+at_record = {at_record}
+# Flag long high-entropy strings (likely tokens) as secrets.
+entropy = {entropy}
+# Your own detectors, added to the built-in ones. Findings report as
+# custom:<name>.
+# rules = [{{ name = "acme", pattern = "ACME-[0-9A-F]{{16}}" }}]
+
+# [export]: `hh export --html` and `hh replay --web`.
+[export]
+# Most bytes of terminal output embedded in an HTML page. Longer output keeps
+# its head and tail around a truncation marker. 0 means no limit.
+html_terminal_max_bytes = {html_terminal_max_bytes}
+"#,
+        max_file_size = toml_bytes(d.record.max_file_size),
+        record_input = d.record.record_input,
+        record_binary = d.record.record_binary,
+        baseline_budget = toml_bytes(d.record.baseline_budget),
+        theme = d.replay.theme,
+        at_record = d.redaction.at_record,
+        entropy = d.redaction.entropy,
+        html_terminal_max_bytes = toml_bytes(d.export.html_terminal_max_bytes),
+    )
+}
+
 impl fmt::Display for Theme {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         let s = match self {
@@ -762,6 +884,92 @@ mod tests {
         let mut f = fs::File::create(&p).unwrap();
         f.write_all(body.as_bytes()).unwrap();
         p
+    }
+
+    /// The starter template `hh init` writes loads to exactly the built-in
+    /// defaults plus the starter ignore list, with no unknown keys — so the
+    /// template cannot drift from the code's real defaults.
+    #[test]
+    fn starter_template_loads_to_defaults_plus_ignore_list() {
+        let template = starter_config_template();
+        let table: toml::Table = toml::from_str(&template).unwrap();
+        for (key, value) in &table {
+            let allowed = KNOWN
+                .iter()
+                .find_map(|(k, keys)| (*k == key).then_some(*keys))
+                .unwrap_or_else(|| panic!("unknown section [{key}] in template"));
+            for subkey in value.as_table().unwrap().keys() {
+                assert!(allowed.contains(&subkey.as_str()), "unknown {key}.{subkey}");
+            }
+        }
+        // Every known section is present, so every documented key is
+        // discoverable from the template.
+        for (section, _) in KNOWN {
+            assert!(table.contains_key(*section), "template lacks [{section}]");
+        }
+        let tmp = TempDir::new().unwrap();
+        let path = write_config(tmp.path(), &template);
+        let cfg = Config::load(&path).unwrap();
+        let mut expected = Config::default();
+        expected.record.ignore = STARTER_IGNORE.iter().map(|s| (*s).to_string()).collect();
+        assert_eq!(cfg, expected);
+    }
+
+    #[test]
+    fn toml_bytes_round_trips() {
+        for n in [0, 1, 1000, 1024, 3 * 1024, 4 << 20, 2 << 30, (1 << 20) + 1] {
+            let s = toml_bytes(n);
+            let parsed = parse_bytes(s.trim_matches('"')).unwrap();
+            assert_eq!(parsed, n, "{s}");
+        }
+        assert_eq!(toml_bytes(4 << 20), "\"4MiB\"");
+        assert_eq!(toml_bytes(0), "0");
+    }
+
+    /// The per-platform path table in docs/init.md, asserted against what
+    /// `directories::ProjectDirs::from("", "", "halfhand")` resolves to here,
+    /// so the docs and the code cannot drift. Reads the environment only
+    /// (no mutation), computing the expected value the way the table states.
+    #[test]
+    fn platform_paths_match_documented_table() {
+        let config = platform_config_dir().unwrap();
+        let data = platform_default_data_dir().unwrap();
+        assert_eq!(
+            platform_config_path().unwrap(),
+            config.join("config.toml"),
+            "config.toml lives directly in the config dir"
+        );
+        #[cfg(target_os = "linux")]
+        {
+            let home = PathBuf::from(std::env::var_os("HOME").unwrap());
+            let xdg = |var: &str, fallback: &str| {
+                std::env::var_os(var)
+                    .map(PathBuf::from)
+                    .filter(|p| p.is_absolute())
+                    .unwrap_or_else(|| home.join(fallback))
+            };
+            // Linux: ~/.config/halfhand/ and ~/.local/share/halfhand/
+            // (honoring XDG_CONFIG_HOME / XDG_DATA_HOME).
+            assert_eq!(config, xdg("XDG_CONFIG_HOME", ".config").join("halfhand"));
+            assert_eq!(data, xdg("XDG_DATA_HOME", ".local/share").join("halfhand"));
+        }
+        #[cfg(target_os = "macos")]
+        {
+            // macOS: config and data are ONE directory,
+            // ~/Library/Application Support/halfhand/.
+            let home = PathBuf::from(std::env::var_os("HOME").unwrap());
+            let dir = home.join("Library/Application Support/halfhand");
+            assert_eq!(config, dir);
+            assert_eq!(data, dir);
+        }
+        #[cfg(windows)]
+        {
+            // Windows: %APPDATA%\halfhand\config\ and %APPDATA%\halfhand\data\
+            // (roaming profile).
+            let appdata = PathBuf::from(std::env::var_os("APPDATA").unwrap());
+            assert_eq!(config, appdata.join("halfhand").join("config"));
+            assert_eq!(data, appdata.join("halfhand").join("data"));
+        }
     }
 
     #[test]

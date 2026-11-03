@@ -9,7 +9,7 @@ hh completions fish
 hh completions powershell
 ```
 
-`hh --help` lists `completions` with a usage example (FR-6.2). The script is
+`hh --help` lists `completions` with a usage example. The script is
 plain text and pipe-safe — redirect it wherever your shell expects.
 
 ## Install per shell

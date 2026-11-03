@@ -33,6 +33,49 @@ Verify with `hh --version` (it reports the version **and** the git sha it was
 built from). Shell completions: `hh completions bash` (or `zsh` / `fish` /
 `powershell`).
 
+### Run the latest CLI (unreleased `main`)
+
+The installers above give you the latest **release**. To run the newest code
+on `main` (for example, to try a feature listed under *Unreleased* in the
+[CHANGELOG](CHANGELOG.md)), build it from source. This needs Rust 1.88 or
+newer:
+
+```bash
+# install straight from git (replaces any `hh` that cargo installed before)
+cargo install --locked --force --git https://github.com/halfhandorg/halfhand halfhand
+
+# or from a clone, which is handy when you're hacking on it
+git clone https://github.com/halfhandorg/halfhand && cd halfhand
+cargo install --locked --force --path hh    # puts `hh` in ~/.cargo/bin
+cargo run --bin hh -- --help                # or run without installing
+```
+
+Check you're running the build you expect: `hh --version` prints the git sha,
+and `which hh` shows which binary is first on your `PATH`. The shell installer
+puts its copy in `~/.halfhand/bin`, which can shadow `~/.cargo/bin`.
+
+## First run: `hh init` (optional)
+
+```bash
+hh init
+```
+
+`hh init` creates the data directory, database, blob store and exports
+directory, and writes a commented starter `config.toml` if you don't have one.
+It then prints every path. Running it again changes nothing, and it never
+overwrites an existing config unless you pass `--force`, which keeps a `.bak`.
+Skipping it is fine, because every command sets up what it needs on first use.
+
+| Platform | Config file | Data directory |
+|---|---|---|
+| Linux | `~/.config/halfhand/config.toml` | `~/.local/share/halfhand/` |
+| macOS | `~/Library/Application Support/halfhand/config.toml` | `~/Library/Application Support/halfhand/` (same directory) |
+| Windows | `%APPDATA%\halfhand\config\config.toml` | `%APPDATA%\halfhand\data\` |
+
+On macOS, deleting that folder to clear sessions also deletes your config, so
+use `hh delete` / `hh gc` instead. Have an old `halfhand.toml`? Run
+`hh init --migrate-config` to rename it. See [Setup](docs/init.md).
+
 ## 30-second demo
 
 ```bash
@@ -59,6 +102,7 @@ was cut short (`hh` killed mid-run) replays the partial timeline and is marked
 
 | Command | What it does |
 |---|---|
+| `hh init` | Create the data dir and a commented starter config; print every path. `--force`, `--migrate-config`. |
 | `hh run -- <command>` | Record an agent session inside a PTY. `--record-input`, `--adapter <kind>`. |
 | `hh replay <id\|last>` | Faithful playback in a TUI; `--web` exports an HTML replay. |
 | `hh inspect <id\|last>` | Non-interactive detail: `--step N`, `--json`, `--diff`, `--failed`. |
@@ -97,8 +141,10 @@ get one warning, and the session is marked `⚠` with the dropped count — see
 
 ## Configuration
 
-Zero config required — every setting has a sane default. `hh doctor` prints
-the exact config path in effect. Config values take a literal path, not a
+Zero config required — every setting has a sane default. `hh init` writes a
+commented starter `config.toml` with every key and its default; `hh init` and
+`hh doctor` both print the exact config path in effect. The example below is a
+heavier, hand-written config. Config values take a literal path, not a
 shell one (`~` is **not** expanded), so this creates the file with a quoted
 heredoc — keeps every backslash in the redaction patterns byte-exact — and
 fills in your real home directory with a trailing `sed` pass:
@@ -123,8 +169,9 @@ ignore = [
 theme = "auto"                   # auto | dark | light
 
 [storage]
-data_dir = "__HOME__/.local/share/halfhand"  # default already resolves here;
-                                              # HH_DATA_DIR env wins over this
+# data_dir = "__HOME__/halfhand-data"  # uncomment to move sessions; default is
+                                       # the platform data dir (table above);
+                                       # HH_DATA_DIR env wins over this
 
 [redaction]
 at_record = true                 # default: false — scrub secrets before they hit disk
@@ -175,7 +222,7 @@ detector would be a redaction hole. Full rule-writing guide:
 ## Why local-first
 
 - **Zero network calls.** `hh` links no HTTP client; nothing is uploaded. A CI
-  check enforces this (SRS NFR-2).
+  check enforces this.
 - **You own the data.** One SQLite file plus a content-addressed blob store, in
   a data dir you control (`HH_DATA_DIR`). `hh delete` and it's gone.
 - **Secrets are a first-class concern.** `hh scan` finds them; `hh redact`
@@ -188,7 +235,7 @@ detector would be a redaction hole. Full rule-writing guide:
 ## Platforms
 
 Linux and macOS are fully supported and CI-tested end-to-end. Windows builds
-and ships, but runtime support is best-effort / build-only (SRS §2.2) — the
+and ships, but runtime support is best-effort / build-only — the
 PTY layer is tuned for Unix.
 
 ## License

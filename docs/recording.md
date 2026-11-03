@@ -116,7 +116,7 @@ content too.
   deprecation warning, and the Codex and Gemini adapters never captured
   structured events. See [Adapters](./adapters.md#deprecated-flags).
 - `--record-input` — also record your keystrokes. **Off by default** because
-  keystrokes may contain secrets (SRS NFR-4). Enable only when you need to
+  keystrokes may contain secrets. Enable only when you need to
   reproduce exact input, and scan/redact before sharing.
 
 ## Dropped events and the `⚠` marker
