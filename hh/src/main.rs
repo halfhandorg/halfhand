@@ -271,7 +271,7 @@ fn replay_command(args: &cli::ReplayArgs) -> anyhow::Result<ExitCode> {
              hint: run `hh replay` directly in a terminal, or use `hh inspect` for non-interactive output"
         );
     }
-    let (store, _paths, _config) = open_store()?;
+    let (store, _paths, config) = open_store()?;
     let hint = args.session.as_deref().unwrap_or("last");
     let session_id = resolve_session_arg(&store, hint)?;
     let session = store
@@ -281,7 +281,7 @@ fn replay_command(args: &cli::ReplayArgs) -> anyhow::Result<ExitCode> {
         .list_event_index(&session_id)
         .map_err(|e| anyhow::anyhow!("could not load session events\n  why: {e}"))?;
     let no_color = std::env::var_os("NO_COLOR").is_some();
-    replay::run(store, session, index, no_color)?;
+    replay::run(store, session, index, no_color, config.replay.theme)?;
     Ok(ExitCode::SUCCESS)
 }
 

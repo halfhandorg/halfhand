@@ -1,10 +1,9 @@
 //! Kind → badge label / color mapping shared by filtering and rendering
-//! (FR-3.2): six accent categories — AGENT, USER, TOOL, MCP, FILE, ERR — plus
-//! two quieter, uncolored categories for terminal output and lifecycle
-//! markers, which are not "steps".
+//! (FR-3.2): six step categories — AGENT, USER, TOOL, MCP, FILE, ERR — plus
+//! two quieter categories for terminal output and lifecycle markers, which
+//! are not "steps". Styling lives in [`super::theme::Theme::badge_style`].
 
 use hh_core::EventKind;
-use ratatui::style::Color;
 
 /// The short badge label shown in the timeline pane for a row's kind.
 #[must_use]
@@ -18,24 +17,6 @@ pub fn badge_label(kind: EventKind) -> &'static str {
         EventKind::Error => "ERR",
         EventKind::TerminalOutput => "TERM",
         EventKind::Lifecycle => "LIFE",
-    }
-}
-
-/// The accent color for a kind's badge (FR-3.2: "distinct colors"). `None`
-/// for the two non-badge categories (terminal/lifecycle), which render
-/// dimmed instead.
-#[must_use]
-pub fn badge_color(kind: EventKind) -> Option<Color> {
-    match kind {
-        EventKind::AgentMessage | EventKind::Thinking => Some(Color::Cyan),
-        EventKind::UserMessage => Some(Color::Green),
-        EventKind::ToolCall | EventKind::ToolResult => Some(Color::Yellow),
-        EventKind::McpRequest | EventKind::McpResponse | EventKind::McpNotification => {
-            Some(Color::Magenta)
-        }
-        EventKind::FileChange => Some(Color::Blue),
-        EventKind::Error => Some(Color::Red),
-        EventKind::TerminalOutput | EventKind::Lifecycle => None,
     }
 }
 
@@ -54,11 +35,5 @@ mod tests {
         assert_eq!(badge_label(EventKind::McpRequest), "MCP");
         assert_eq!(badge_label(EventKind::McpResponse), "MCP");
         assert_eq!(badge_label(EventKind::McpNotification), "MCP");
-    }
-
-    #[test]
-    fn terminal_and_lifecycle_have_no_accent_color() {
-        assert_eq!(badge_color(EventKind::TerminalOutput), None);
-        assert_eq!(badge_color(EventKind::Lifecycle), None);
     }
 }

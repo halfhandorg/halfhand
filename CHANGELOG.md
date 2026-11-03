@@ -22,9 +22,10 @@ in CI rather than tracking `latest` until 1.0.
   degraded instead of being silently discarded; HTML replay pages include
   terminal output; diffs of the first change to a pre-existing file have a
   real before-side; Claude Desktop sessions record structured steps.
-- **Changed:** `hh replay --web` writes to `<data dir>/exports/`; docs moved to
-  halfhand.org/docs; MSRV is 1.88; `--help` text no longer shows internal
-  requirement IDs.
+- **Changed:** the `hh replay` TUI is rebuilt around diffs, a session header,
+  files touched and moments (no new flags or fields); `hh replay --web`
+  writes to `<data dir>/exports/`; docs moved to halfhand.org/docs; MSRV is
+  1.88; `--help` text no longer shows internal requirement IDs.
 - **Deprecated:** `--adapter codex-cli`, `gemini-cli` and `claude-desktop`.
 - **Schema:** migrations 0005–0008 run automatically on first open and add
   columns or indexes only; 0005 also rebuilds the full-text search index.
@@ -63,6 +64,42 @@ in CI rather than tracking `latest` until 1.0.
   the Linux data dir as the default everywhere. User-facing docs no longer
   quote internal requirement IDs. The README explains how to run the latest
   unreleased CLI from source.
+### Changed — the replay TUI
+
+`hh replay` is rebuilt around what a developer needs to see. No new commands,
+flags, JSON fields, exit codes or schema changes. See
+`docs/replay-inspect.md` for the screens and the full keybinding table.
+
+- **Diffs are the centrepiece.** A file change shows a unified diff with old
+  and new line numbers, the path, and a summary (`modified · +2 −2 · before
+  from the git index`). A rename is titled `old → new`. When the before-side
+  was never captured, the view says `before content not captured` and shows
+  the file unmarked instead of rendering every line as added. `Enter` opens a
+  step full width.
+- **Session header, always visible:** name, model, provider, duration,
+  steps, files changed, token usage, estimated cost, and capture tier. Every
+  unknown value is `—`, never `0`.
+- **Capture gaps are stated.** A session with no structured transcript says
+  `no transcript — terminal and file capture only`. A degraded adapter and
+  events the recorder could not write are shown the same way.
+- **Files touched (`f`):** every file the session changed, with its edit
+  count. `Enter` narrows the timeline to that file's diffs.
+- **Moments (`n` / `N`):** cycle through errors, failed tool calls, the
+  slowest step and the largest diff. `D` goes to the previous diff.
+- **Per-step timing** in the timeline. Slow steps take the accent colour.
+  `✗` marks failures and `●` marks the other moments.
+- **One accent colour.** Kind badges are no longer coloured: kinds are told
+  apart by label, and only errors and diff lines carry colour. The
+  `[replay] theme` setting now selects distinct dark and light palettes
+  (`auto` reads `COLORFGBG`). `NO_COLOR` uses no colour at all.
+- **Status line and help.** The status line shows the three keys that
+  matter in the current view, and `?` lists every binding.
+- **Faster idle redraws.** A frame draws only the visible rows, and the
+  selected step's rendered content is cached, so blobs are not re-read or
+  re-diffed on every redraw.
+- `hh-core` gains two read queries, `Store::list_session_file_changes` (with
+  the new `FileChangeEntry` type) and `Store::failed_tool_result_ids`.
+  Both are additive.
 
 ### Fixed — a second `hh` command interrupted the live recording
 

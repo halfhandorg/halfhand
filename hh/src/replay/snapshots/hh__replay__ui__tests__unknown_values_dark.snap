@@ -1,0 +1,153 @@
+---
+source: hh/src/replay/ui.rs
+expression: text
+---
+ d4e5f6  —  ● recording  ⚠ no transcript — terminal and file capture only
+ model  —   provider  —   duration —   steps 0
+ tokens —   est. cost —   capture  —   files 0
+────────────────────────────────────────────────────────────────────────────────────────────────────
+┌ Timeline · empty ─────────────────────────┐┌ Detail ─────────────────────────────────────────────┐
+│ no steps recorded · t shows terminal outpu││ nothing selected                                    │
+│                                           ││                                                     │
+│                                           ││                                                     │
+│                                           ││                                                     │
+│                                           ││                                                     │
+│                                           ││                                                     │
+│                                           ││                                                     │
+│                                           ││                                                     │
+│                                           ││                                                     │
+│                                           ││                                                     │
+│                                           ││                                                     │
+│                                           ││                                                     │
+│                                           ││                                                     │
+│                                           ││                                                     │
+│                                           ││                                                     │
+│                                           ││                                                     │
+│                                           ││                                                     │
+│                                           ││                                                     │
+│                                           ││                                                     │
+│                                           ││                                                     │
+│                                           ││                                                     │
+│                                           ││                                                     │
+│                                           ││                                                     │
+└───────────────────────────────────────────┘└─────────────────────────────────────────────────────┘
+ ↵ open  ·  n next moment  ·  f files                                                        ? help
+--- styles ---
+ 0:0-7 fg=Cyan bg=Reset mod=BOLD
+ 0:23-72 fg=Red bg=Reset mod=NONE
+ 1:0-7 fg=Reset bg=Reset mod=DIM
+ 1:11-21 fg=Reset bg=Reset mod=DIM
+ 1:25-34 fg=Reset bg=Reset mod=DIM
+ 1:38-44 fg=Reset bg=Reset mod=DIM
+ 2:0-7 fg=Reset bg=Reset mod=DIM
+ 2:11-21 fg=Reset bg=Reset mod=DIM
+ 2:25-34 fg=Reset bg=Reset mod=DIM
+ 2:38-44 fg=Reset bg=Reset mod=DIM
+ 3:0-99 fg=DarkGray bg=Reset mod=NONE
+ 4:0-44 fg=Cyan bg=Reset mod=BOLD
+ 4:45-45 fg=DarkGray bg=Reset mod=NONE
+ 4:46-53 fg=Cyan bg=Reset mod=BOLD
+ 4:54-99 fg=DarkGray bg=Reset mod=NONE
+ 5:0-0 fg=Cyan bg=Reset mod=BOLD
+ 5:1-43 fg=Reset bg=Reset mod=DIM
+ 5:44-44 fg=Cyan bg=Reset mod=BOLD
+ 5:45-45 fg=DarkGray bg=Reset mod=NONE
+ 5:46-62 fg=Reset bg=Reset mod=DIM
+ 5:99-99 fg=DarkGray bg=Reset mod=NONE
+ 6:0-0 fg=Cyan bg=Reset mod=BOLD
+ 6:44-44 fg=Cyan bg=Reset mod=BOLD
+ 6:45-45 fg=DarkGray bg=Reset mod=NONE
+ 6:99-99 fg=DarkGray bg=Reset mod=NONE
+ 7:0-0 fg=Cyan bg=Reset mod=BOLD
+ 7:44-44 fg=Cyan bg=Reset mod=BOLD
+ 7:45-45 fg=DarkGray bg=Reset mod=NONE
+ 7:99-99 fg=DarkGray bg=Reset mod=NONE
+ 8:0-0 fg=Cyan bg=Reset mod=BOLD
+ 8:44-44 fg=Cyan bg=Reset mod=BOLD
+ 8:45-45 fg=DarkGray bg=Reset mod=NONE
+ 8:99-99 fg=DarkGray bg=Reset mod=NONE
+ 9:0-0 fg=Cyan bg=Reset mod=BOLD
+ 9:44-44 fg=Cyan bg=Reset mod=BOLD
+ 9:45-45 fg=DarkGray bg=Reset mod=NONE
+ 9:99-99 fg=DarkGray bg=Reset mod=NONE
+10:0-0 fg=Cyan bg=Reset mod=BOLD
+10:44-44 fg=Cyan bg=Reset mod=BOLD
+10:45-45 fg=DarkGray bg=Reset mod=NONE
+10:99-99 fg=DarkGray bg=Reset mod=NONE
+11:0-0 fg=Cyan bg=Reset mod=BOLD
+11:44-44 fg=Cyan bg=Reset mod=BOLD
+11:45-45 fg=DarkGray bg=Reset mod=NONE
+11:99-99 fg=DarkGray bg=Reset mod=NONE
+12:0-0 fg=Cyan bg=Reset mod=BOLD
+12:44-44 fg=Cyan bg=Reset mod=BOLD
+12:45-45 fg=DarkGray bg=Reset mod=NONE
+12:99-99 fg=DarkGray bg=Reset mod=NONE
+13:0-0 fg=Cyan bg=Reset mod=BOLD
+13:44-44 fg=Cyan bg=Reset mod=BOLD
+13:45-45 fg=DarkGray bg=Reset mod=NONE
+13:99-99 fg=DarkGray bg=Reset mod=NONE
+14:0-0 fg=Cyan bg=Reset mod=BOLD
+14:44-44 fg=Cyan bg=Reset mod=BOLD
+14:45-45 fg=DarkGray bg=Reset mod=NONE
+14:99-99 fg=DarkGray bg=Reset mod=NONE
+15:0-0 fg=Cyan bg=Reset mod=BOLD
+15:44-44 fg=Cyan bg=Reset mod=BOLD
+15:45-45 fg=DarkGray bg=Reset mod=NONE
+15:99-99 fg=DarkGray bg=Reset mod=NONE
+16:0-0 fg=Cyan bg=Reset mod=BOLD
+16:44-44 fg=Cyan bg=Reset mod=BOLD
+16:45-45 fg=DarkGray bg=Reset mod=NONE
+16:99-99 fg=DarkGray bg=Reset mod=NONE
+17:0-0 fg=Cyan bg=Reset mod=BOLD
+17:44-44 fg=Cyan bg=Reset mod=BOLD
+17:45-45 fg=DarkGray bg=Reset mod=NONE
+17:99-99 fg=DarkGray bg=Reset mod=NONE
+18:0-0 fg=Cyan bg=Reset mod=BOLD
+18:44-44 fg=Cyan bg=Reset mod=BOLD
+18:45-45 fg=DarkGray bg=Reset mod=NONE
+18:99-99 fg=DarkGray bg=Reset mod=NONE
+19:0-0 fg=Cyan bg=Reset mod=BOLD
+19:44-44 fg=Cyan bg=Reset mod=BOLD
+19:45-45 fg=DarkGray bg=Reset mod=NONE
+19:99-99 fg=DarkGray bg=Reset mod=NONE
+20:0-0 fg=Cyan bg=Reset mod=BOLD
+20:44-44 fg=Cyan bg=Reset mod=BOLD
+20:45-45 fg=DarkGray bg=Reset mod=NONE
+20:99-99 fg=DarkGray bg=Reset mod=NONE
+21:0-0 fg=Cyan bg=Reset mod=BOLD
+21:44-44 fg=Cyan bg=Reset mod=BOLD
+21:45-45 fg=DarkGray bg=Reset mod=NONE
+21:99-99 fg=DarkGray bg=Reset mod=NONE
+22:0-0 fg=Cyan bg=Reset mod=BOLD
+22:44-44 fg=Cyan bg=Reset mod=BOLD
+22:45-45 fg=DarkGray bg=Reset mod=NONE
+22:99-99 fg=DarkGray bg=Reset mod=NONE
+23:0-0 fg=Cyan bg=Reset mod=BOLD
+23:44-44 fg=Cyan bg=Reset mod=BOLD
+23:45-45 fg=DarkGray bg=Reset mod=NONE
+23:99-99 fg=DarkGray bg=Reset mod=NONE
+24:0-0 fg=Cyan bg=Reset mod=BOLD
+24:44-44 fg=Cyan bg=Reset mod=BOLD
+24:45-45 fg=DarkGray bg=Reset mod=NONE
+24:99-99 fg=DarkGray bg=Reset mod=NONE
+25:0-0 fg=Cyan bg=Reset mod=BOLD
+25:44-44 fg=Cyan bg=Reset mod=BOLD
+25:45-45 fg=DarkGray bg=Reset mod=NONE
+25:99-99 fg=DarkGray bg=Reset mod=NONE
+26:0-0 fg=Cyan bg=Reset mod=BOLD
+26:44-44 fg=Cyan bg=Reset mod=BOLD
+26:45-45 fg=DarkGray bg=Reset mod=NONE
+26:99-99 fg=DarkGray bg=Reset mod=NONE
+27:0-0 fg=Cyan bg=Reset mod=BOLD
+27:44-44 fg=Cyan bg=Reset mod=BOLD
+27:45-45 fg=DarkGray bg=Reset mod=NONE
+27:99-99 fg=DarkGray bg=Reset mod=NONE
+28:0-44 fg=Cyan bg=Reset mod=BOLD
+28:45-99 fg=DarkGray bg=Reset mod=NONE
+29:1-1 fg=Cyan bg=Reset mod=BOLD
+29:2-6 fg=Reset bg=Reset mod=DIM
+29:12-12 fg=Cyan bg=Reset mod=BOLD
+29:13-24 fg=Reset bg=Reset mod=DIM
+29:30-30 fg=Cyan bg=Reset mod=BOLD
+29:31-36 fg=Reset bg=Reset mod=DIM
+29:93-99 fg=Reset bg=Reset mod=DIM
