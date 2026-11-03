@@ -13,7 +13,9 @@ in CI rather than tracking `latest` until 1.0.
 
 **At a glance** (details in the sections below):
 
-- **New:** `hh init` for an explained first-time setup; `hh doctor --capture`
+- **New:** `hh watch [path]` records the file changes in a directory without
+  launching the agent — for GUI agents and sessions already running;
+  `hh init` for an explained first-time setup; `hh doctor --capture`
   for capture health; `hh inspect --context` for model, provider, duration
   and token cost; `hh replay --web --open` / `--no-open` / `-o -`;
   `[record] baseline_budget`; `[export] html_terminal_max_bytes`.
@@ -29,6 +31,44 @@ in CI rather than tracking `latest` until 1.0.
 - **Deprecated:** `--adapter codex-cli`, `gemini-cli` and `claude-desktop`.
 - **Schema:** migrations 0005–0008 run automatically on first open and add
   columns or indexes only; 0005 also rebuilds the full-text search index.
+
+### Added — `hh watch`: record a directory without launching the agent
+
+- **`hh watch [path]`** starts a recording session for a directory (default:
+  the current one) with no wrapped command, so agents `hh run` cannot launch
+  — a GUI app, an IDE extension, a session already running — can be
+  recorded. It uses the same watcher, session-start baseline, writer and
+  finalize as `hh run`, so file changes, before-sides, ignore rules and
+  record-time redaction behave identically. There is no terminal output or
+  transcript.
+- Runs until Ctrl-C, `hh watch --stop`, SIGTERM, or `--idle-timeout
+  <duration>` (off by default). A change made just before the stop is still
+  recorded. The session finalizes as `ok`.
+- **`--daemon`** detaches it (Unix); **`--status`** lists running watchers;
+  **`--stop`** finishes one and waits until its session is finalized. The
+  watcher's pid file lives under `<data dir>/watch/`; a background watcher's
+  log is next to it.
+- **One watcher per directory.** A second `hh watch` on a watched directory
+  reports the running session (exit `0`) instead of starting another. A
+  crashed watcher's session is marked `interrupted` by the next `hh`
+  command, using the same recorder-liveness check as `hh run`, and its lock
+  is cleared.
+- **Refuses** your home directory, any directory containing it, and
+  filesystem roots, with a usage error (exit `2`) explaining why.
+- Watch sessions have `command: []` and the new `capture_tier` value
+  `effects` (set when the session starts, so it is visible while
+  recording). `hh list` shows `(watch: file changes only)` in the COMMAND
+  column, `hh inspect` shows the same label, and the replay header says
+  `watched directory — file changes only, no terminal or transcript`.
+- `hh-core` adds `CAPTURE_TIER_EFFECTS`, `Store::set_session_capture_tier`,
+  `recorder_is_gone` and `current_process_identity` (all additive);
+  `hh-record` adds `watch`, `WatchSessionOptions` and
+  `WatcherHandle::last_activity`. No migration: `capture_tier` already
+  exists.
+- `--daemon` and `--stop` are not available on Windows yet and say so with
+  a clear error; foreground `hh watch` with Ctrl-C works there.
+- Docs: new [Watching a directory](docs/watch.md) page with a worked
+  example of recording a GUI agent.
 
 ### Added — `hh init`: explained first-time setup
 

@@ -333,6 +333,17 @@ pub(crate) fn visible_width(s: &str) -> usize {
     count
 }
 
+/// A session's command line for display, or for a session recorded by
+/// `hh watch` (no command, effects-only capture) a plain label saying so,
+/// so `hh list` and `hh inspect` never show a blank where the command goes.
+pub(crate) fn command_line(row: &hh_core::SessionRow) -> String {
+    if row.command.is_empty() && row.capture_tier.as_deref() == Some(hh_core::CAPTURE_TIER_EFFECTS)
+    {
+        return "(watch: file changes only)".to_string();
+    }
+    row.command.join(" ")
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

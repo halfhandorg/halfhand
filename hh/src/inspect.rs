@@ -320,9 +320,9 @@ fn render_summary_header(session: &SessionRow, models: &[ModelSpan], color: bool
         files = session.files_changed,
     );
     let command = if color {
-        session.command.join(" ").dimmed().to_string()
+        render::command_line(session).dimmed().to_string()
     } else {
-        session.command.join(" ")
+        render::command_line(session)
     };
     let models_line = if models.is_empty() {
         String::new()

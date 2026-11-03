@@ -528,7 +528,13 @@ impl AppState {
     #[must_use]
     pub fn capture_gaps(&self) -> Vec<String> {
         let mut gaps = Vec::new();
-        if !self.structured {
+        if self.session.capture_tier.as_deref() == Some(hh_core::CAPTURE_TIER_EFFECTS) {
+            // `hh watch`: no command was wrapped, so there is no terminal
+            // either — say exactly what was captured.
+            gaps.push(
+                "watched directory — file changes only, no terminal or transcript".to_string(),
+            );
+        } else if !self.structured {
             gaps.push("no transcript — terminal and file capture only".to_string());
         }
         if self.session.adapter_status == AdapterStatus::Degraded {
@@ -1471,6 +1477,19 @@ mod tests {
         assert_eq!(
             AppState::new(r, Vec::new()).capture_gaps(),
             Vec::<String>::new()
+        );
+    }
+
+    #[test]
+    fn capture_gaps_describe_a_watch_session() {
+        let mut r = session();
+        r.capture_tier = Some(hh_core::CAPTURE_TIER_EFFECTS.into());
+        r.command = Vec::new();
+        let s = AppState::new(r, Vec::new());
+        assert!(!s.structured);
+        assert_eq!(
+            s.capture_gaps(),
+            vec!["watched directory — file changes only, no terminal or transcript"]
         );
     }
 

@@ -104,6 +104,7 @@ was cut short (`hh` killed mid-run) replays the partial timeline and is marked
 |---|---|
 | `hh init` | Create the data dir and a commented starter config; print every path. `--force`, `--migrate-config`. |
 | `hh run -- <command>` | Record an agent session inside a PTY. `--record-input`, `--adapter <kind>`. |
+| `hh watch [path]` | Record file changes in a directory without launching the agent (GUI agents, sessions already running). `--daemon`, `--status`, `--stop`, `--idle-timeout`. See [Watching a directory](docs/watch.md). |
 | `hh replay <id\|last>` | Faithful playback in a TUI; `--web` exports an HTML replay. |
 | `hh inspect <id\|last>` | Non-interactive detail: `--step N`, `--json`, `--diff`, `--failed`. |
 | `hh list` | List sessions, newest first; `--json`, `--limit`. |

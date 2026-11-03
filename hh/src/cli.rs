@@ -78,6 +78,29 @@ pub enum Command {
     ]))]
     Run(RunArgs),
 
+    /// Record what an agent does to a directory, without launching it.
+    ///
+    /// Starts an effects-only session for the directory (default: the
+    /// current one): every file created, edited, renamed or deleted there is
+    /// recorded, by whatever process makes the change — a GUI agent, an IDE,
+    /// or an agent session that is already running. There is no wrapped
+    /// command, so there is no terminal output or transcript. Runs until
+    /// Ctrl-C, `hh watch --stop`, or --idle-timeout. One watcher per
+    /// directory: a second `hh watch` on the same directory reports the
+    /// running session instead of starting another. Refuses your home
+    /// directory and filesystem roots.
+    #[command(after_help = with_docs(
+        &examples(&[
+            ("hh watch", "record changes to the current directory until Ctrl-C"),
+            ("hh watch ~/code/site --daemon", "watch in the background"),
+            ("hh watch --status", "list running watchers"),
+            ("hh watch ~/code/site --stop", "stop it and finalize the session"),
+            ("hh watch --idle-timeout 15m", "finish after 15 minutes without changes"),
+        ]),
+        "watch/",
+    ))]
+    Watch(WatchArgs),
+
     /// Faithfully play back a recorded session in an interactive TUI.
     #[command(after_help = examples(&[
         ("hh replay last", "replay the most recent session"),
@@ -466,6 +489,69 @@ pub struct RunArgs {
     pub command: Vec<String>,
 }
 
+/// Arguments for `hh watch`.
+#[derive(Args, Debug)]
+// Each bool is an independent clap flag (`--daemon`, `--status`, `--stop`,
+// and the hidden detached-child marker); a state enum would not map to the
+// CLI surface.
+#[allow(clippy::struct_excessive_bools)]
+pub struct WatchArgs {
+    /// Directory to record. Defaults to the current directory.
+    pub path: Option<std::path::PathBuf>,
+
+    /// Detach and keep watching in the background (writes a PID file under
+    /// the data dir). Stop it with `hh watch --stop`. Not available on
+    /// Windows yet.
+    #[arg(long, conflicts_with_all = ["status", "stop"])]
+    pub daemon: bool,
+
+    /// Show running watchers and their sessions (only the one for PATH, if
+    /// given).
+    #[arg(long, conflicts_with_all = ["stop", "idle_timeout", "name"])]
+    pub status: bool,
+
+    /// Stop the watcher for the directory and finalize its session. Not
+    /// available on Windows yet.
+    #[arg(long, conflicts_with_all = ["idle_timeout", "name"])]
+    pub stop: bool,
+
+    /// Finish the session after this long with no file activity, e.g.
+    /// `90s`, `15m`, `2h` (a bare number is seconds). Off by default.
+    #[arg(long, value_name = "DURATION", value_parser = parse_idle_timeout)]
+    pub idle_timeout: Option<std::time::Duration>,
+
+    /// Name the recorded session (shown by `hh inspect`; change it later
+    /// with `hh rename`).
+    #[arg(long, value_parser = parse_session_name)]
+    pub name: Option<String>,
+
+    /// Internal: this process is the detached watcher `--daemon` started.
+    #[arg(long, hide = true, conflicts_with_all = ["daemon", "status", "stop"])]
+    pub daemon_child: bool,
+}
+
+/// Parse `--idle-timeout`: a positive whole number with an optional `s`, `m`
+/// or `h` suffix (no suffix means seconds).
+pub(crate) fn parse_idle_timeout(raw: &str) -> Result<std::time::Duration, String> {
+    let raw = raw.trim();
+    let (digits, scale) = match raw.chars().last() {
+        Some('s') => (&raw[..raw.len() - 1], 1),
+        Some('m') => (&raw[..raw.len() - 1], 60),
+        Some('h') => (&raw[..raw.len() - 1], 3600),
+        _ => (raw, 1),
+    };
+    let hint = "use a whole number with s, m or h, e.g. `90s`, `15m`, `2h`";
+    let n: u64 = digits
+        .parse()
+        .map_err(|_| format!("`{raw}` is not a duration; {hint}"))?;
+    if n == 0 {
+        return Err(format!("the idle timeout must be more than zero; {hint}"));
+    }
+    n.checked_mul(scale)
+        .map(std::time::Duration::from_secs)
+        .ok_or_else(|| format!("`{raw}` is too long; {hint}"))
+}
+
 /// Arguments for `hh replay`.
 #[derive(Args, Debug)]
 pub struct ReplayArgs {
@@ -802,6 +888,32 @@ mod tests {
                 pos(daily).expect(daily) < mcp,
                 "`{daily}` should list before mcp-proxy: {commands:?}"
             );
+        }
+    }
+
+    #[test]
+    fn idle_timeout_parses_units_and_rejects_nonsense() {
+        use std::time::Duration;
+        assert_eq!(parse_idle_timeout("90"), Ok(Duration::from_secs(90)));
+        assert_eq!(parse_idle_timeout("90s"), Ok(Duration::from_secs(90)));
+        assert_eq!(parse_idle_timeout("15m"), Ok(Duration::from_secs(900)));
+        assert_eq!(parse_idle_timeout("2h"), Ok(Duration::from_secs(7200)));
+        for bad in ["", "0", "0m", "m", "1.5m", "-3s", "10d", "ten"] {
+            assert!(
+                parse_idle_timeout(bad).is_err(),
+                "{bad:?} should be rejected"
+            );
+        }
+    }
+
+    #[test]
+    fn watch_flags_conflict_as_usage_errors() {
+        for argv in [
+            ["hh", "watch", "--status", "--stop"],
+            ["hh", "watch", "--daemon", "--status"],
+            ["hh", "watch", "--stop", "--idle-timeout=5m"],
+        ] {
+            assert!(Cli::try_parse_from(argv).is_err(), "{argv:?}");
         }
     }
 

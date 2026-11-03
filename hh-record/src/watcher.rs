@@ -49,7 +49,7 @@
 use std::collections::{HashMap, HashSet};
 use std::io::Read;
 use std::path::{Path, PathBuf};
-use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::{Arc, Mutex};
 use std::thread::JoinHandle;
 use std::time::{Duration, Instant};
@@ -181,9 +181,22 @@ pub struct WatcherHandle {
     /// The worker thread; joins when the recorder stops the watcher.
     pub thread: Option<JoinHandle<()>>,
     stop: Arc<AtomicBool>,
+    /// Milliseconds after session start of the most recent filesystem event
+    /// the worker received (0 until the first one). See
+    /// [`Self::last_activity`].
+    activity: Arc<AtomicU64>,
 }
 
 impl WatcherHandle {
+    /// Time since session start of the most recent filesystem event under
+    /// the watched directory, ignored paths included (any write means
+    /// something is still at work there); [`Duration::ZERO`] until the first
+    /// event. `hh watch --idle-timeout` compares this against the session
+    /// clock.
+    pub fn last_activity(&self) -> Duration {
+        Duration::from_millis(self.activity.load(Ordering::Acquire))
+    }
+
     /// Signal the watcher to stop and join its thread. Best-effort: a panic
     /// in the worker is swallowed (the recording still finalizes).
     pub fn stop_and_join(mut self) {
@@ -294,6 +307,8 @@ pub fn spawn_watcher(
     };
 
     let stop_for_thread = Arc::clone(&stop);
+    let activity = Arc::new(AtomicU64::new(0));
+    let activity_for_thread = Arc::clone(&activity);
     let thread = std::thread::Builder::new()
         .name("hh-fs-watcher".into())
         .spawn(move || {
@@ -309,6 +324,7 @@ pub fn spawn_watcher(
                 stop_for_thread,
                 existing,
                 tracker,
+                &activity_for_thread,
             );
         })
         .map_err(|e| crate::RecordError::Pty(format!("spawn watcher thread: {e}")))?;
@@ -316,6 +332,7 @@ pub fn spawn_watcher(
     Ok(Some(WatcherHandle {
         thread: Some(thread),
         stop,
+        activity,
     }))
 }
 
@@ -732,6 +749,9 @@ fn run_loop(
     // content, or a git index blob id, per file) and accumulates what the
     // watcher records. See [`Tracker::take_before`].
     mut tracker: Tracker,
+    // Bumped to "ms since session start" on every filesystem event received
+    // by the live loop; read through [`WatcherHandle::last_activity`].
+    activity: &AtomicU64,
 ) {
     let sink = Sink {
         opts: &opts,
@@ -755,14 +775,18 @@ fn run_loop(
             "hh-record test: injected watcher panic"
         );
         match nrx.recv_timeout(POLL_INTERVAL) {
-            Ok(Ok(event)) => fold_event(
-                &event,
-                &matcher,
-                &opts,
-                &mut existing,
-                &mut pending,
-                &mut renames,
-            ),
+            Ok(Ok(event)) => {
+                let now = u64::try_from(start.elapsed().as_millis()).unwrap_or(u64::MAX);
+                activity.store(now, Ordering::Release);
+                fold_event(
+                    &event,
+                    &matcher,
+                    &opts,
+                    &mut existing,
+                    &mut pending,
+                    &mut renames,
+                );
+            }
             Ok(Err(e)) => eprintln!("hh: warning: fs watcher error: {e}"),
             Err(std::sync::mpsc::RecvTimeoutError::Timeout) => {}
             Err(std::sync::mpsc::RecvTimeoutError::Disconnected) => break,

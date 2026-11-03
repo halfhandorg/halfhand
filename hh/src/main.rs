@@ -17,6 +17,7 @@ mod render;
 mod replay;
 mod search;
 mod secrets;
+mod watch;
 
 use std::io::IsTerminal;
 use std::path::PathBuf;
@@ -42,6 +43,8 @@ fn main() -> ExitCode {
                 .any(|c| c.downcast_ref::<SessionNotFound>().is_some())
             {
                 ExitCode::from(3)
+            } else if e.chain().any(|c| c.downcast_ref::<UsageError>().is_some()) {
+                ExitCode::from(2)
             } else {
                 ExitCode::from(1)
             }
@@ -63,6 +66,21 @@ impl std::fmt::Display for SessionNotFound {
 
 impl std::error::Error for SessionNotFound {}
 
+/// Typed marker for a usage error found after parsing (a bad argument value
+/// clap cannot check, such as a directory `hh watch` refuses), so [`main`]
+/// maps it to exit code 2 like clap's own usage errors. Carries the full,
+/// already-formatted actionable message.
+#[derive(Debug)]
+struct UsageError(String);
+
+impl std::fmt::Display for UsageError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str(&self.0)
+    }
+}
+
+impl std::error::Error for UsageError {}
+
 /// Resolve a session id/`last` argument, mapping failure to the typed
 /// [`SessionNotFound`] (exit code 3) with the same actionable message every
 /// subcommand used before. Shared by every session-taking subcommand.
@@ -78,6 +96,7 @@ fn run(cli: Cli) -> anyhow::Result<ExitCode> {
     match cli.command {
         Command::Init(args) => init::init_command(&args),
         Command::Run(args) => run_command(args),
+        Command::Watch(args) => watch::watch_command(&args),
         Command::Replay(args) => replay_command(&args),
         Command::Inspect(args) => inspect::inspect_command(&args),
         Command::List(args) => list_command(&args),
@@ -144,6 +163,8 @@ fn open_store() -> anyhow::Result<(Store, Paths, Config)> {
     if let Err(e) = store.mark_stale_interrupted() {
         eprintln!("hh: warning: could not reconcile stale sessions: {e}");
     }
+    // Likewise remove `hh watch` lock files whose watcher crashed.
+    watch::sweep_stale_locks(&paths.data_dir);
     Ok((store, paths, config))
 }
 
@@ -1185,7 +1206,7 @@ fn format_session_table(rows: &[hh_core::SessionRow], color: bool, now: i64) -> 
             Some(end) => render::humanize_ms((end - r.started_at).max(0)),
             None => "—".to_string(),
         };
-        let command = render::truncate(&r.command.join(" "), 40);
+        let command = list_command_cell(r);
         lines.push(Line {
             id,
             status,
@@ -1234,6 +1255,13 @@ fn format_session_table(rows: &[hh_core::SessionRow], color: bool, now: i64) -> 
         out.push('\n');
     }
     out
+}
+
+/// The COMMAND cell for `hh list`: the truncated command line, or for a
+/// session recorded by `hh watch` (no command, effects-only capture) a
+/// plain label saying so.
+fn list_command_cell(r: &hh_core::SessionRow) -> String {
+    render::truncate(&render::command_line(r), 40)
 }
 
 /// A row's rendered cells for the list table.
@@ -1429,6 +1457,18 @@ mod tests {
         r.step_count = steps;
         r.files_changed = 7;
         r
+    }
+
+    /// A session recorded by `hh watch` has no command; `hh list` says what
+    /// it is instead of leaving the COMMAND column blank.
+    #[test]
+    fn list_labels_watch_sessions_as_file_changes_only() {
+        let mut w = row("e1f2a3", SessionStatus::Ok, AdapterStatus::None, 2);
+        w.agent_kind = AgentKind::Generic;
+        w.command = Vec::new();
+        w.capture_tier = Some(hh_core::CAPTURE_TIER_EFFECTS.into());
+        let ran = row("a1b2c3", SessionStatus::Ok, AdapterStatus::Active, 42);
+        insta::assert_snapshot!(format_session_table(&[w, ran], false, 1_782_053_400_000));
     }
 
     #[test]

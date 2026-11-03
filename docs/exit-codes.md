@@ -19,7 +19,7 @@ of them would itself be a breaking change.
 |---|---|---|
 | `0` | Success | Every command, when it succeeds. `hh run` / `hh mcp-proxy`: see [pass-through](#hh-run-and-hh-mcp-proxy-pass-the-wrapped-commands-code-through). |
 | `1` | Generic error | Any command, for any failure not listed below. |
-| `2` | Usage error | Any command, when the command line itself is invalid (clap). |
+| `2` | Usage error | Any command, when the command line itself is invalid (clap); `hh watch`, for a directory it cannot or will not watch. |
 | `3` | Session not found | `inspect`, `replay`, `export`, `delete`, `rename`, `scan <session>`, `redact` |
 | `4` | Redaction/policy block | `hh scan` when it finds secrets |
 | other | The wrapped command's own code | `hh run`, `hh mcp-proxy` |
@@ -78,6 +78,13 @@ argument parser (clap), before any subcommand logic:
   containing control characters (`hh rename last ""`, `hh run --name "" -- …`),
   or `hh rename` with neither a name nor `--clear`;
 - `hh` with no subcommand at all (help is printed to stderr).
+
+`hh watch` also exits `2` for a usage problem it finds after parsing, before
+anything is recorded: a path that does not exist or is not a directory, or
+a directory it refuses to watch (your home directory, a directory containing
+it, or a filesystem root). See [Watching a directory](./watch.md#exit-codes).
+`hh watch` exits `0` when the directory is already being watched (it reports
+the running session) and when `--stop` finds nothing to stop.
 
 ## `3` — session not found
 

@@ -21,6 +21,7 @@ use std::sync::OnceLock;
 const SUBCOMMANDS: &[&str] = &[
     "init",
     "run",
+    "watch",
     "replay",
     "inspect",
     "list",
@@ -277,6 +278,10 @@ fn every_usage_error_exits_2() {
         &["rename", "last", "x", "--clear"],              // name conflicts with --clear
         &["inspect", "last", "--context", "--step", "1"], // conflicting views
         &["run", "--name", "", "--", "true"],             // empty --name, before recording
+        &["watch", "--status", "--stop"],                 // conflicting watch modes
+        &["watch", "--idle-timeout", "0"],                // a zero idle timeout
+        &["watch", "/"],                                  // a filesystem root is refused
+        &["watch", "/no/such/dir/for/hh"],                // a missing directory
     ] {
         assert_exit(&temp, args, 2);
     }

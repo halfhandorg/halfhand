@@ -1,0 +1,5 @@
+---
+source: hh/src/watch.rs
+expression: "format_status(&[], false, 0)"
+---
+no watchers running — start one with `hh watch [path]`

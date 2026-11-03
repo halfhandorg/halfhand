@@ -42,6 +42,10 @@ pub enum RecordError {
     /// standalone or re-run inside `hh run` rather than creating an orphan.
     #[error("mcp attach failed: {0}")]
     McpSession(String),
+    /// `hh watch` could not observe its directory at all, so it would record
+    /// nothing. The string says which directory and what to do.
+    #[error("watch failed: {0}")]
+    Watch(String),
 }
 
 /// A `Result` alias for the recorder.
