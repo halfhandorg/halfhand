@@ -1,4 +1,4 @@
-//! NFR-2 no-network guarantee (SRS §2.1/NFR-2; ARCHITECTURE.md
+//! No-network guarantee (ARCHITECTURE.md
 //! "No-network guarantee").
 //!
 //! Halfhand is local-first: the recorder must never gain the ability to
@@ -15,7 +15,7 @@
 use std::process::Command;
 
 /// Crates whose purpose is acting as an HTTP *client*. Any of these in the
-/// graph would let the binary speak outbound HTTP, violating NFR-2.
+/// graph would let the binary speak outbound HTTP, violating the no-network rule.
 ///
 /// `hyper`, `http`, and `hyper-util` are deliberately **not** listed: they are
 /// generic transport/type crates that can appear transitively (e.g. behind a
@@ -41,7 +41,7 @@ fn workspace_dependency_tree_has_no_http_client() {
     let output = Command::new(env!("CARGO"))
         .args(["metadata", "--format-version", "1"])
         .output()
-        .expect("`cargo metadata` must be runnable for the NFR-2 test");
+        .expect("`cargo metadata` must be runnable for the no-network test");
     assert!(
         output.status.success(),
         "`cargo metadata` failed: {}",
@@ -65,7 +65,7 @@ fn workspace_dependency_tree_has_no_http_client() {
         .collect();
     assert!(
         offenders.is_empty(),
-        "NFR-2 violation: HTTP client crate(s) present in the workspace dependency tree: {offenders:?}. \
+        "No-network violation: HTTP client crate(s) present in the workspace dependency tree: {offenders:?}. \
          Halfhand must not depend on an HTTP client; see ARCHITECTURE.md."
     );
 }

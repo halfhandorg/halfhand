@@ -1,4 +1,4 @@
-//! Embedded, idempotent SQLite migrations (SRS §4.1, DR-1).
+//! Embedded, idempotent SQLite migrations.
 //!
 //! Each migration's DDL lives in [`migrations/`](./migrations) and is applied
 //! in order; the runner records applied versions in `schema_migrations` and
@@ -22,7 +22,7 @@ pub const LATEST_VERSION: i64 = 8;
 /// Migration 0005 has a Rust-side companion: `Store::open` adds the
 /// `adapter_degrade_reason` column via `PRAGMA table_info` check (SQLite has
 /// no `ALTER TABLE ADD COLUMN IF NOT EXISTS`), then runs this DDL. Both halves
-/// are idempotent (DR-4): re-opening a v1.1.0 DB no-ops the column check and
+/// are idempotent: re-opening a v1.1.0 DB no-ops the column check and
 /// the `DROP TABLE IF EXISTS` / `CREATE ... IF NOT EXISTS` statements.
 ///
 /// Migration 0006 follows the same pattern: `Store::open` adds
@@ -84,5 +84,5 @@ pub const RECORDER_IDENTITY_COLUMNS: &[(&str, &str)] = &[
     ("recorder_start_time", "INTEGER"),
 ];
 
-/// Migration 0001: the v0.1.0-beta.1 schema, verbatim from SRS §4.1.
+/// Migration 0001: the v0.1.0-beta.1 schema, verbatim from the original spec.
 pub const MIGRATION_0001: &str = include_str!("migrations/0001_initial.sql");

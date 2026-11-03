@@ -1,5 +1,5 @@
-//! Criterion bench for FTS5 search throughput (CLAUDE.md v1.0.0 addendum /
-//! NFR-1). Seeds a store with 100 sessions of ~1000 events each, then measures
+//! Criterion bench for FTS5 search throughput (CLAUDE.md v1.0.0 addendum).
+//! Seeds a store with 100 sessions of ~1000 events each, then measures
 //! search latency for various query types. Target: <100 ms for a typical query.
 //!
 //! Run with `cargo bench -p hh-core` (or `just bench`).

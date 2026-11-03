@@ -1,8 +1,8 @@
-//! Configuration and path resolution (SRS §2.3, §4.2).
+//! Configuration and path resolution.
 //!
 //! Precedence is **default < config file < `HH_DATA_DIR` env**. Unknown config
-//! keys emit a single-line warning on stderr but never prevent startup, per
-//! SRS §4.2 ("All keys optional; unknown keys warn, never fail").
+//! keys emit a single-line warning on stderr but never prevent startup
+//! ("All keys optional; unknown keys warn, never fail").
 
 use crate::error::{ConfigError, Result};
 use serde::Deserialize;
@@ -70,7 +70,7 @@ pub fn parse_bytes(input: &str) -> std::result::Result<u64, String> {
     u64::try_from(bytes).map_err(|_| "byte size too large".to_string())
 }
 
-/// Replay color theme (SRS §4.2 `[replay] theme`).
+/// Replay color theme (`[replay] theme`).
 ///
 /// `#[non_exhaustive]`: this and the other config types below are the crate's
 /// growth-prone public surface — new `[section]` keys/variants are expected
@@ -91,13 +91,13 @@ pub enum Theme {
     Light,
 }
 
-/// Record-time options (SRS §4.2 `[record]`).
+/// Record-time options (`[record]`).
 #[derive(Debug, Clone, PartialEq)]
 #[non_exhaustive]
 pub struct RecordConfig {
     /// Max file size to capture, in bytes (default 4 MiB).
     pub max_file_size: u64,
-    /// Whether to record user keystrokes (default off; NFR-4).
+    /// Whether to record user keystrokes (default off, for privacy).
     pub record_input: bool,
     /// Whether to store binary file contents (default off).
     pub record_binary: bool,
@@ -131,7 +131,7 @@ impl Default for RecordConfig {
     }
 }
 
-/// Storage options (SRS §4.2 `[storage]`).
+/// Storage options (`[storage]`).
 #[derive(Debug, Clone, Default, PartialEq)]
 #[non_exhaustive]
 pub struct StorageConfig {
@@ -139,7 +139,7 @@ pub struct StorageConfig {
     pub data_dir: PathBuf,
 }
 
-/// Replay options (SRS §4.2 `[replay]`).
+/// Replay options (`[replay]`).
 #[derive(Debug, Clone, PartialEq, Default)]
 #[non_exhaustive]
 pub struct ReplayConfig {
@@ -225,8 +225,8 @@ pub struct Config {
 
 /// Which config file (if any) supplied a loaded [`Config`]. Returned by
 /// [`Config::load_with_source`] so callers can drive the one-time legacy
-/// filename hint (BUG-2.2) and report "which config file was found" in
-/// `hh doctor` (ENH-1.2) without re-statting the paths themselves.
+/// filename hint and report "which config file was found" in
+/// `hh doctor` without re-statting the paths themselves.
 ///
 /// `#[non_exhaustive]`: a future resolution path (e.g. an XDG-style dotted
 /// search) would add a variant; that stays additive under
@@ -250,7 +250,7 @@ impl Config {
     /// the file does not exist. Unknown keys warn on stderr but never fail.
     ///
     /// This is the pure "give me a [`Config`]` entry point; it does **not**
-    /// emit the one-time legacy-filename hint (BUG-2.2). Callers that want the
+    /// emit the one-time legacy-filename hint. Callers that want the
     /// hint (the `hh` binary, integration tests) should use
     /// [`Config::load_with_source`] followed by
     /// [`print_legacy_config_hint_if_needed`]; callers that just want the
@@ -262,17 +262,17 @@ impl Config {
 
     /// Load configuration with the same resolution order as [`Config::load`],
     /// additionally returning which file supplied it ([`ConfigSource`]) so the
-    /// caller can drive the one-time legacy-filename hint (BUG-2.2) and
-    /// `hh doctor`'s "which config file was found" report (ENH-1.2) without
+    /// caller can drive the one-time legacy-filename hint and
+    /// `hh doctor`'s "which config file was found" report without
     /// re-statting the paths.
     ///
-    /// Resolution order (SRS v1.1.0 §3 BUG-2.1):
+    /// Resolution order:
     /// 1. `config_path` (canonical `config.toml`) — tried first.
     /// 2. The first existing legacy filename (`halfhand.toml`, then `hh.toml`)
     ///    in the same directory — tried only when (1) is absent.
     /// 3. Built-in [`Config::default()`] — when neither is present.
     ///
-    /// Unknown keys emit a single-line `WARN` on stderr (BUG-2.3) but never
+    /// Unknown keys emit a single-line `WARN` on stderr but never
     /// prevent startup. A malformed TOML file or an invalid *known* key value
     /// is still an `Err` (silently accepting a broken `[redaction] rules`
     /// entry would be a redaction hole — the *key* is known, the *value* is
@@ -298,10 +298,10 @@ impl Config {
     }
 }
 
-/// The exact wording of the one-time legacy-config hint (BUG-2.2), split out
+/// The exact wording of the one-time legacy-config hint, split out
 /// so the test can assert on the text without scraping stderr.
 ///
-/// Stable text: this is part of the user-facing contract — the SRS quotes it
+/// Stable text: this is part of the user-facing contract — docs quote it
 /// verbatim. Changing the wording (other than the path interpolation) is a
 /// behavior change and must go through a deprecation note.
 #[must_use]
@@ -314,7 +314,7 @@ pub fn legacy_config_hint(legacy: &Path, canonical: &Path) -> String {
 }
 
 /// Filename of the persistent "the legacy-config hint has been shown once"
-/// marker, relative to the data dir. BUG-2.2 lets the implementation choose
+/// marker, relative to the data dir. The spec lets the implementation choose
 /// between a `kv` table in the DB or a filesystem marker; the filesystem
 /// marker is chosen because (a) config loads **before** the store opens in the
 /// binary (see `hh/src/main.rs`), so a DB-backed marker would require either
@@ -333,14 +333,14 @@ pub fn legacy_config_hint_marker_path(data_dir: &Path) -> PathBuf {
     data_dir.join(LEGACY_CONFIG_HINT_MARKER)
 }
 
-/// Print the one-time legacy-config hint to stderr (BUG-2.2) when all of the
+/// Print the one-time legacy-config hint to stderr when all of the
 /// following hold, and write the suppression marker so the next invocation is
 /// silent:
 ///
 /// 1. `source` is [`ConfigSource::Legacy`] (the canonical `config.toml` was
 ///    absent and a legacy `halfhand.toml` / `hh.toml` was loaded).
 /// 2. `HH_NO_CONFIG_HINT=1` is **not** set in the environment.
-/// 3. stderr is a TTY (the SRS requires the hint be suppressed on non-TTY
+/// 3. stderr is a TTY (the hint must be suppressed on non-TTY
 ///    stdout/stderr so it never corrupts piped/JSON output).
 /// 4. The marker file at `legacy_config_hint_marker_path(data_dir)` does not
 ///    already exist (the hint has not been shown before on this data dir).
@@ -475,7 +475,7 @@ pub fn ignored_noncanonical_config_files(config_path: &Path) -> Vec<PathBuf> {
 }
 
 /// Read the config file into a TOML table, returning `Ok(None)` if it does not
-/// exist (not an error — the file is entirely optional per SRS §4.2).
+/// exist (not an error — the file is entirely optional).
 fn read_or_default_config(path: &Path) -> Result<Option<toml::Table>> {
     match std::fs::read_to_string(path) {
         Ok(contents) => {
@@ -672,7 +672,7 @@ pub struct Paths {
 impl Paths {
     /// Resolve paths from a loaded [`Config`] and the process environment.
     ///
-    /// Precedence (SRS §2.3): `HH_DATA_DIR` env > `[storage] data_dir` file >
+    /// Precedence: `HH_DATA_DIR` env > `[storage] data_dir` file >
     /// platform default. The config file location is always the platform
     /// default (not overridable via config, only via `XDG_CONFIG_HOME`).
     pub fn resolve(config: &Config) -> Result<Self> {

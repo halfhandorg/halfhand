@@ -128,7 +128,7 @@ impl DropTally {
 }
 
 /// Idempotently add `sessions.dropped_events INTEGER NOT NULL DEFAULT 0` and
-/// `sessions.dropped_events_reason TEXT` (DR-4). Same mechanism as
+/// `sessions.dropped_events_reason TEXT`. Same mechanism as
 /// `add_adapter_degrade_reason_column`: SQLite has no `ADD COLUMN IF NOT
 /// EXISTS`, so `PRAGMA table_info` is the idempotency check. Deliberately not
 /// a numbered migration: the column add runs on every open regardless of

@@ -1,4 +1,4 @@
-//! SQLite-backed session/event store (SRS §4.1, §3, FR-3.1).
+//! SQLite-backed session/event store.
 //!
 //! The [`Store`] owns one [`rusqlite::Connection`] on the thread that opened
 //! it, used for session lifecycle and reads. During recording an
@@ -251,7 +251,7 @@ pub struct SearchFilters {
 }
 
 /// The SQLite scalar function `hh_body_to_text(body_json TEXT) → TEXT`
-/// (SRS §5.1, DR-3). Extracts indexable plain text from an event's
+/// Extracts indexable plain text from an event's
 /// `body_json`: message content, tool names, tool inputs, tool outputs,
 /// and file paths. Registered at connection-open time in [`Store::open`]
 /// (and on the writer thread) so migration 0005's triggers and backfill
@@ -406,7 +406,7 @@ fn walk_body(value: &serde_json::Value, out: &mut String, top: bool) {
 }
 
 /// Register the `hh_body_to_text` SQLite scalar function on `conn`
-/// (SRS §5.1, DR-3). Must be called before any statement that references it
+/// Must be called before any statement that references it
 /// (migration 0005's triggers + backfill, and the runtime insert/update
 /// triggers). The function parses `body_json` as JSON and returns the
 /// extracted text; on malformed JSON or NULL input it returns NULL (never
@@ -414,7 +414,7 @@ fn walk_body(value: &serde_json::Value, out: &mut String, top: bool) {
 fn register_hh_body_to_text(conn: &Connection) -> Result<()> {
     // `create_scalar_function`'s closure receives a `&Context` and returns
     // `Result<T: ToSql>`. We return `Option<String>`: `None` → SQL NULL,
-    // `Some(s)` → TEXT. NULL in → NULL out (DR-3); malformed JSON → NULL
+    // `Some(s)` → TEXT. NULL in → NULL out; malformed JSON → NULL
     // (never panics). A non-TEXT argument (number, blob) is coerced to its
     // string form and parsed as JSON (which will usually fail → NULL),
     // matching SQLite's loose typing.
@@ -425,7 +425,7 @@ fn register_hh_body_to_text(conn: &Connection) -> Result<()> {
             | rusqlite::functions::FunctionFlags::SQLITE_UTF8,
         |ctx| {
             use rusqlite::types::ValueRef;
-            // NULL argument → NULL result (DR-3). `ctx.get_raw` returns the
+            // NULL argument → NULL result. `ctx.get_raw` returns the
             // raw SQLite value without copying; we pattern on its type.
             let raw = ctx.get_raw(0);
             let text = match raw {
@@ -447,9 +447,9 @@ fn register_hh_body_to_text(conn: &Connection) -> Result<()> {
 }
 
 /// Idempotently add the `adapter_degrade_reason TEXT` column to `sessions`
-/// (SRS §5.1, BUG-1.1). SQLite lacks `ALTER TABLE ADD COLUMN IF NOT EXISTS`,
+/// SQLite lacks `ALTER TABLE ADD COLUMN IF NOT EXISTS`,
 /// so we check `PRAGMA table_info(sessions)` first. Safe to call on every
-/// `Store::open` (DR-4): a no-op once the column exists.
+/// `Store::open`: a no-op once the column exists.
 fn add_adapter_degrade_reason_column(conn: &Connection) -> Result<()> {
     let mut stmt = conn.prepare("PRAGMA table_info(sessions)")?;
     let names: Vec<String> = stmt
@@ -489,8 +489,8 @@ struct EventRawRow {
 
 impl Store {
     /// Open or create the store at `db_path`, applying migrations idempotently
-    /// (DR-1). The data and blob directories are created with `0700`
-    /// permissions (NFR-4).
+    /// The data and blob directories are created with `0700`
+    /// permissions.
     pub fn open(db_path: &Path, blobs_dir: &Path) -> Result<Self> {
         secure_create_parent(db_path)?;
         secure_create_dir(blobs_dir)?;
@@ -509,20 +509,20 @@ impl Store {
         // persistent journal_mode=WAL on the DB file; these two must be set on
         // every connection that wants enforcement / the tuned setting).
         conn.execute("PRAGMA foreign_keys = ON", [])?;
-        // NFR-1 / NFR-3: `synchronous = NORMAL` (not the SQLite default FULL).
+        // Ingest throughput vs durability: `synchronous = NORMAL` (not the SQLite default FULL).
         // In WAL mode NORMAL keeps ACID — no corruption on crash — but does not
         // fsync the WAL on every commit; it fsyncs only at checkpoint. That is
-        // exactly the durability design NFR-3 names ("fsync on session
+        // exactly the durability design the spec names ("fsync on session
         // finalize"): `finalize_session` runs `wal_checkpoint(TRUNCATE)`, which
         // fsyncs, so a session is durable at finalize. The default FULL fsyncs
-        // per event (~3 ms fsync → ~300 events/s), which meets NFR-3's durability
-        // *and then some* but caps sustained ingest far below NFR-1's ≥5,000/s.
+        // per event (~3 ms fsync → ~300 events/s), which meets the durability
+        // *and then some* but caps sustained ingest far below the ≥5,000 events/s target.
         // NORMAL removes the per-commit fsync so ingest is not fsync-bound;
         // SQLite's default `wal_autocheckpoint` (1000 pages ≈ 4 MiB) bounds the
         // mid-session power-loss window to the last autocheckpoint. Set on the
         // writer connection too (see `writer_run`).
         conn.execute("PRAGMA synchronous = NORMAL", [])?;
-        // Register the `hh_body_to_text` SQLite scalar function (DR-3) before
+        // Register the `hh_body_to_text` SQLite scalar function before
         // running migrations: migration 0005's triggers and backfill reference
         // it, so it must exist on the connection by the time those DDL
         // statements execute. Re-registered on every connection that opens the
@@ -530,14 +530,14 @@ impl Store {
         // [`hh_body_to_text`] for the extraction contract.
         register_hh_body_to_text(&conn)?;
         run_migrations(&conn)?;
-        // BUG-1.1 / DR-4: add `sessions.adapter_degrade_reason` idempotently.
+        // Add `sessions.adapter_degrade_reason` idempotently.
         // SQLite has no `ALTER TABLE ADD COLUMN IF NOT EXISTS`, so we check
         // `PRAGMA table_info` first. This runs *after* migrations so the
         // `sessions` table exists (migration 0001 creates it); on a fresh DB
         // migration 0005's DDL (which does not reference this column) runs
         // first, then this adds the column. On a v1.0.x DB upgrading to
         // v1.1.0, the column is added here. On a v1.1.0 DB this is a no-op
-        // (DR-4 idempotency). Kept in Rust rather than in the SQL migration
+        // (migrations must be idempotent). Kept in Rust rather than in the SQL migration
         // because the `PRAGMA table_info` check is the idempotency mechanism
         // SQLite lacks in pure DDL.
         add_adapter_degrade_reason_column(&conn)?;
@@ -545,14 +545,14 @@ impl Store {
         // loss fix), added behind the same `PRAGMA table_info` check. Not a
         // numbered migration — see `drops::add_dropped_events_columns`.
         drops::add_dropped_events_columns(&conn)?;
-        // Migration 0006 (DR-4): `file_changes.before_source` and
+        // Migration 0006: `file_changes.before_source` and
         // `file_changes.renamed_from`, added behind a `PRAGMA table_info`
         // check for the same reason as `adapter_degrade_reason` above.
         add_file_change_provenance_columns(&conn)?;
-        // Migration 0007 (DR-4): the session-context columns, each behind a
+        // Migration 0007: the session-context columns, each behind a
         // `PRAGMA table_info` check.
         add_session_context_columns(&conn)?;
-        // Migration 0008 (DR-4): the recorder-identity columns, each behind a
+        // Migration 0008: the recorder-identity columns, each behind a
         // `PRAGMA table_info` check.
         add_recorder_identity_columns(&conn)?;
         let store = Self {
@@ -718,7 +718,7 @@ impl Store {
         })
     }
 
-    /// Create a new session row (FR-1.2).
+    /// Create a new session row.
     ///
     /// The calling process is recorded as the session's recorder (its pid and
     /// start time, migration 0008): whoever creates a `recording` session is
@@ -758,8 +758,8 @@ impl Store {
         Ok(CreatedSession { id, short_id })
     }
 
-    /// Finalize a session with end metadata (FR-1.6) and checkpoint WAL
-    /// (NFR-3 fsync-on-finalize).
+    /// Finalize a session with end metadata and checkpoint WAL
+    /// (fsync on finalize, for durability).
     pub fn finalize_session(
         &self,
         id: &str,
@@ -789,7 +789,7 @@ impl Store {
         Ok(())
     }
 
-    /// Update a session's adapter-reported metadata at finalize (FR-1.5):
+    /// Update a session's adapter-reported metadata at finalize:
     /// model name, token-usage JSON, and final adapter status. `model` and
     /// `usage_json` use `COALESCE` so passing `None` (the adapter saw no
     /// assistant records) does not clobber a value an earlier update set;
@@ -799,7 +799,7 @@ impl Store {
     /// compatibility (cargo-semver-checks: method parameter count is part
     /// of the semver contract). It does **not** touch
     /// `adapter_degrade_reason` — use [`Self::set_session_adapter_meta_with_reason`]
-    /// to persist the degrade code (BUG-1.1) atomically with the status.
+    /// to persist the degrade code atomically with the status.
     pub fn set_session_adapter_meta(
         &self,
         id: &str,
@@ -811,12 +811,12 @@ impl Store {
     }
 
     /// Like [`Self::set_session_adapter_meta`] but also persists the
-    /// machine-readable degrade reason code (BUG-1.1) atomically with
+    /// machine-readable degrade reason code atomically with
     /// `adapter_status`. `degrade_reason` is `Some(code)` only when
     /// `status == Degraded` and the adapter reported a structured
     /// [`AdapterError`](crate::adapter::AdapterError); it is written in
     /// the same UPDATE as `adapter_status` so `hh inspect --json` never
-    /// sees a degraded session with a NULL reason (BUG-1).
+    /// sees a degraded session with a NULL reason.
     ///
     /// For any status other than `Degraded`, `degrade_reason` is ignored
     /// (NULL is written) so a session that was degraded then recovered
@@ -976,7 +976,7 @@ impl Store {
         Ok(ctx)
     }
 
-    /// List sessions newest-first (FR-5.1).
+    /// List sessions newest-first.
     pub fn list_sessions(&self, limit: u32) -> Result<Vec<SessionRow>> {
         let mut stmt = self.conn.prepare(&format!(
             "{SESSION_SELECT} ORDER BY s.started_at DESC LIMIT ?1"
@@ -989,7 +989,7 @@ impl Store {
         Ok(out)
     }
 
-    /// Resolve a session id per FR-3.1: `last` → most recently started; a
+    /// Resolve a session id: `last` → most recently started; a
     /// short-id prefix → the unique session whose short id starts with it
     /// (ambiguity is an error listing candidates); a full id → itself.
     pub fn resolve_session(&self, id_or_last: &str) -> Result<String> {
@@ -1055,7 +1055,7 @@ impl Store {
     /// Look up a session's `started_at` (unix-ms). Used by the MCP proxy in
     /// attached mode to express event timestamps relative to the parent
     /// session's clock, so MCP events interleave correctly on the parent's
-    /// timeline (FR-2). Errors if the session id does not exist.
+    /// timeline. Errors if the session id does not exist.
     pub fn session_started_at(&self, id: &str) -> Result<i64> {
         let started_at = self
             .conn
@@ -1070,7 +1070,7 @@ impl Store {
     }
 
     /// Look up a session's short id (6 hex). Used by the MCP proxy to print the
-    /// parent session's short id in its epilogue when attaching (FR-2). Errors
+    /// parent session's short id in its epilogue when attaching. Errors
     /// if the session id does not exist.
     pub fn session_short_id(&self, id: &str) -> Result<String> {
         let short_id = self
@@ -1149,7 +1149,7 @@ impl Store {
     }
 
     /// Delete a session and garbage-collect blobs no longer referenced by any
-    /// event (FR-6.1). Returns the number of blob files removed.
+    /// event. Returns the number of blob files removed.
     ///
     /// Refcount semantics: the writer bumps a blob's refcount once *per
     /// referencing event* (see `insert_event`'s `ON CONFLICT DO UPDATE SET
@@ -1759,7 +1759,7 @@ impl Store {
             "UPDATE sessions SET imported_from = ?1 WHERE id = ?2",
             params![original_id, created.id],
         )?;
-        // BUG-1.1: restore the degrade reason code from the bundle so a
+        // Restore the degrade reason code from the bundle so a
         // round-trip preserves the diagnosis. The bundle's
         // `adapter_degrade_reason` (if present) is written directly; the
         // `adapter_status` was already set by `create_session` from
@@ -1783,7 +1783,7 @@ impl Store {
         Ok(created)
     }
 
-    /// Return `(event_count, files_changed)` for a session (FR-1.6 epilogue).
+    /// Return `(event_count, files_changed)` for a session (the run epilogue).
     /// `event_count` is the total event rows; `files_changed` is the count of
     /// distinct paths in `file_changes`. Reads from the store's own
     /// connection (concurrent with the writer under WAL).
@@ -1802,7 +1802,7 @@ impl Store {
         Ok((event_count, files_changed))
     }
 
-    /// Count the distinct stored step ordinals for a session (FR-3.4). A
+    /// Count the distinct stored step ordinals for a session. A
     /// correlated `tool_result` shares its `tool_call`'s step, so this is
     /// `COUNT(DISTINCT step)` over non-null steps — not a count of semantic
     /// events. Step ordinals are stored at finalize (ADR-0002; see
@@ -1817,8 +1817,8 @@ impl Store {
     }
 
     /// Read all events for a session as [`EventRow`]s, ordered by `(ts_ms, id)`
-    /// (the order the FR-3.4 step pass assigns in). Used by [`Self::assign_steps`]
-    /// and by replay/inspect (FR-3/FR-4, future).
+    /// (the order the step-numbering pass assigns in). Used by [`Self::assign_steps`]
+    /// and by replay/inspect (future).
     pub fn list_events(&self, session_id: &str) -> Result<Vec<EventRow>> {
         let mut stmt = self.conn.prepare(
             "SELECT id, session_id, ts_ms, kind, step, correlates FROM events
@@ -1847,7 +1847,7 @@ impl Store {
     }
 
     /// Fetch one session's full row by its (already-resolved) full id
-    /// (FR-3.2 header; FR-4). Call [`Self::resolve_session`] first to turn a
+    /// (replay header; inspect). Call [`Self::resolve_session`] first to turn a
     /// short id / `last` into the full id this expects.
     pub fn get_session(&self, id: &str) -> Result<SessionRow> {
         self.conn
@@ -1860,7 +1860,7 @@ impl Store {
             .ok_or_else(|| StorageError::NotFound(id.to_string()).into())
     }
 
-    /// Read the full per-event index for a session (FR-3.5 eager index load):
+    /// Read the full per-event index for a session (eager index load):
     /// every event (including `terminal_output`) with its one-line summary,
     /// but not the (potentially large) `body_json`/blob payload — that is
     /// fetched lazily per selected row via [`Self::get_event_detail`].
@@ -1889,7 +1889,7 @@ impl Store {
         Ok(out)
     }
 
-    /// Fetch one event's full detail by row id (FR-3.5 lazy body load):
+    /// Fetch one event's full detail by row id (lazy body load):
     /// resolves a blob-overflowed `body_json` transparently (fetches and
     /// decompresses the blob, returning its parsed content in place of the
     /// `{"overflow": true, ...}` envelope) and attaches the `file_changes` row
@@ -1940,7 +1940,7 @@ impl Store {
         })
     }
 
-    /// Fetch the event correlated with `event_id` (FR-3.2 MCP/tool
+    /// Fetch the event correlated with `event_id` (MCP/tool
     /// call+result pairing): if `correlates` is `Some`, that is the
     /// request/call this event points at; otherwise look for an event that
     /// points *at* `event_id` (its response/result). Returns `None` if there
@@ -1969,7 +1969,7 @@ impl Store {
 
     /// Stream every event detail of `session_id`, in `(ts_ms, id)` order,
     /// calling `emit` once per event. This is the constant-memory path for
-    /// `hh inspect --json` (FR-4): a single SQL cursor with a `LEFT JOIN` to
+    /// `hh inspect --json`: a single SQL cursor with a `LEFT JOIN` to
     /// `file_changes` walks the session row by row, and any blob-overflow
     /// body is resolved inline (the same overflow-envelope path as
     /// [`Self::get_event_detail`]), so the whole
@@ -2193,7 +2193,7 @@ impl Store {
             .map_err(Into::into)
     }
 
-    /// Run the FR-3.4 step-assignment pass for a session and write the
+    /// Run the step-assignment pass for a session and write the
     /// ordinals back to `events.step` in one transaction on the main
     /// connection (ADR-0002). Call after the writer is flushed + joined so
     /// there is no within-process writer contention. Idempotent.
@@ -2212,7 +2212,7 @@ impl Store {
     }
 
     /// Mark sessions left in `recording` status by a recorder that is no
-    /// longer running as `interrupted` (FR-1.7 crash-safety: "missing end
+    /// longer running as `interrupted` (crash-safety: "missing end
     /// timestamp + no live PID"). Called by every `hh` invocation after
     /// opening the store, so a crashed `hh run` is readable on the next one.
     /// Returns how many sessions were marked.
@@ -2353,7 +2353,7 @@ impl EventWriter {
     }
 
     /// Append a `file_change` event and attach its `file_changes` row in one
-    /// writer transaction (SRS §4.1 `file_changes`; FR-1.4). The event is
+    /// writer transaction. The event is
     /// inserted first, then the `file_changes` row is written with
     /// `event_id = last_insert_rowid()`. Returns the event row id.
     ///
@@ -2502,7 +2502,7 @@ fn writer_run(
     if let Err(e) = conn.execute("PRAGMA foreign_keys = ON", []) {
         eprintln!("hh: warning: writer thread could not enable foreign_keys: {e}");
     }
-    // NFR-1 / NFR-3: see `Store::open`. The writer connection owns every commit,
+    // Throughput vs durability: see `Store::open`. The writer connection owns every commit,
     // so this is the connection whose `synchronous` setting actually gates
     // ingest throughput. NORMAL keeps per-event commits off the fsync path
     // (fsync happens at the finalize checkpoint); FULL here would fsync every
@@ -2737,7 +2737,7 @@ fn insert_event(conn: &Connection, event: &Event) -> std::result::Result<i64, St
 }
 
 /// Insert an event and its attached `file_changes` row in one transaction
-/// (SRS §4.1; FR-1.4). Used by [`EventWriter::append_file_change`].
+/// Used by [`EventWriter::append_file_change`].
 fn insert_event_with_file_change(
     conn: &mut Connection,
     event: &Event,
@@ -2850,7 +2850,7 @@ const SESSION_BLOB_REFS_SQL: &str = "
 /// Idempotently add migration 0006's `file_changes.before_source` and
 /// `file_changes.renamed_from` columns. SQLite has no `ALTER TABLE ADD
 /// COLUMN IF NOT EXISTS`, so each is guarded by a `PRAGMA table_info` check;
-/// safe to call on every `Store::open` (DR-4).
+/// safe to call on every `Store::open`.
 fn add_file_change_provenance_columns(conn: &Connection) -> Result<()> {
     let names: Vec<String> = {
         let mut stmt = conn.prepare("PRAGMA table_info(file_changes)")?;
@@ -2878,7 +2878,7 @@ fn add_file_change_provenance_columns(conn: &Connection) -> Result<()> {
 /// ([`crate::migrations::SESSION_CONTEXT_COLUMNS`]) to `sessions`. Each is
 /// guarded by a `PRAGMA table_info` check, so this is a no-op on a migrated
 /// DB and completes a partially-applied one; safe on every `Store::open`
-/// (DR-4). Only ever adds nullable columns.
+/// Only ever adds nullable columns.
 fn add_session_context_columns(conn: &Connection) -> Result<()> {
     let names: Vec<String> = {
         let mut stmt = conn.prepare("PRAGMA table_info(sessions)")?;
@@ -2906,7 +2906,7 @@ fn add_session_context_columns(conn: &Connection) -> Result<()> {
 /// Idempotently add migration 0008's recorder-identity columns
 /// ([`crate::migrations::RECORDER_IDENTITY_COLUMNS`]) to `sessions`, each
 /// behind a `PRAGMA table_info` check: a no-op on a migrated DB, completes a
-/// partially-applied one, safe on every `Store::open` (DR-4). Existing rows
+/// partially-applied one, safe on every `Store::open`. Existing rows
 /// keep NULL (recorder unknown); nothing is backfilled.
 fn add_recorder_identity_columns(conn: &Connection) -> Result<()> {
     let names: Vec<String> = {
@@ -3244,10 +3244,10 @@ fn map_session_row(r: &rusqlite::Row<'_>) -> rusqlite::Result<SessionRow> {
     })
 }
 
-/// Apply embedded migrations idempotently (DR-1).
+/// Apply embedded migrations idempotently.
 ///
 /// The first migration's DDL creates `schema_migrations` (it is part of the
-/// public schema per DR-2), so we cannot assume the table exists before the
+/// public schema), so we cannot assume the table exists before the
 /// first migration runs. We probe `sqlite_master` instead: if the table is
 /// absent the database is fresh (`applied = 0`) and every migration runs in
 /// order; otherwise we skip up to and including the recorded `MAX(version)`.
@@ -3322,7 +3322,7 @@ fn format_ts_ms(ms: i64) -> String {
     }
 }
 
-/// Create the parent directory of `path` with `0700` perms (NFR-4).
+/// Create the parent directory of `path` with `0700` perms.
 fn secure_create_parent(path: &Path) -> Result<()> {
     if let Some(parent) = path.parent() {
         secure_create_dir(parent)?;
@@ -3943,7 +3943,7 @@ mod tests {
     }
 
     /// `hh_body_to_text` SQL function returns NULL on NULL/malformed input
-    /// and never panics (DR-3, v1.1.0 addendum: external-input parsers must
+    /// and never panics (v1.1.0 addendum: external-input parsers must
     /// never panic). Verified at the SQL level since the function is
     /// registered on the store's connection.
     #[test]
@@ -4134,7 +4134,7 @@ mod tests {
         assert!(!blob_path.exists());
     }
 
-    /// NFR-3 / Area 3: `finalize_session` runs `PRAGMA wal_checkpoint(TRUNCATE)`,
+    /// Durability / Area 3: `finalize_session` runs `PRAGMA wal_checkpoint(TRUNCATE)`,
     /// so the main `hh.db` file holds every committed page at rest. Copying
     /// *only* `hh.db` (no `-wal`/`-shm`) into a fresh data dir and reopening
     /// must yield the finalized session intact — i.e. `hh.db` is copy-safe.
@@ -4496,7 +4496,7 @@ mod tests {
         assert!(reason.is_none(), "v1.0.0 signature does not set a reason");
 
         // The v1.1.0 `_with_reason` variant persists the reason atomically
-        // with the status (BUG-1.1). Passing None for model/usage must not
+        // with the status. Passing None for model/usage must not
         // clobber (COALESCE); status is always overwritten.
         store
             .set_session_adapter_meta_with_reason(
@@ -4893,7 +4893,7 @@ mod tests {
         assert!(store.get_correlated_event(id, None).unwrap().is_none());
     }
 
-    /// FR-3.5/NFR-1: the replay TUI loads the full per-event index eagerly at
+    /// Replay performance: the replay TUI loads the full per-event index eagerly at
     /// startup. Benchmark-ish: a synthetic 10k-event session (half plain
     /// messages, half correlated tool_call/tool_result pairs) must load and
     /// group into a timeline well within a generous CI bound. Not a tight
@@ -4910,7 +4910,7 @@ mod tests {
         // single-writer channel's per-event round trip: that round trip (one
         // mpsc send/recv + one autocommit per call) is real and correct for a
         // live recorder, but would make *this* test measure writer throughput
-        // instead of the eager-index-load path FR-3.5 actually cares about.
+        // instead of the eager-index-load path replay actually cares about.
         {
             let tx = store.conn.unchecked_transaction().unwrap();
             for i in 0..5_000i64 {
@@ -5280,7 +5280,7 @@ mod tests {
         pid
     }
 
-    /// Migration 0008 property test (DR-4): from a pre-0008 database holding
+    /// Migration 0008 property test: from a pre-0008 database holding
     /// any subset of the 0008 columns, any number of reopens ends with every
     /// column present exactly once, `schema_migrations` at the latest version,
     /// surviving recorder values intact and re-added ones NULL (unknown) —
@@ -5369,7 +5369,7 @@ mod tests {
         }
     }
 
-    /// Migration 0007 property test (DR-4): from a pre-0007 database holding
+    /// Migration 0007 property test: from a pre-0007 database holding
     /// *any* subset of the 0007 columns (a partially-applied migration), any
     /// number of reopens ends with every 0007 column present exactly once,
     /// `schema_migrations` at the latest version, and no existing data lost —
@@ -5456,7 +5456,7 @@ mod tests {
         }
     }
 
-    /// Property test for migration idempotency (DR-1): applying the migration
+    /// Property test for migration idempotency: applying the migration
     /// set to a fresh DB, then reopening (which re-runs `run_migrations` and is
     /// a no-op past `LATEST_VERSION`) any number of extra times, always yields
     /// byte-identical schema.

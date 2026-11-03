@@ -1,5 +1,5 @@
--- Halfhand migration 0001 — v0.1.0-beta.1 schema (SRS §4.1).
--- Applied idempotently by the migration runner (DR-1); do not edit in place —
+-- Halfhand migration 0001 — v0.1.0-beta.1 schema.
+-- Applied idempotently by the migration runner; do not edit in place —
 -- add a new migration for future schema changes.
 
 PRAGMA journal_mode = WAL;

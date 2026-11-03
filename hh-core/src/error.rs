@@ -1,6 +1,6 @@
 //! Error types for hh-core.
 //!
-//! Per CLAUDE.md / NFR-5, library errors use [`thiserror`]. All user-facing
+//! Per CLAUDE.md, library errors use [`thiserror`]. All user-facing
 //! errors are actionable: they describe what failed, why, and a suggested fix
 //! via the [`enum@Error`] variants' `Display` impl.
 
@@ -26,7 +26,7 @@ pub enum Error {
     #[error("blob store error: {0}")]
     Blob(#[from] BlobError),
 
-    /// Configuration parsing failure. Per SRS §4.2 config never fails to start
+    /// Configuration parsing failure. Config never fails to start
     /// the program on unknown keys (those warn); this is only raised for a
     /// malformed TOML file or a value that cannot be interpreted.
     #[error("config error: {0}")]
@@ -90,7 +90,7 @@ pub enum StorageError {
     WriterPanic,
 }
 
-/// Failure to resolve a session id to exactly one session (FR-3.1).
+/// Failure to resolve a session id to exactly one session.
 #[derive(Debug, Error)]
 #[non_exhaustive]
 pub enum ResolveError {

@@ -1,4 +1,4 @@
-//! Agent adapters: tail a structured event stream and yield [`Event`]s (FR-1.5).
+//! Agent adapters: tail a structured event stream and yield [`Event`]s.
 //!
 //! An [`Adapter`] owns a tailer thread that produces [`Event`]s on an
 //! `mpsc::Receiver`; the recorder (`hh-record`) owns a drain thread that
@@ -25,9 +25,9 @@
 //! `tool_call`s and, for a `tool_result`, sets `event.correlates =
 //! map.get(key)` before appending. A result whose key was never seen (orphan /
 //! truly-concurrent result-before-call) gets `correlates = None` and its own
-//! step (handled by the FR-3.4 step pass).
+//! step (handled by the step-numbering pass).
 //!
-//! ## Failure mode (FR-1.5)
+//! ## Failure mode
 //!
 //! If the structured log cannot be located (no `~/.claude/projects` dir, or no
 //! transcript file appears before the session ends), the adapter returns
@@ -48,7 +48,7 @@
 //! converted, first conversion failure) is emitted to stderr when the `HH_DEBUG`
 //! env var is set — run `HH_DEBUG=1 hh run …` to capture it.
 //!
-//! ## Structured degrade reasons (v1.1.0 BUG-1)
+//! ## Structured degrade reasons (v1.1.0)
 //!
 //! As of v1.1.0, every adapter failure is routed through [`AdapterError`]
 //! (see [`adapter::error`]), which carries both a machine-readable
@@ -57,7 +57,7 @@
 //! [`AdapterOutcome::degrade_reason`] string is still set for the
 //! recorder's stderr warning, but `AdapterOutcome` now also carries an
 //! optional [`AdapterError`] so the writer task can persist the code
-//! atomically with `adapter_status = 'degraded'`. See SRS BUG-1.1/BUG-1.4.
+//! atomically with `adapter_status = 'degraded'`.
 
 pub mod error;
 
@@ -73,13 +73,13 @@ use std::thread::JoinHandle;
 use std::time::{Duration, Instant};
 
 /// Payloads at or above this size (in bytes) spill to the blob store rather
-/// than being stored inline in `events.body_json` (SRS §4.1, matching the
+/// than being stored inline in `events.body_json` (matching the
 /// recorder's terminal-chunk threshold).
 const SPILLOVER_BYTES: usize = 256 * 1024;
 /// Tail poll interval when the transcript is at EOF but the session continues.
 const TAIL_POLL: Duration = Duration::from_millis(50);
 /// Poll interval while waiting for the transcript file to appear
-/// (BUG-1.3: 250 ms intervals within a 5 s discovery window; the tailer
+/// (250 ms intervals within a 5 s discovery window; the tailer
 /// polls until the stop flag is set, so the 5 s window is a lower bound
 /// on patience, not an upper bound — a slow-starting agent that writes its
 /// transcript after 5 s is still picked up).
@@ -146,9 +146,9 @@ pub struct AdapterOutcome {
     /// When `status` is [`AdapterStatus::Degraded`], a single actionable line the
     /// recorder prints to stderr *after the child exits* (once the terminal is
     /// restored), instead of from the tailer thread mid-session — so the warning
-    /// is not buried under the agent's alternate-screen TUI (FR-1.5).
+    /// is not buried under the agent's alternate-screen TUI.
     ///
-    /// As of v1.1.0 (BUG-1.1), the reason string carries a machine-readable
+    /// As of v1.1.0, the reason string carries a machine-readable
     /// code prefix: `"<code>: <human message>"`. Use
     /// [`adapter_degrade_code`] to extract the code and
     /// [`adapter_degrade_message`] to extract the human-readable message.
@@ -158,7 +158,7 @@ pub struct AdapterOutcome {
 }
 
 /// Extract the machine-readable degrade code from a
-/// [`AdapterOutcome::degrade_reason`] string (SRS BUG-1.1). The reason
+/// [`AdapterOutcome::degrade_reason`] string. The reason
 /// string is formatted as `"<code>: <human message>"` by
 /// [`degraded_with_error`]; this function returns the code part, or `None`
 /// if the string is absent or does not carry a code prefix (a degrade
@@ -213,7 +213,7 @@ pub fn adapter_degrade_message(reason: Option<&str>) -> Option<&str> {
 /// tailer thread spawn) and returns an `io::Error` only for that low-level
 /// failure; higher-level "no transcript found" conditions are reported via the
 /// returned handle's [`AdapterOutcome::status`] (degraded), not as an error, so
-/// the recorder can keep recording PTY/FS output (FR-1.5).
+/// the recorder can keep recording PTY/FS output.
 pub trait Adapter: Send + 'static {
     /// The agent kind this adapter reports for the session row.
     fn agent_kind(&self) -> AgentKind;
@@ -226,7 +226,7 @@ pub trait Adapter: Send + 'static {
     fn spawn(self: Box<Self>, ctx: AdapterContext) -> std::io::Result<AdapterHandle>;
 }
 
-/// Detect which adapter applies to `command` (FR-1.5). Returns `None` for a
+/// Detect which adapter applies to `command`. Returns `None` for a
 /// generic agent (PTY-only capture). Detection order: Claude Code, Claude
 /// Desktop, Codex CLI, Gemini CLI — by the basename of `command[0]`. A forced
 /// adapter from `hh run --adapter` is resolved by the recorder, not here.
@@ -325,7 +325,7 @@ impl Adapter for ClaudeAdapter {
         AgentKind::ClaudeCode
     }
 
-    #[allow(clippy::unused_self)] // ClaudeAdapter is stateless; the `Box<Self>` receiver exists only so the recorder can dispatch through `Box<dyn Adapter>` (FR-1.5). A future stateful adapter would read its config from `self` here.
+    #[allow(clippy::unused_self)] // ClaudeAdapter is stateless; the `Box<Self>` receiver exists only so the recorder can dispatch through `Box<dyn Adapter>`. A future stateful adapter would read its config from `self` here.
     fn spawn(self: Box<Self>, ctx: AdapterContext) -> std::io::Result<AdapterHandle> {
         let (tx, rx) = mpsc::channel::<Event>();
         let outcome = std::thread::Builder::new()
@@ -343,7 +343,7 @@ impl Adapter for ClaudeAdapter {
 ///
 /// Degrade paths set [`AdapterOutcome::degrade_reason`] rather than printing
 /// mid-session, so the recorder can surface the warning *after* the child exits
-/// and the terminal is restored (FR-1.5) — printing from this thread while the
+/// and the terminal is restored — printing from this thread while the
 /// agent's TUI owns the alternate screen is invisible to the user.
 #[allow(clippy::needless_pass_by_value)] // ctx/tx are owned for the thread's lifetime; taking them by value keeps the tailer self-contained (mirrors runner::run_reader).
 fn run_claude_tailer(ctx: AdapterContext, tx: mpsc::Sender<Event>) -> AdapterOutcome {
@@ -386,7 +386,7 @@ fn run_claude_tailer(ctx: AdapterContext, tx: mpsc::Sender<Event>) -> AdapterOut
             diag.cwd_mismatches.len(),
             diag.directories.len()
         ));
-        // BUG-1.3: ambiguity (candidates appeared but none matched cwd) is
+        // Ambiguity (candidates appeared but none matched cwd) is
         // distinct from "nothing appeared at all". Both surface as
         // `jsonl_not_found` to the DB (the user-visible distinction is the
         // human-readable reason string), except a pure ambiguity case with
@@ -477,7 +477,7 @@ fn zero_events_degrade(stats: &TailStats, what: &str, file: &Path, hint: &str) -
 /// Build a [`Degraded`](AdapterStatus::Degraded) outcome carrying both a
 /// human-readable reason (for the stderr warning) and a structured
 /// [`AdapterError`] whose [`AdapterError::code`] the writer task persists to
-/// `sessions.adapter_degrade_reason` (SRS BUG-1.1, BUG-1.4). The reason
+/// `sessions.adapter_degrade_reason`. The reason
 /// string defaults to the error's `Display` impl but can be overridden for a
 /// more specific one-line diagnosis (e.g. naming the file path).
 ///
@@ -668,7 +668,7 @@ impl OutcomeAcc {
 ///   appears and that cwd equals (or is under) the session cwd. Early Claude
 ///   records (`agent-setting`/`mode`/`file-history-snapshot`) carry no `cwd`, so
 ///   a freshly-created file is polled until its first cwd-bearing record lands.
-/// - **Ambiguity (BUG-1.3)**: if multiple candidates match cwd, prefer the one
+/// - **Ambiguity**: if multiple candidates match cwd, prefer the one
 ///   with the newest mtime (largest delta from session start) and log a WARN
 ///   so the ambiguity is visible. Previously the first match in directory
 ///   iteration order won, which was non-deterministic across platforms.
@@ -691,13 +691,13 @@ fn locate_transcript(
         if stop.load(Ordering::Acquire) {
             return None;
         }
-        // Collect all candidates that match cwd in this poll cycle. BUG-1.3:
-        // if >1 match, pick the newest by mtime and log a WARN rather than
+        // Collect all candidates that match cwd in this poll cycle.
+        // If >1 match, pick the newest by mtime and log a WARN rather than
         // silently taking the first in directory-iteration order.
         let mut matches =
             scan_new_transcripts(projects, &slug_dir, cwd, &preexisting, &mut rejected, diag);
         if !matches.is_empty() {
-            // BUG-1.3: pick the newest by mtime. Sort descending and take first.
+            // Pick the newest by mtime. Sort descending and take first.
             matches.sort_by_key(|(_, m)| std::cmp::Reverse(*m));
             if matches.len() > 1 {
                 warn(&format!(
@@ -1139,7 +1139,7 @@ fn rotate_to_newer(slug_dir: &Path, current: &Path, started_at_unix_ms: i64) -> 
 // Claude Desktop adapter
 // ---------------------------------------------------------------------------
 
-/// The Claude Desktop adapter (SRS v1.1.0; `hh run --adapter claude-desktop`).
+/// The Claude Desktop adapter (v1.1.0; `hh run --adapter claude-desktop`).
 ///
 /// Claude Desktop's Code tab embeds a Claude Code CLI binary, so its transcript
 /// is **the same JSONL** Claude Code writes, in the same place
@@ -1173,7 +1173,7 @@ fn rotate_to_newer(slug_dir: &Path, current: &Path, started_at_unix_ms: i64) -> 
 ///
 /// Explicit selection with no Desktop session found degrades through
 /// [`AdapterError`] (`jsonl_not_found` / `discovery_ambiguous`) with a
-/// one-line reason naming the directories that were searched (BUG-1); it
+/// one-line reason naming the directories that were searched; it
 /// never reports `active` with zero steps.
 #[derive(Debug, Clone)]
 pub struct ClaudeDesktopAdapter;
@@ -1337,7 +1337,7 @@ fn run_claude_desktop_tailer(ctx: AdapterContext, tx: mpsc::Sender<Event>) -> Ad
 /// at a temp dir without touching `HOME`/`XDG_CONFIG_HOME`) and an optional
 /// latch that fires once the "pre-existing files" snapshot has been taken —
 /// so a test can write its fixture *after* the snapshot deterministically,
-/// with no sleep (BUG-4). Production passes `None` for the latch.
+/// with no sleep. Production passes `None` for the latch.
 #[allow(clippy::needless_pass_by_value)] // ctx/tx are owned for the thread's lifetime (mirrors run_claude_tailer).
 fn run_claude_desktop_tailer_with(
     ctx: AdapterContext,
@@ -1438,7 +1438,7 @@ fn run_claude_desktop_tailer_with(
 }
 
 /// The degraded outcome for a failed Desktop discovery, with the `HH_DEBUG`
-/// trace. Mirrors the Claude Code code mapping (BUG-1.3): something appeared
+/// trace. Mirrors the Claude Code code mapping: something appeared
 /// but none of it was ours → `discovery_ambiguous`; nothing at all (or only an
 /// indexed session whose transcript never showed up) → `jsonl_not_found`.
 fn desktop_discovery_failure(diag: &DesktopDiag) -> AdapterOutcome {
@@ -2599,7 +2599,7 @@ fn text_event(
         session_id: session_id.to_string(),
         ts_ms,
         kind,
-        step: None, // assigned by the FR-3.4 pass
+        step: None, // assigned by the step-numbering pass
         summary: truncate_summary(text),
         body_json,
         blob_hash,
@@ -2758,7 +2758,7 @@ pub fn newest_jsonl_for_cwd(cwd: &Path) -> Option<PathBuf> {
 
 /// Encode `cwd` as a Claude slug: every path separator (`/`, `\`) and `.`
 /// becomes `-`, and any other non-alphanumeric ASCII character is also
-/// replaced with `-` (BUG-1.3: "strip non-ASCII and special characters
+/// replaced with `-` ("strip non-ASCII and special characters
 /// consistently with Claude Code's own slug algorithm"). Non-ASCII
 /// characters (e.g. Unicode paths) are replaced with `-` too — Claude's
 /// slug is ASCII-only. This is inferred from real Claude transcript
@@ -2797,7 +2797,7 @@ fn debug(msg: &str) {
     }
 }
 
-/// A WARN-level log line (BUG-1.3: ambiguity is logged at WARN so it is
+/// A WARN-level log line (ambiguity is logged at WARN so it is
 /// visible without `HH_DEBUG`). Always prints to stderr — a discovery
 /// ambiguity is a real-world condition the user should see (two concurrent
 /// sessions in the same project dir), not a debug-level detail.
@@ -2807,7 +2807,7 @@ fn warn(msg: &str) {
 
 /// A file's mtime as unix-ms, or 0 if unreadable. Used by
 /// [`locate_transcript`] to pick the newest of multiple cwd-matching
-/// candidates (BUG-1.3).
+/// candidates.
 fn file_mtime_ms(path: &Path) -> i64 {
     std::fs::metadata(path)
         .ok()
@@ -3071,7 +3071,7 @@ mod tests {
             slugify(Path::new("/home/saadman/switch/.claude/worktrees/x")),
             "-home-saadman-switch--claude-worktrees-x"
         );
-        // BUG-1.3: non-alphanumeric chars (including `:` in Windows paths,
+        // Non-alphanumeric chars (including `:` in Windows paths,
         // spaces, and non-ASCII) are replaced with `-`, matching Claude's
         // slug algorithm.
         assert_eq!(slugify(Path::new("C:\\Users\\me")), "C--Users-me");
@@ -3149,7 +3149,7 @@ mod tests {
     }
 
     /// Receive from `events` until `n` events have arrived or `timeout`
-    /// elapses, whichever comes first (BUG-4: channel-driven, no fixed sleep).
+    /// elapses, whichever comes first (channel-driven, no fixed sleep).
     /// Returns whatever arrived; the caller asserts on the count.
     fn collect_n(events: &mpsc::Receiver<Event>, n: usize, timeout: Duration) -> Vec<Event> {
         let deadline = std::time::Instant::now() + timeout;
@@ -3290,8 +3290,8 @@ mod tests {
     /// `userType`, `entrypoint`, `fileHistorySnapshot`) without errors, and
     /// yield the expected event sequence (user → tool_call → tool_result →
     /// agent_message). The `thinking` block produces a `Thinking` event too,
-    /// so the full sequence is 5 events. Regression guard for BUG-1.2
-    /// (multi-generation tolerance: unknown top-level fields ignored).
+    /// so the full sequence is 5 events. Regression guard for
+    /// transcript-format drift (multi-generation tolerance: unknown top-level fields ignored).
     #[test]
     fn tailer_parses_committed_current_format_fixture() {
         let fixture = include_str!("../../tests/fixtures/claude-code/current-format.jsonl");
@@ -3350,7 +3350,7 @@ mod tests {
     }
 
     /// Snapshot the parsed events from the committed current-format fixture
-    /// (BUG-1.2: multi-generation tolerance). The snapshot locks the exact
+    /// (multi-generation tolerance). The snapshot locks the exact
     /// event sequence, summaries, and body shapes the adapter produces, so a
     /// future parser regression that drops or mutates an event is caught.
     #[test]
@@ -3424,7 +3424,7 @@ mod tests {
     /// End-to-end through [`ClaudeDesktopAdapter`]: the committed Desktop
     /// fixture is located by cwd, tailed, and yields the expected event mix
     /// with `AgentKind::ClaudeDesktop` reported. Waits on the event channel
-    /// rather than sleeping (BUG-4).
+    /// rather than sleeping.
     #[test]
     fn tailer_parses_committed_claude_desktop_fixture() {
         let fixture = include_str!("../../tests/fixtures/claude-desktop/session.jsonl");
@@ -3515,7 +3515,7 @@ mod tests {
     const DESKTOP_FIXTURE_EVENTS: usize = 51;
 
     // -----------------------------------------------------------------------
-    // Claude Desktop discovery (SRS v1.1.0; BUG-1 degrade paths, BUG-4 no sleeps)
+    // Claude Desktop discovery (v1.1.0; explicit degrade paths, no sleeps)
     // -----------------------------------------------------------------------
 
     /// The `sessionId` every record in the Desktop fixture carries, which is
@@ -3548,7 +3548,7 @@ mod tests {
     /// Spawn the Desktop tailer against a temp home with the index dir
     /// injected, and block on the tailer's "snapshot taken" latch so the test
     /// writes its fixture strictly *after* the pre-existing-files snapshot —
-    /// deterministic "new since start" semantics with no sleep (BUG-4).
+    /// deterministic "new since start" semantics with no sleep.
     fn spawn_desktop_tailer(
         home: &Path,
         cwd: &Path,
@@ -3696,7 +3696,7 @@ mod tests {
 
     /// Tier 1 never tails an archived session or one with a `deleted_<uuid>`
     /// tombstone, even when their transcripts exist — and the degrade reason
-    /// says so (BUG-1: specific, not "could not locate").
+    /// says so (specific, not "could not locate").
     #[test]
     fn desktop_skips_archived_and_deleted_index_records() {
         let home = tempfile::TempDir::new().unwrap();
@@ -3805,7 +3805,7 @@ mod tests {
         assert!(reason.contains(&sessions.display().to_string()), "{reason}");
     }
 
-    /// BUG-1: explicit `--adapter claude-desktop` with no Desktop session at
+    /// Explicit `--adapter claude-desktop` with no Desktop session at
     /// all degrades through `AdapterError` with the `jsonl_not_found` code and
     /// an actionable reason — never `active` with 0 steps.
     #[test]
@@ -4195,7 +4195,7 @@ mod tests {
         let outcome = handle.outcome.join().expect("tailer thread");
         assert_eq!(outcome.status, AdapterStatus::Degraded);
         // Degraded outcomes carry an actionable reason for the recorder to print
-        // after the child exits (FR-1.5), not a bare status with no explanation.
+        // after the child exits, not a bare status with no explanation.
         assert!(
             outcome.degrade_reason.is_some(),
             "degraded outcome must carry a degrade_reason"
@@ -4263,7 +4263,7 @@ mod tests {
         assert_eq!(outcome.status, AdapterStatus::Degraded);
     }
 
-    /// BUG-1.3: when multiple NEW transcripts match cwd in the same poll
+    /// When multiple NEW transcripts match cwd in the same poll
     /// cycle, the adapter picks the one with the newest mtime (largest delta
     /// from session start) rather than the first in directory-iteration
     /// order (which is non-deterministic across platforms). Both candidates

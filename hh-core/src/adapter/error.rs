@@ -1,4 +1,4 @@
-//! Structured adapter errors (SRS v1.1.0 BUG-1.4).
+//! Structured adapter errors.
 //!
 //! Every adapter failure is routed through [`AdapterError`] so the writer
 //! task can record both a machine-readable [`code`](AdapterError::code) and
@@ -11,11 +11,11 @@
 //!
 //! Per the v1.1.0 addendum, adapters must never panic on malformed input —
 //! every untrusted-input path (JSONL parsing, discovery) returns an
-//! `AdapterError` instead. The codes match the table in SRS BUG-1.1.
+//! `AdapterError` instead. The codes match the documented degrade-code table.
 
 use thiserror::Error;
 
-/// A structured adapter failure (SRS BUG-1.1, BUG-1.4).
+/// A structured adapter failure.
 ///
 /// Every variant carries a machine-readable [`code`](Self::code) (stable
 /// across releases — part of the `--json` contract) and a human-readable
@@ -36,14 +36,14 @@ use thiserror::Error;
 #[derive(Debug, Clone, Error)]
 #[non_exhaustive]
 pub enum AdapterError {
-    /// No JSONL file was discovered within the discovery window (BUG-1.3).
+    /// No JSONL file was discovered within the discovery window.
     /// The agent may not have written a transcript yet, or the projects
     /// directory is missing.
     #[error("JSONL file not found within discovery window")]
     JsonlNotFound,
 
     /// A JSONL line failed to deserialize into the expected schema
-    /// (BUG-1.2). Carries the 1-based line number and the parse error
+    /// Carries the 1-based line number and the parse error
     /// message (captured as a string so the error is `Clone`).
     #[error("JSONL parse error at line {line}: {msg}")]
     JsonlParseError {
@@ -54,7 +54,7 @@ pub enum AdapterError {
         msg: String,
     },
 
-    /// A required field is absent or has an unexpected type (BUG-1.2).
+    /// A required field is absent or has an unexpected type.
     /// Distinct from [`Self::JsonlParseError`]: the line parsed as JSON
     /// but the schema does not match what the adapter expects.
     #[error("JSONL schema drift: field {field} missing or wrong type")]
@@ -64,7 +64,7 @@ pub enum AdapterError {
     },
 
     /// Multiple candidate JSONL files matched the discovery criteria and
-    /// none was unambiguously selected (BUG-1.3).
+    /// none was unambiguously selected.
     #[error("Multiple candidate JSONL files matched; none selected")]
     DiscoveryAmbiguous,
 
@@ -87,9 +87,9 @@ pub enum AdapterError {
 }
 
 impl AdapterError {
-    /// The machine-readable degrade code (SRS BUG-1.1), stable across
+    /// The machine-readable degrade code, stable across
     /// releases and persisted to `sessions.adapter_degrade_reason`. This
-    /// is part of the `--json` output contract (ENH-2.3, `hh inspect
+    /// is part of the `--json` output contract (`hh inspect
     /// --json`) and must not change without a deprecation cycle.
     #[must_use]
     pub fn code(&self) -> &'static str {
@@ -121,7 +121,7 @@ mod tests {
 
     #[test]
     fn each_variant_has_a_stable_code() {
-        // The codes are part of the --json contract (SRS BUG-1.1) and must
+        // The codes are part of the --json contract and must
         // not change without a deprecation cycle. Lock them here.
         assert_eq!(AdapterError::JsonlNotFound.code(), "jsonl_not_found");
         assert_eq!(
@@ -160,7 +160,7 @@ mod tests {
     #[test]
     fn display_messages_are_human_readable() {
         // The Display impl is what the recorder prints to stderr after the
-        // child exits (FR-1.5). It must be a one-line actionable message.
+        // child exits. It must be a one-line actionable message.
         let msg = format!(
             "{}",
             AdapterError::JsonlParseError {

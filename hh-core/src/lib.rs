@@ -1,6 +1,6 @@
 //! hh-core — storage, blob store, event model, and config for Halfhand.
 //!
-//! This crate implements the local-first data layer (SRS §4) used by the `hh`
+//! This crate implements the local-first data layer used by the `hh`
 //! binary and the recorder. It is intentionally free of any I/O runtime or
 //! CLI concern: the binary drives it, not the other way around.
 //!

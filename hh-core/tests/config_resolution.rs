@@ -1,4 +1,4 @@
-//! Integration tests for BUG-2 (SRS v1.1.0 §3): the three-step config
+//! Integration tests for the three-step config
 //! resolution order (`config.toml` → `halfhand.toml` → built-in defaults) and
 //! the one-time, TTY-only, suppressible legacy-filename hint.
 //!
@@ -51,7 +51,7 @@ fn write_legacy(dir: &std::path::Path, contents: &str) -> PathBuf {
 const CANONICAL_MARKER: &str = "/tmp/hh-bug2-canonical";
 const LEGACY_MARKER: &str = "/tmp/hh-bug2-legacy";
 
-/// Test 1 (BUG-2.4): canonical present, legacy absent → canonical loaded, no
+/// Test 1: canonical present, legacy absent → canonical loaded, no
 /// hint. `ConfigSource::Canonical` is returned and the hint helper declines to
 /// print (returns `false`) without touching the marker.
 #[test]
@@ -85,7 +85,7 @@ fn canonical_present_legacy_absent_loads_canonical_no_hint() {
     );
 }
 
-/// Test 2 (BUG-2.2): canonical absent, legacy present → legacy loaded, hint
+/// Test 2: canonical absent, legacy present → legacy loaded, hint
 /// printed once. `ConfigSource::Legacy` is returned, the hint fires on the
 /// first call (with TTY + no env suppress + no marker), and the marker is
 /// written as a side effect.
@@ -126,7 +126,7 @@ fn canonical_absent_legacy_present_loads_legacy_prints_hint_once() {
     );
 }
 
-/// Test 3 (BUG-2.1): both absent → defaults loaded, no hint. `ConfigSource::Defaults`
+/// Test 3: both absent → defaults loaded, no hint. `ConfigSource::Defaults`
 /// is returned and the hint helper declines regardless of TTY/marker state.
 #[test]
 fn both_absent_loads_defaults_no_hint() {
@@ -153,7 +153,7 @@ fn both_absent_loads_defaults_no_hint() {
     assert!(!marker.exists(), "no marker written when defaults are used");
 }
 
-/// Test 4 (BUG-2.1): both present → canonical wins, no hint. `ConfigSource::Canonical`
+/// Test 4: both present → canonical wins, no hint. `ConfigSource::Canonical`
 /// is returned (the legacy file is *ignored*, not loaded as a fallback), and
 /// the hint does not fire.
 #[test]
@@ -188,7 +188,7 @@ fn both_present_canonical_wins_no_hint() {
     assert!(!marker.exists(), "no marker written when canonical wins");
 }
 
-/// Test 5 (BUG-2.2): the persistent marker suppresses the hint on a second
+/// Test 5: the persistent marker suppresses the hint on a second
 /// run. First call writes the marker; second call (same data dir, still a
 /// TTY, no env suppress) must NOT print again.
 #[test]
@@ -227,7 +227,7 @@ fn hint_suppressed_on_second_run_by_marker() {
     );
 }
 
-/// Test 6 (BUG-2.2): `HH_NO_CONFIG_HINT=1` suppresses the hint even on the
+/// Test 6: `HH_NO_CONFIG_HINT=1` suppresses the hint even on the
 /// first run with a TTY and no marker. The marker must NOT be written (the env
 /// var is a full suppression, not a "pretend it was already shown").
 #[test]
@@ -266,9 +266,9 @@ fn hint_suppressed_by_env_var() {
 }
 
 /// Non-TTY stderr suppresses the hint even when everything else would fire
-/// (legacy source, no env var, no marker). This is the SRS's "TTY only" gate:
+/// (legacy source, no env var, no marker). This is the "TTY only" gate:
 /// piped/JSON output must never be corrupted by the hint. Not one of the six
-/// required tests but exercises a path the SRS calls out explicitly.
+/// required tests but exercises a path the spec calls out explicitly.
 #[test]
 fn hint_suppressed_when_stderr_is_not_a_tty() {
     let _g = ENV_GUARD

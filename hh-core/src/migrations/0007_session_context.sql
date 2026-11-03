@@ -15,7 +15,7 @@
 -- The columns are added by Rust code in `Store::open`
 -- (`add_session_context_columns`), each behind a `PRAGMA table_info` check,
 -- because SQLite has no `ALTER TABLE ADD COLUMN IF NOT EXISTS`; that check is
--- what makes the migration idempotent (DR-4). Like 0005 and 0006, the Rust
+-- what makes the migration idempotent. Like 0005 and 0006, the Rust
 -- half runs after the migration runner, because `sessions` is created by
 -- migration 0001 on a fresh DB. Nothing is dropped, renamed or retyped.
 --

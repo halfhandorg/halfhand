@@ -1,4 +1,4 @@
-//! Step-assignment pass (FR-3.4): 1-based step ordinals for semantic events.
+//! Step-assignment pass: 1-based step ordinals for semantic events.
 //!
 //! The pass is a pure function over a slice of [`EventRow`]s: it assigns each
 //! event's `step` in place. The store reads rows via
@@ -6,7 +6,7 @@
 //! ordinals back in one transaction
 //! ([`crate::store::Store::assign_steps`]).
 //!
-//! ## Rules (FR-3.4)
+//! ## Rules
 //! - `terminal_output` events are not steps → `step = None`.
 //! - Every other semantic event gets its own incrementing 1-based step, *except*
 //!   a `tool_result` whose `correlates` points to a `tool_call` present in the
@@ -35,7 +35,7 @@
 use crate::event::{EventKind, EventRow};
 use std::collections::{HashMap, HashSet};
 
-/// Assign 1-based step ordinals to `events` in place (FR-3.4). See the module
+/// Assign 1-based step ordinals to `events` in place. See the module
 /// docs for the rules. Idempotent: re-running on already-assigned rows yields
 /// the same ordinals.
 pub fn assign_steps(events: &mut [EventRow]) {

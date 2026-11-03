@@ -1,4 +1,4 @@
-//! Pure timeline-grouping for replay/inspect (FR-3.2/FR-3.4).
+//! Pure timeline-grouping for replay/inspect.
 //!
 //! Turns a session's flat event index into display rows: one row per step
 //! (folding a correlated `tool_call`/`tool_result` or `mcp_request`/
@@ -15,7 +15,7 @@ use std::collections::HashMap;
 /// run of terminal output.
 #[derive(Debug, Clone, PartialEq)]
 pub enum TimelineRow {
-    /// A semantic step (FR-3.4): one or more correlated events sharing a step.
+    /// A semantic step: one or more correlated events sharing a step.
     Step(StepEntry),
     /// A collapsed run of consecutive `terminal_output` events.
     Terminal(TerminalSegment),
@@ -29,7 +29,7 @@ pub struct StepEntry {
     pub step: i64,
     /// Earliest timestamp among the step's events (ms since session start).
     pub ts_ms: i64,
-    /// The badge kind shown for this row (FR-3.2): the call/request side of a
+    /// The badge kind shown for this row: the call/request side of a
     /// correlated pair takes priority over its result/response.
     pub kind: EventKind,
     /// One-line summary of the primary (call/request-side) event.
@@ -96,7 +96,7 @@ impl TimelineRow {
     }
 }
 
-/// Build the timeline rows from a session's full event index (FR-3.2/FR-3.4).
+/// Build the timeline rows from a session's full event index.
 ///
 /// `show_terminal` toggles whether `terminal_output` runs appear as
 /// [`TimelineRow::Terminal`] rows interleaved by timestamp (the `t` key in the

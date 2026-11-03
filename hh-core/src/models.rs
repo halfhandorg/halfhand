@@ -5,7 +5,7 @@
 //! # Rules
 //!
 //! - **No network.** This table is the only source; there is no runtime or
-//!   build-time fetch (Halfhand makes zero network calls, NFR-2).
+//!   build-time fetch (Halfhand makes zero network calls).
 //! - **Absent means unknown.** A model id that is not in the table resolves to
 //!   `None`, and every surface renders that as an em dash, never as `0`. Zero
 //!   asserts a known value; a dash admits ignorance. Do not add a row with
