@@ -7,8 +7,10 @@
 //! [`CACHE_CAPACITY`] fetched events are cached so scrolling back over
 //! recently-viewed steps does not re-hit SQLite/blob storage.
 
+use super::theme::Palette;
 use hh_core::{EventDetail, Result, Store};
 use lru::LruCache;
+use ratatui::text::Line;
 use std::num::NonZeroUsize;
 
 /// How many event bodies to keep cached (FR-3.5).
@@ -17,10 +19,22 @@ const CACHE_CAPACITY: NonZeroUsize = match NonZeroUsize::new(50) {
     None => panic!("CACHE_CAPACITY must be non-zero"),
 };
 
+/// The detail pane's rendered content for one row, so a frame redrawn with
+/// the same selection (every poll tick) does not re-read blobs or re-diff.
+pub struct RenderedDetail {
+    /// The row's event ids and the palette it was rendered with.
+    key: (Vec<i64>, Palette),
+    /// The rendered lines.
+    pub lines: Vec<Line<'static>>,
+    /// Whether long lines should wrap (prose) or clip (diffs).
+    pub wrap: bool,
+}
+
 /// Owns the store and a bounded cache of lazily-fetched event bodies.
 pub struct ReplayData {
     store: Store,
     cache: LruCache<i64, EventDetail>,
+    detail: Option<RenderedDetail>,
 }
 
 impl ReplayData {
@@ -30,7 +44,32 @@ impl ReplayData {
         Self {
             store,
             cache: LruCache::new(CACHE_CAPACITY),
+            detail: None,
         }
+    }
+
+    /// The cached rendered detail for `ids` in `palette`, if it is the one
+    /// held (only the most recent row is kept).
+    #[must_use]
+    pub fn rendered_detail(&self, ids: &[i64], palette: Palette) -> Option<&RenderedDetail> {
+        self.detail
+            .as_ref()
+            .filter(|d| d.key.0 == ids && d.key.1 == palette)
+    }
+
+    /// Remember the rendered detail for `ids` in `palette`.
+    pub fn set_rendered_detail(
+        &mut self,
+        ids: &[i64],
+        palette: Palette,
+        lines: Vec<Line<'static>>,
+        wrap: bool,
+    ) {
+        self.detail = Some(RenderedDetail {
+            key: (ids.to_vec(), palette),
+            lines,
+            wrap,
+        });
     }
 
     /// Borrow the underlying store (e.g. for a diff's before/after blob

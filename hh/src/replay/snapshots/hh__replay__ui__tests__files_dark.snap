@@ -1,0 +1,170 @@
+---
+source: hh/src/replay/ui.rs
+expression: "draw_to(&mut app, &mut data, palette)"
+---
+ a1b2c3  auth refactor  ✓ ok
+ model  Claude Opus 4.8   provider  Anthropic   duration 1m15s                      steps 10
+ tokens 51,540            est. cost $0.05       capture  transcript · claude-code   files 4
+────────────────────────────────────────────────────────────────────────────────────────────────────
+┌ Files touched · 4 ────────────────────────┐┌ src/auth.rs ────────────────────────────────────────┐
+│ 2 edits  src/auth.rs                      ││src/auth.rs                                          │
+│ 1 edit   README.md  created               ││modified · +2 −0 · before from earlier in this sessio│
+│ 1 edit   src/lib.rs  renamed from src/mod.││                                                     │
+│ 1 edit   Cargo.toml                       ││@@ -3,3 +3,5 @@                                      │
+│                                           ││    3     3 │ }                                      │
+│                                           ││    4     4 │                                        │
+│                                           ││    5     5 │ fn logout() {}                         │
+│                                           ││          6 │+                                       │
+│                                           ││          7 │+fn refresh() {}                        │
+│                                           ││                                                     │
+│                                           ││                                                     │
+│                                           ││                                                     │
+│                                           ││                                                     │
+│                                           ││                                                     │
+│                                           ││                                                     │
+│                                           ││                                                     │
+│                                           ││                                                     │
+│                                           ││                                                     │
+│                                           ││                                                     │
+│                                           ││                                                     │
+│                                           ││                                                     │
+│                                           ││                                                     │
+│                                           ││                                                     │
+└───────────────────────────────────────────┘└─────────────────────────────────────────────────────┘
+ j/k select  ·  ↵ show diffs  ·  esc back                                                    ? help
+--- styles ---
+ 0:0-7 fg=Cyan bg=Reset mod=BOLD
+ 1:0-7 fg=Reset bg=Reset mod=DIM
+ 1:25-35 fg=Reset bg=Reset mod=DIM
+ 1:47-56 fg=Reset bg=Reset mod=DIM
+ 1:83-89 fg=Reset bg=Reset mod=DIM
+ 2:0-7 fg=Reset bg=Reset mod=DIM
+ 2:25-35 fg=Reset bg=Reset mod=DIM
+ 2:47-56 fg=Reset bg=Reset mod=DIM
+ 2:83-89 fg=Reset bg=Reset mod=DIM
+ 3:0-99 fg=DarkGray bg=Reset mod=NONE
+ 4:0-44 fg=Cyan bg=Reset mod=BOLD
+ 4:45-45 fg=DarkGray bg=Reset mod=NONE
+ 4:46-58 fg=Cyan bg=Reset mod=BOLD
+ 4:59-99 fg=DarkGray bg=Reset mod=NONE
+ 5:0-0 fg=Cyan bg=Reset mod=BOLD
+ 5:1-10 fg=Reset bg=DarkGray mod=DIM
+ 5:11-43 fg=Reset bg=DarkGray mod=NONE
+ 5:44-44 fg=Cyan bg=Reset mod=BOLD
+ 5:45-45 fg=DarkGray bg=Reset mod=NONE
+ 5:46-56 fg=Cyan bg=Reset mod=BOLD
+ 5:99-99 fg=DarkGray bg=Reset mod=NONE
+ 6:0-0 fg=Cyan bg=Reset mod=BOLD
+ 6:1-10 fg=Reset bg=Reset mod=DIM
+ 6:20-28 fg=Reset bg=Reset mod=DIM
+ 6:44-44 fg=Cyan bg=Reset mod=BOLD
+ 6:45-45 fg=DarkGray bg=Reset mod=NONE
+ 6:54-56 fg=Reset bg=Reset mod=DIM
+ 6:57-58 fg=Green bg=Reset mod=NONE
+ 6:60-61 fg=Red bg=Reset mod=NONE
+ 6:62-98 fg=Reset bg=Reset mod=DIM
+ 6:99-99 fg=DarkGray bg=Reset mod=NONE
+ 7:0-0 fg=Cyan bg=Reset mod=BOLD
+ 7:1-10 fg=Reset bg=Reset mod=DIM
+ 7:21-43 fg=Reset bg=Reset mod=DIM
+ 7:44-44 fg=Cyan bg=Reset mod=BOLD
+ 7:45-45 fg=DarkGray bg=Reset mod=NONE
+ 7:99-99 fg=DarkGray bg=Reset mod=NONE
+ 8:0-0 fg=Cyan bg=Reset mod=BOLD
+ 8:1-10 fg=Reset bg=Reset mod=DIM
+ 8:44-44 fg=Cyan bg=Reset mod=BOLD
+ 8:45-45 fg=DarkGray bg=Reset mod=NONE
+ 8:46-60 fg=Cyan bg=Reset mod=NONE
+ 8:99-99 fg=DarkGray bg=Reset mod=NONE
+ 9:0-0 fg=Cyan bg=Reset mod=BOLD
+ 9:44-44 fg=Cyan bg=Reset mod=BOLD
+ 9:45-45 fg=DarkGray bg=Reset mod=NONE
+ 9:46-58 fg=Reset bg=Reset mod=DIM
+ 9:99-99 fg=DarkGray bg=Reset mod=NONE
+10:0-0 fg=Cyan bg=Reset mod=BOLD
+10:44-44 fg=Cyan bg=Reset mod=BOLD
+10:45-45 fg=DarkGray bg=Reset mod=NONE
+10:46-58 fg=Reset bg=Reset mod=DIM
+10:99-99 fg=DarkGray bg=Reset mod=NONE
+11:0-0 fg=Cyan bg=Reset mod=BOLD
+11:44-44 fg=Cyan bg=Reset mod=BOLD
+11:45-45 fg=DarkGray bg=Reset mod=NONE
+11:46-58 fg=Reset bg=Reset mod=DIM
+11:99-99 fg=DarkGray bg=Reset mod=NONE
+12:0-0 fg=Cyan bg=Reset mod=BOLD
+12:44-44 fg=Cyan bg=Reset mod=BOLD
+12:45-45 fg=DarkGray bg=Reset mod=NONE
+12:46-58 fg=Reset bg=Reset mod=DIM
+12:59-59 fg=Green bg=Reset mod=NONE
+12:99-99 fg=DarkGray bg=Reset mod=NONE
+13:0-0 fg=Cyan bg=Reset mod=BOLD
+13:44-44 fg=Cyan bg=Reset mod=BOLD
+13:45-45 fg=DarkGray bg=Reset mod=NONE
+13:46-58 fg=Reset bg=Reset mod=DIM
+13:59-74 fg=Green bg=Reset mod=NONE
+13:99-99 fg=DarkGray bg=Reset mod=NONE
+14:0-0 fg=Cyan bg=Reset mod=BOLD
+14:44-44 fg=Cyan bg=Reset mod=BOLD
+14:45-45 fg=DarkGray bg=Reset mod=NONE
+14:99-99 fg=DarkGray bg=Reset mod=NONE
+15:0-0 fg=Cyan bg=Reset mod=BOLD
+15:44-44 fg=Cyan bg=Reset mod=BOLD
+15:45-45 fg=DarkGray bg=Reset mod=NONE
+15:99-99 fg=DarkGray bg=Reset mod=NONE
+16:0-0 fg=Cyan bg=Reset mod=BOLD
+16:44-44 fg=Cyan bg=Reset mod=BOLD
+16:45-45 fg=DarkGray bg=Reset mod=NONE
+16:99-99 fg=DarkGray bg=Reset mod=NONE
+17:0-0 fg=Cyan bg=Reset mod=BOLD
+17:44-44 fg=Cyan bg=Reset mod=BOLD
+17:45-45 fg=DarkGray bg=Reset mod=NONE
+17:99-99 fg=DarkGray bg=Reset mod=NONE
+18:0-0 fg=Cyan bg=Reset mod=BOLD
+18:44-44 fg=Cyan bg=Reset mod=BOLD
+18:45-45 fg=DarkGray bg=Reset mod=NONE
+18:99-99 fg=DarkGray bg=Reset mod=NONE
+19:0-0 fg=Cyan bg=Reset mod=BOLD
+19:44-44 fg=Cyan bg=Reset mod=BOLD
+19:45-45 fg=DarkGray bg=Reset mod=NONE
+19:99-99 fg=DarkGray bg=Reset mod=NONE
+20:0-0 fg=Cyan bg=Reset mod=BOLD
+20:44-44 fg=Cyan bg=Reset mod=BOLD
+20:45-45 fg=DarkGray bg=Reset mod=NONE
+20:99-99 fg=DarkGray bg=Reset mod=NONE
+21:0-0 fg=Cyan bg=Reset mod=BOLD
+21:44-44 fg=Cyan bg=Reset mod=BOLD
+21:45-45 fg=DarkGray bg=Reset mod=NONE
+21:99-99 fg=DarkGray bg=Reset mod=NONE
+22:0-0 fg=Cyan bg=Reset mod=BOLD
+22:44-44 fg=Cyan bg=Reset mod=BOLD
+22:45-45 fg=DarkGray bg=Reset mod=NONE
+22:99-99 fg=DarkGray bg=Reset mod=NONE
+23:0-0 fg=Cyan bg=Reset mod=BOLD
+23:44-44 fg=Cyan bg=Reset mod=BOLD
+23:45-45 fg=DarkGray bg=Reset mod=NONE
+23:99-99 fg=DarkGray bg=Reset mod=NONE
+24:0-0 fg=Cyan bg=Reset mod=BOLD
+24:44-44 fg=Cyan bg=Reset mod=BOLD
+24:45-45 fg=DarkGray bg=Reset mod=NONE
+24:99-99 fg=DarkGray bg=Reset mod=NONE
+25:0-0 fg=Cyan bg=Reset mod=BOLD
+25:44-44 fg=Cyan bg=Reset mod=BOLD
+25:45-45 fg=DarkGray bg=Reset mod=NONE
+25:99-99 fg=DarkGray bg=Reset mod=NONE
+26:0-0 fg=Cyan bg=Reset mod=BOLD
+26:44-44 fg=Cyan bg=Reset mod=BOLD
+26:45-45 fg=DarkGray bg=Reset mod=NONE
+26:99-99 fg=DarkGray bg=Reset mod=NONE
+27:0-0 fg=Cyan bg=Reset mod=BOLD
+27:44-44 fg=Cyan bg=Reset mod=BOLD
+27:45-45 fg=DarkGray bg=Reset mod=NONE
+27:99-99 fg=DarkGray bg=Reset mod=NONE
+28:0-44 fg=Cyan bg=Reset mod=BOLD
+28:45-99 fg=DarkGray bg=Reset mod=NONE
+29:1-3 fg=Cyan bg=Reset mod=BOLD
+29:4-10 fg=Reset bg=Reset mod=DIM
+29:16-16 fg=Cyan bg=Reset mod=BOLD
+29:17-27 fg=Reset bg=Reset mod=DIM
+29:33-35 fg=Cyan bg=Reset mod=BOLD
+29:36-40 fg=Reset bg=Reset mod=DIM
+29:93-99 fg=Reset bg=Reset mod=DIM

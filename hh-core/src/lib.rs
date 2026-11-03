@@ -50,8 +50,9 @@ pub use redact::{Detectors, Finding, SecretKind};
 // type without adding `uuid` as a direct dependency.
 pub use step::assign_steps;
 pub use store::{
-    CreatedSession, DroppedEvents, EventWriter, FindingLocation, LargestSession, PruneStats,
-    RedactOutcome, ScanFinding, SearchFilters, SearchResult, SecretSummary, Store, StoreStats,
+    CreatedSession, DroppedEvents, EventWriter, FileChangeEntry, FindingLocation, LargestSession,
+    PruneStats, RedactOutcome, ScanFinding, SearchFilters, SearchResult, SecretSummary, Store,
+    StoreStats,
 };
 pub use timeline::{build_timeline, StepEntry, TerminalSegment, TimelineRow};
 pub use usage::{ModelSpan, SessionContext, TokenSample};
