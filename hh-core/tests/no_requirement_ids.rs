@@ -95,8 +95,14 @@ fn id_detector_matches_the_forbidden_forms() {
         ids_in("fixes ENH-12 / AC-5 (Area 3)"),
         ["ENH-12", "AC-5", "Area 3"]
     );
-    assert!(ids_in("FROM sessions; the BUGS list; a FR- prefix; Area 51b").is_empty());
-    assert!(ids_in("RUSTSEC-2026-0002 is an advisory, not a ticket").is_empty());
+    assert_eq!(
+        ids_in("FROM sessions; the BUGS list; a FR- prefix; Area 51b"),
+        Vec::<String>::new()
+    );
+    assert_eq!(
+        ids_in("RUSTSEC-2026-0002 is an advisory, not a ticket"),
+        Vec::<String>::new()
+    );
 }
 
 #[test]
@@ -130,10 +136,10 @@ fn no_requirement_ids_in_the_workspace() {
             }
         }
     }
-    assert!(
-        hits.is_empty(),
+    assert_eq!(
+        hits,
+        Vec::<String>::new(),
         "requirement/ticket IDs found; describe the behaviour in plain words instead \
-         (see CLAUDE.md):\n{}",
-        hits.join("\n")
+         (see CLAUDE.md)"
     );
 }
