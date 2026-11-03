@@ -395,6 +395,14 @@ pub struct SessionRow {
     pub last_agent_ts_ms: Option<i64>,
     /// `ts_ms` of the last event of any kind (last activity).
     pub last_event_ts_ms: Option<i64>,
+    /// Number of events the recorder failed to write to the database
+    /// (`sessions.dropped_events`). Non-zero marks the session degraded: its
+    /// timeline has gaps, so it is never shown as a clean `ok`. `0` for a
+    /// clean session and for sessions recorded before the column existed.
+    pub dropped_events: u64,
+    /// The first write failure's cause (what failed and why) when
+    /// [`Self::dropped_events`] is non-zero; `None` otherwise.
+    pub dropped_events_reason: Option<String>,
 }
 
 impl SessionRow {
@@ -477,6 +485,8 @@ impl Default for SessionRow {
             first_agent_ts_ms: None,
             last_agent_ts_ms: None,
             last_event_ts_ms: None,
+            dropped_events: 0,
+            dropped_events_reason: None,
         }
     }
 }

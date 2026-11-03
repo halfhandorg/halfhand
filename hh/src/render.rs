@@ -53,17 +53,14 @@ pub(crate) fn render_status(status: SessionStatus, color: bool) -> String {
 }
 
 /// Render the `glyph status` field, appending a visible `⚠` warning glyph when
-/// the adapter ended `Degraded` (FR-1.5). A session that finalized `ok` but
-/// whose adapter never found a transcript must not look identical to a clean
-/// one in `hh list`; the glyph is plain unicode (visible even with `NO_COLOR`
-/// and in piped output) and yellow when color is enabled.
-pub(crate) fn render_status_with_adapter(
-    status: SessionStatus,
-    adapter: AdapterStatus,
-    color: bool,
-) -> String {
+/// the session is degraded (see [`session_is_degraded`]). A session that
+/// finalized `ok` but whose adapter never found a transcript, or whose recorder
+/// failed to write some events, must not look identical to a clean one; the
+/// glyph is plain unicode (visible even with `NO_COLOR` and in piped output)
+/// and yellow when color is enabled.
+pub(crate) fn render_status_marked(status: SessionStatus, degraded: bool, color: bool) -> String {
     let base = render_status(status, color);
-    if adapter == AdapterStatus::Degraded {
+    if degraded {
         if color {
             format!("{base} {}", "⚠".yellow())
         } else {
@@ -72,6 +69,13 @@ pub(crate) fn render_status_with_adapter(
     } else {
         base
     }
+}
+
+/// A session is degraded — shown with `⚠`, never as a clean `ok` — when its
+/// adapter ended `Degraded` (FR-1.5) or the recorder dropped events it could
+/// not write (`dropped_events > 0`, so the timeline has gaps).
+pub(crate) fn session_is_degraded(row: &hh_core::SessionRow) -> bool {
+    row.adapter_status == AdapterStatus::Degraded || row.dropped_events > 0
 }
 
 /// Humanize a millisecond duration as `4m32s` / `12s` / `350ms` (NFR-7).

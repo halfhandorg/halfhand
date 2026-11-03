@@ -54,6 +54,35 @@ in CI rather than tracking `latest` until 1.0.
   Its token counts stay unknown: the old `usage_json` held one response,
   not a session total.
 
+### Fixed — failed event writes were silently discarded
+
+- **A recorder that cannot write no longer fails silently.** The PTY reader,
+  adapter drain, FS watcher and `hh mcp-proxy` discarded the result of every
+  event write, so a full disk or I/O error lost events with no warning, no
+  record, and a session that still finalized as a clean `ok`. Every failed
+  write is now counted per session, with the first failure's cause kept.
+  Recording continues after a failure.
+- **One warning, not one per event.** The first failure prints a single
+  stderr line naming what failed and why. Later failures only bump the count.
+  The FS watcher no longer prints one line per file when it cannot store a
+  change.
+- **Sessions that dropped events are marked degraded.** The end-of-run
+  summary shows `⚠` and `N events dropped` and repeats the first cause on
+  stderr. `hh list` and `hh inspect` show the status as `✓ ok ⚠`, the
+  marker already used for adapter degradation. The count and cause are
+  stored in new `sessions.dropped_events` / `dropped_events_reason` columns,
+  added idempotently when the store opens (the `adapter_degrade_reason`
+  pattern), and appear in `hh list --json` and in export bundles (both
+  additive). An attached `hh mcp-proxy` adds its own drops to the parent
+  session.
+- **`hh doctor` has a `dropped events` check.** It reports the dropped
+  count for each of the 20 most recent sessions that lost events, with the
+  first cause, and fails if any did.
+- **A failed database checkpoint at finalize no longer aborts the
+  recording.** Committed events are already in the write-ahead log, so it
+  now prints a warning and the session finalizes normally instead of staying
+  `recording`.
+
 ### Fixed — HTML replay pages had no terminal output
 
 - **`hh export --html` and `hh replay --web` now include terminal output.**

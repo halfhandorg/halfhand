@@ -443,7 +443,8 @@ fn build_tar(manifest: &[u8], events: &[u8], blobs: &BTreeMap<String, Vec<u8>>) 
 /// --json`'s per-session object (`session_to_json` in the `hh` binary) so
 /// the two stay recognizable as the same "session" concept, without hh-core
 /// depending on the binary crate. Includes `adapter_degrade_reason`
-/// (SRS BUG-1.1) so a bundle round-trip preserves the degrade code.
+/// (SRS BUG-1.1) so a bundle round-trip preserves the degrade code, and the
+/// dropped-event tally so an imported session stays marked degraded.
 fn session_to_bundle_json(row: &SessionRow) -> serde_json::Value {
     let duration_ms = row.ended_at.map(|end| (end - row.started_at).max(0));
     serde_json::json!({
@@ -454,6 +455,8 @@ fn session_to_bundle_json(row: &SessionRow) -> serde_json::Value {
         "agent_kind": row.agent_kind.to_string(),
         "adapter_status": row.adapter_status.to_string(),
         "adapter_degrade_reason": row.adapter_degrade_reason,
+        "dropped_events": row.dropped_events,
+        "dropped_events_reason": row.dropped_events_reason,
         "started_at": row.started_at,
         "ended_at": row.ended_at,
         "exit_code": row.exit_code,
@@ -1015,5 +1018,27 @@ mod tests {
             Some("jsonl_not_found"),
             "imported session preserves the degrade reason code (BUG-1.1)"
         );
+    }
+
+    /// A bundle round-trip preserves the dropped-event tally, so a session
+    /// with gaps stays marked degraded after `hh export` → `hh import`.
+    #[test]
+    fn bundle_round_trip_preserves_dropped_events() {
+        let (_tmp, store, sid) = fixture();
+        let dropped = crate::DroppedEvents {
+            count: 7,
+            first_error: Some("insert terminal_output event: disk full".into()),
+        };
+        store.add_session_dropped_events(&sid, &dropped).unwrap();
+        let bundle = parse(&export(&store, &sid, "v", None).unwrap()).unwrap();
+        assert_eq!(bundle.session["dropped_events"], 7);
+        let target_tmp = TempDir::new().unwrap();
+        let target = Store::open(
+            &target_tmp.path().join("hh.db"),
+            &target_tmp.path().join("blobs"),
+        )
+        .unwrap();
+        let created = target.import(&bundle).unwrap();
+        assert_eq!(target.session_dropped_events(&created.id).unwrap(), dropped);
     }
 }

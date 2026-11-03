@@ -208,7 +208,7 @@ pub fn run_mcp_proxy(store: &Store, opts: &McpProxyOptions) -> crate::Result<Mcp
     // have joined), then assign step ordinals + finalize the session row.
     // Recovers from poisoning (see `ProxyCtx::append`) rather than failing
     // finalize outright — a panic in either proxy thread must not also abort it.
-    {
+    let dropped = {
         let mut w = writer
             .lock()
             .unwrap_or_else(std::sync::PoisonError::into_inner);
@@ -216,7 +216,13 @@ pub fn run_mcp_proxy(store: &Store, opts: &McpProxyOptions) -> crate::Result<Mcp
             .map_err(|e| crate::RecordError::Mcp(format!("flush writer: {e}")))?;
         w.close()
             .map_err(|e| crate::RecordError::Mcp(format!("close writer: {e}")))?;
-    }
+        w.dropped()
+    };
+    // Persist this proxy's dropped-event tally. Additive, so an attached
+    // proxy adds to (never overwrites) the parent recorder's count.
+    store
+        .add_session_dropped_events(&session_id, &dropped)
+        .map_err(|e| crate::RecordError::Mcp(format!("record dropped events: {e}")))?;
     if attached {
         // Attached: leave the parent's lifecycle untouched. Self-heal steps so
         // the late MCP events get ordinals without waiting for the next `hh`
@@ -272,9 +278,10 @@ struct ProxyCtx {
 impl ProxyCtx {
     /// Append `event` under the shared writer lock, returning the assigned row
     /// id on success. A poisoned lock is recovered rather than treated as a
-    /// failure (a panic in the sibling thread must not blind this one too);
-    /// store errors are still swallowed (best-effort recording; forwarding
-    /// always continues).
+    /// failure (a panic in the sibling thread must not blind this one too).
+    /// A store error is not swallowed silently: the writer counts it in its
+    /// dropped-event tally (one warning line on the first), which finalize
+    /// persists to the session. Forwarding always continues.
     fn append(&self, event: Event) -> Option<i64> {
         let w = self
             .writer
