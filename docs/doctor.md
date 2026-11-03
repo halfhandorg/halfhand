@@ -13,6 +13,7 @@ $ hh doctor
 ✗ config resolution — config: /home/me/.config/halfhand/config.toml; ignored non-canonical file(s): /home/me/.config/halfhand/halfhand.toml — move their contents into config.toml so they take effect
 ✓ claude jsonl discoverable — /home/me/.claude/projects/-home-me-work/abc.jsonl (newest record type: user)
 ✓ watcher smoke test — file-change event delivered
+✓ dropped events — 0 dropped events in the last 20 session(s)
 ```
 
 Run it when a session finalized `ok` but recorded `0 steps` or `0 files changed`,
@@ -28,6 +29,7 @@ modes behind that class of silent breakage.
 | `config resolution` | The canonical `config.toml` is in effect and no non-canonical file is being silently ignored | A `halfhand.toml` / `hh.toml` sits *alongside* a present `config.toml` and is ignored — its ignore globs / `data_dir` never applied. Move its contents into `config.toml`. (When `config.toml` is absent, a legacy file is loaded as a fallback instead, so this check passes.) |
 | `claude jsonl discoverable` | `~/.claude/projects/<slug>/` has a transcript for the current cwd, and its first `type`-bearing record parses as JSON | The Claude Code adapter tailer reads these files; a missing or unparseable transcript is the direct cause of a session that records `0 steps`. Run a Claude Code session from this directory first. |
 | `watcher smoke test` | `notify` delivers a file-change event on this platform | A watcher that silently never fires explains `0 files changed`. |
+| `dropped events` | None of the 20 most recent sessions dropped events it could not write | Lists each affected session with its count, plus the first cause (e.g. `database or disk is full`). Those sessions are marked degraded (`⚠` in `hh list`) and have gaps in their timelines. Free disk space / fix data-dir permissions; the check passes again once the affected sessions are no longer among the 20 most recent, or are deleted with `hh delete`. See [Recording → Dropped events](recording.md#dropped-events-and-the--marker). |
 
 ## `--json`
 
@@ -43,7 +45,8 @@ with a `status` of `ok` or `fail` and a per-check array, for scripting / CI:
     { "name": "database integrity",       "status": "ok",   "detail": "PRAGMA integrity_check: ok" },
     { "name": "config resolution",        "status": "fail", "detail": "…" },
     { "name": "claude jsonl discoverable", "status": "ok",   "detail": "…" },
-    { "name": "watcher smoke test",        "status": "ok",   "detail": "file-change event delivered" }
+    { "name": "watcher smoke test",        "status": "ok",   "detail": "file-change event delivered" },
+    { "name": "dropped events",            "status": "ok",   "detail": "0 dropped events in the last 20 session(s)" }
   ]
 }
 ```

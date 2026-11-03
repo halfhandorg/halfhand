@@ -90,7 +90,10 @@ transcript into structured events, and Claude Desktop capture is unverified.
 They still work as before and print a one-line deprecation warning. If an
 adapter can't find or read a transcript, the session degrades gracefully —
 you still get the full terminal and file-change recording, with the reason
-recorded. See [Adapters](docs/adapters.md).
+recorded. See [Adapters](docs/adapters.md). Halfhand never drops events
+silently either: if writes fail (say, a full disk), recording continues, you
+get one warning, and the session is marked `⚠` with the dropped count — see
+[Recording](docs/recording.md#dropped-events-and-the--marker).
 
 ## Configuration
 

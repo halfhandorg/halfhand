@@ -119,6 +119,36 @@ content too.
   keystrokes may contain secrets (SRS NFR-4). Enable only when you need to
   reproduce exact input, and scan/redact before sharing.
 
+## Dropped events and the `⚠` marker
+
+Halfhand never drops events silently. If an event cannot be written to the
+database (a full disk, an I/O error, a read-only data dir), recording keeps
+going and Halfhand:
+
+1. prints **one** warning line to stderr at the first failure, naming what
+   failed and why — not one line per event, so a full disk does not flood
+   your terminal;
+2. counts every event it could not write, and reports the total in the
+   end-of-run summary, with a `⚠` instead of `✓`:
+
+   ```
+   ⚠ Recorded session a1b2c3 · 4m32s · 42 steps · 7 files changed · 1312 events dropped · hh replay a1b2c3
+   hh: warning: 1312 events could not be written and are missing from session a1b2c3 (first failure: …) — the session is marked degraded; …
+   ```
+
+3. marks the session **degraded**: `hh list` and `hh inspect` show its status
+   as `✓ ok ⚠` — the same marker used when the agent adapter degrades — so a
+   session with gaps in its timeline never looks like a clean `ok`. The count
+   and the first failure's cause are saved with the session
+   (`dropped_events` / `dropped_events_reason` in `hh list --json`), survive
+   `hh export` / `hh import`, and are reported by `hh doctor`.
+
+The session's `status` still reflects how the recorded command exited
+(`ok`, `error`, `interrupted`); `⚠` means "this recording is incomplete or
+less detailed than it should be", for either reason. To find out why, run
+`hh doctor`. It names the cause and the affected sessions; the usual fix is
+freeing disk space or fixing permissions on the data dir.
+
 ## Health check
 
 `hh doctor` is a read-only probe of the recording stack (PTY, watcher, store).
