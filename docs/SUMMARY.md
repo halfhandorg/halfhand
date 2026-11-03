@@ -6,6 +6,7 @@
 
 - [Quickstart](./quickstart.md)
 - [Recording](./recording.md)
+- [Effect capture & capture health](./capture.md)
 - [Replay & Inspect](./replay-inspect.md)
 - [Session context](./context.md)
 - [Search](./search.md)
