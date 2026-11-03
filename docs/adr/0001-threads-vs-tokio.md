@@ -3,7 +3,7 @@
 - **Status:** Accepted
 - **Date:** 2026-07-04
 - **Deciders:** Halfhand engineering
-- **SRS context:** §6 lists `tokio (or threads + channels — implementer's
+- **Requirements context:** the crate & dependency plan lists `tokio (or threads + channels — implementer's
   choice, justify in ADR)` for `hh-record`.
 
 ## Context
@@ -47,11 +47,11 @@ We choose **B: OS threads + `std::sync::mpsc`** for v0.1.
    a runtime, a `tokio::sync::mpsc`, and `spawn`ing the writer — more moving
    parts for the same guarantee, and a runtime handle that must be threaded
    across the FFI/PTY boundary.
-4. **Smaller, more auditable binary — relevant to NFR-2.** No async runtime
+4. **Smaller, more auditable binary — relevant to the no-network rule.** No async runtime
    means fewer transitive crates and a smaller attack surface for a tool whose
    core promise is "never talks to the network." `tokio` pulls a large dependency
    graph with features (time, net, process, fs) we do not need.
-5. **MCP proxy latency (NFR-1, < 5 ms p50) is fine with threads.** Two threads
+5. **MCP proxy latency (< 5 ms p50 target) is fine with threads.** Two threads
    (one per stdio direction) forwarding bytes add negligible overhead; there is
    no scheduler poll, no task wakeup latency.
 6. **Cancellation is straightforward.** Agent exit or SIGTERM tears down the
@@ -67,11 +67,11 @@ We choose **B: OS threads + `std::sync::mpsc`** for v0.1.
   tokens). We will emulate what we need with channel close + `JoinHandle`,
   which is adequate for this fixed topology.
 - **Reversibility:** if v0.2+ adds many concurrent MCP servers, streaming
-  adapters, or a network-facing feature (none currently in scope — SRS §8
-  excludes cloud/network), we would revisit this and likely adopt `tokio` at
+  adapters, or a network-facing feature (none currently in scope —
+  cloud/network features are excluded), we would revisit this and likely adopt `tokio` at
   that boundary only, keeping `hh-core` runtime-free.
 
-## SRS deviation flagged
+## Requirements deviation flagged
 
-The SRS leaves this open ("implementer's choice"). This ADR is the required
-justification. No SRS requirement is violated by either choice.
+The requirements leave this open ("implementer's choice"). This ADR is the required
+justification. No requirement is violated by either choice.

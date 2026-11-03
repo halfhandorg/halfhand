@@ -1,7 +1,7 @@
 name: bench (nightly)
 
 # Runs the criterion benches once a night and fails on >15% regression vs the
-# previous nightly's baseline (CLAUDE.md v1.0.0 addendum / NFR-1). Deliberately
+# previous nightly's baseline (CLAUDE.md v1.0.0 addendum). Deliberately
 # not part of per-PR CI: criterion benches are slow relative to the rest of
 # `ci.yml`, and a single run is dominated by runner hardware, not code — only
 # the trend across runs on the same runner class is meaningful. `just bench`

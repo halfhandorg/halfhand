@@ -23,7 +23,7 @@
 -- As with 0007, the columns are added by Rust code in `Store::open`
 -- (`add_recorder_identity_columns`), each behind a `PRAGMA table_info` check,
 -- because SQLite has no `ALTER TABLE ADD COLUMN IF NOT EXISTS`; that check is
--- what makes the migration idempotent (DR-4). Nothing is dropped, renamed or
+-- what makes the migration idempotent. Nothing is dropped, renamed or
 -- retyped.
 --
 -- This SQL half has no statements; it exists so `schema_migrations` records

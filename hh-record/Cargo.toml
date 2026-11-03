@@ -29,20 +29,20 @@ test-seams = []
 
 [dependencies]
 hh-core = { workspace = true }
-# Justification (SRS §6): the recorder spawns the agent in a PTY.
+# Justification: the recorder spawns the agent in a PTY.
 portable-pty = "0.8"
-# Justification (SRS §6/FR-1.4): recursive filesystem watcher for file changes.
+# Justification: recursive filesystem watcher for file changes.
 notify = "6"
-# Justification (SRS §6): SIGTERM/SIGINT/SIGWINCH handling.
+# Justification: SIGTERM/SIGINT/SIGWINCH handling.
 signal-hook = "0.3"
-# Justification (SRS §6): raw terminal mode + size queries for transparent PTY
-# proxy (FR-1.1). Listed under `hh` in SRS §6 but consumed by the recorder.
+# Justification: raw terminal mode + size queries for transparent PTY
+# proxy. Nominally an `hh` dependency but consumed by the recorder.
 crossterm = "0.27"
-# Justification (SRS §6/FR-1.4): `.gitignore`-aware path filtering for the
-# watcher. Listed under `hh-core` in SRS §6 but consumed here; kept in
+# Justification: `.gitignore`-aware path filtering for the watcher.
+# Nominally an `hh-core` dependency but consumed here; kept in
 # hh-record to avoid widening hh-core's surface for the skeleton.
 ignore = "0.4"
-# Justification (CLAUDE.md/NFR-5): library error enum.
+# Justification: library error enum (CLAUDE.md error standards).
 thiserror = "1"
 # Justification: serialization of event bodies (re-exported via hh-core, but
 # the recorder builds JSON bodies directly).

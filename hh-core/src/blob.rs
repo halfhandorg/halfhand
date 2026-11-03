@@ -1,9 +1,9 @@
-//! Content-addressed, zstd-compressed blob store (SRS §4.1, FR-1.4, NFR-4).
+//! Content-addressed, zstd-compressed blob store.
 //!
 //! Blobs are keyed by BLAKE3 hash and stored at `blobs/<hash[0..2]>/<hash>.zst`.
 //! The `blobs` table holds a refcount so that deleting a session can garbage-
 //! collect blobs no longer referenced by any event. Files and directories are
-//! created with `0600`/`0700` permissions per NFR-4.
+//! created with `0600`/`0700` permissions so recorded content stays private.
 
 use crate::error::{BlobError, Result, StorageError};
 use std::fs;
@@ -77,8 +77,8 @@ impl BlobStore {
         self.blobs_dir.join(prefix).join(format!("{hash}.zst"))
     }
 
-    /// Compute the BLAKE3 hex hash of `content` without storing it (FR-1.4:
-    /// binary files record hashes even when content storage is skipped).
+    /// Compute the BLAKE3 hex hash of `content` without storing it
+    /// (binary files record hashes even when content storage is skipped).
     /// Centralized here so the recorder does not depend on `blake3` directly.
     #[must_use]
     pub fn hash(content: &[u8]) -> String {
@@ -156,9 +156,9 @@ impl BlobStore {
                 "blob path has no parent",
             ),
         })?;
-        // 0700 on the shard directory (NFR-4).
+        // 0700 on the shard directory.
         create_dir_secure(parent)?;
-        // Compress to a buffer, then write atomically with 0600 perms (NFR-4).
+        // Compress to a buffer, then write atomically with 0600 perms.
         let compressed =
             encode_all(content, ZSTD_LEVEL).map_err(|e| BlobError::Zstd(e.to_string()))?;
         write_file_secure(path, &compressed)
@@ -255,7 +255,7 @@ impl BlobStore {
     /// by walking `blobs/<2-char shard>/<64-hex>.zst`. Used by
     /// [`crate::store::Store::prune_orphan_blobs`] and
     /// [`crate::store::Store::store_stats`] for orphan detection and footprint
-    /// accounting (Area 3). Returns hashes in arbitrary directory order;
+    /// accounting. Returns hashes in arbitrary directory order;
     /// defensively skips entries whose names are not a well-formed
     /// `<hash>.zst`, so a stray file in the blobs dir never panics.
     pub fn iter_hashes(&self) -> Result<Vec<String>> {
@@ -294,8 +294,8 @@ impl BlobStore {
     }
 }
 
-/// Create a directory with `0700` permissions (NFR-4). On Unix the mode is set
-/// explicitly; on non-Unix the default umask applies (best-effort, SRS §2.2).
+/// Create a directory with `0700` permissions. On Unix the mode is set
+/// explicitly; on non-Unix the default umask applies (best-effort).
 fn create_dir_secure(path: &Path) -> Result<()> {
     #[cfg(unix)]
     {
@@ -319,7 +319,7 @@ fn create_dir_secure(path: &Path) -> Result<()> {
     Ok(())
 }
 
-/// Write `bytes` to `path` with `0600` permissions (NFR-4), using a temp file +
+/// Write `bytes` to `path` with `0600` permissions, using a temp file +
 /// rename for atomicity. Truncates any existing file.
 fn write_file_secure(path: &Path, bytes: &[u8]) -> Result<()> {
     let tmp = path.with_extension("zst.tmp");

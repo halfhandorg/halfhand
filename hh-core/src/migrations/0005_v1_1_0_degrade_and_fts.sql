@@ -1,27 +1,26 @@
--- Migration 0005: v1.1.0 additions (SRS §5.1 "migration 0002").
+-- Migration 0005: v1.1.0 additions ("migration 0002" in the v1.1.0 spec).
 --
--- Implements two additive schema changes required by SRS v1.1.0:
+-- Implements two additive schema changes required by v1.1.0:
 --
---   1. `sessions.adapter_degrade_reason TEXT` (BUG-1): a machine-readable
+--   1. `sessions.adapter_degrade_reason TEXT`: a machine-readable
 --      degrade code persisted alongside `adapter_status = 'degraded'`. The
 --      column is added by Rust code in `Store::open` (PRAGMA table_info
 --      check) because SQLite does not support `ALTER TABLE ADD COLUMN IF
 --      NOT EXISTS`. The Rust check makes this idempotent.
 --
---   2. FTS5 external-content search index (ENH-4): replaces the v1.0.0
---      standalone FTS5 table (migration 0004) with the SRS-mandated
+--   2. FTS5 external-content search index: replaces the v1.0.0
+--      standalone FTS5 table (migration 0004) with the spec-mandated
 --      external-content pattern. The FTS table is derived data (`events` is
 --      the source of truth), so dropping and recreating is safe; the
 --      backfill reindexes every existing event.
 --
--- Idempotency (DR-4): `DROP TABLE IF EXISTS` + `CREATE VIRTUAL TABLE` +
+-- Idempotency: `DROP TABLE IF EXISTS` + `CREATE VIRTUAL TABLE` +
 -- `CREATE TRIGGER IF NOT EXISTS` make the FTS parts safely re-runnable.
 -- The `adapter_degrade_reason` column is checked in Rust before adding.
 
--- FTS5 full-text search index over event summaries and extracted body text
--- (SRS §5.1, ENH-4).
+-- FTS5 full-text search index over event summaries and extracted body text.
 --
--- SRS deviation (flagged): the SRS specifies `content=events, content_rowid=id`
+-- Spec deviation (flagged): the spec specifies `content=events, content_rowid=id`
 -- (external-content pattern). External-content FTS5 requires the content
 -- table (`events`) to have columns matching the FTS table's column names
 -- (`summary`, `body_text`). The `events` table has `summary` and `body_json`
@@ -34,7 +33,7 @@
 -- We use a **standalone** FTS5 table (no `content=`), kept in sync by
 -- triggers only (CLAUDE.md v1.1.0 addendum: "FTS5 stays in sync via
 -- triggers only. Never write to events_fts from application code"). This
--- supports `snippet()` (required by ENH-4.2) and the `'delete'` command,
+-- supports `snippet()` (required for search-result excerpts) and the `'delete'` command,
 -- and avoids the column-name mismatch. The FTS index stores its own copy
 -- of the extracted text (the trade-off vs external-content: ~2x storage
 -- for the indexed text, acceptable for a local-first tool). The v1.0.0
@@ -48,7 +47,7 @@ CREATE VIRTUAL TABLE events_fts USING fts5(
   tokenize='porter unicode61'
 );
 
--- Triggers to keep FTS in sync (SRS §5.1 + CLAUDE.md: "FTS5 stays in sync
+-- Triggers to keep FTS in sync (CLAUDE.md: "FTS5 stays in sync
 -- via triggers only. Never write to events_fts from application code").
 -- The FTS rowid is set to `events.id` so `JOIN events e ON e.id =
 -- events_fts.rowid` (the search query) resolves correctly.

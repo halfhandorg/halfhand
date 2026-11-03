@@ -1,6 +1,6 @@
-//! Property test for migration 0005 idempotency (SRS §5.1, DR-4, DR-5).
+//! Property test for migration 0005 idempotency.
 //!
-//! DR-5: "A property test MUST verify migration idempotency: apply 0002
+//! Requirement: "A property test MUST verify migration idempotency: apply 0002
 //! [v1.1.0's migration] to a freshly migrated v1.0 DB, then apply it again
 //! — no error, schema unchanged."
 //!
@@ -23,7 +23,7 @@ use std::path::PathBuf;
 /// Dump the schema as a canonical string: every `sqlite_master` row's SQL,
 /// sorted, plus the `sessions` column list from `PRAGMA table_info`. This is
 /// the invariant — if two opens produce the same dump, the schema is
-/// unchanged (DR-4).
+/// unchanged.
 fn schema_dump(store: &Store) -> String {
     // `Store::conn` is private, so we read the schema through the public
     // `integrity_check` (which confirms the DB is not corrupt) and a
@@ -48,7 +48,7 @@ proptest! {
     #![proptest_config(ProptestConfig { cases: 16, ..ProptestConfig::default() })]
 
     /// Re-opening the store N times (N in 1..=8) must not error and must
-    /// leave the schema invariant (DR-4, DR-5). Each re-open re-runs the
+    /// leave the schema invariant. Each re-open re-runs the
     /// Rust-side `add_adapter_degrade_reason_column` (PRAGMA table_info
     /// check) and the migration runner (which skips already-applied
     /// versions). The FTS5 DDL uses `DROP TABLE IF EXISTS` + `CREATE ... IF
@@ -109,7 +109,7 @@ proptest! {
             let schema = schema_dump(&store);
             prop_assert_eq!(
                 schema, "ok",
-                "schema must be invariant across re-opens (DR-4)"
+                "schema must be invariant across re-opens"
             );
         }
     }

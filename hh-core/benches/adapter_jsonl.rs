@@ -1,5 +1,5 @@
 //! Criterion bench for Claude JSONL adapter conversion throughput (CLAUDE.md
-//! v1.0.0 addendum / NFR-1). Requires the `fuzzing` feature, which exposes
+//! v1.0.0 addendum). Requires the `fuzzing` feature, which exposes
 //! `hh_core::adapter::fuzzing::fuzz_parse_line` — the existing dev-only entry
 //! point into the otherwise-private Claude JSONL parser (`parse_record`). That
 //! is the exact parse sequence the live tailer runs on every tailed transcript
@@ -33,7 +33,7 @@ fn bench_config() -> Criterion {
 
 /// Three representative Claude Code transcript records, serialized to JSONL
 /// bytes. Mirrors the shapes covered by the adapter's unit-test snapshots
-/// (FR-1.5) so the bench exercises the real conversion branches: a user
+/// so the bench exercises the real conversion branches: a user
 /// message, an assistant message with thinking + a tool_use, and a tool_result
 /// user message.
 fn fixture_lines() -> Vec<Vec<u8>> {

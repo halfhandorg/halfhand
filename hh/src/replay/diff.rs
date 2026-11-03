@@ -1,5 +1,5 @@
 //! The file-change view: a unified diff with old/new line numbers, the file
-//! path, and a one-line change summary (FR-3.2).
+//! path, and a one-line change summary.
 //!
 //! The view never guesses. A modification whose before-side was not captured
 //! says so ("before content not captured") and shows the after-side as plain,

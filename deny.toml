@@ -1,4 +1,4 @@
-# cargo-deny configuration (NFR-5: license/advisory checks).
+# cargo-deny configuration (license/advisory checks).
 
 [advisories]
 # Fail the build on any known-vulnerable dependency.
@@ -7,20 +7,20 @@ db-path = "$CARGO_HOME/advisory-dbs"
 db-urls = ["https://github.com/rustsec/advisory-db"]
 yanked = "deny"
 # RUSTSEC-2017-0008: the `serial` crate is unmaintained (last release 2017). It
-# is pulled in transitively by `portable-pty` 0.8.1 (the SRS §6-blessed PTY
+# is pulled in transitively by `portable-pty` 0.8.1 (the project's chosen PTY
 # crate), which uses it for serial-port PTY support. This is an
 # "unmaintained" notice, not a security vulnerability, and we never call into
 # `serial` ourselves; replacing portable-pty is out of scope for v0.1. Tracked
 # for revisit when portable-pty drops the dependency.
 #
 # RUSTSEC-2024-0436: `paste` is unmaintained (no safe upgrade exists per the
-# advisory). Pulled in transitively by `ratatui` 0.26.3 (FR-3's TUI engine)
+# advisory). Pulled in transitively by `ratatui` 0.26.3 (the `hh replay` TUI engine)
 # for its macro-generated widget code; we never depend on `paste` directly.
 # Tracked for revisit on the next ratatui upgrade.
 ignore = ["RUSTSEC-2017-0008", "RUSTSEC-2024-0436"]
 
 [licenses]
-# Halfhand is Apache-2.0 (SRS §1). Allow permissive licenses compatible with
+# Halfhand is Apache-2.0. Allow permissive licenses compatible with
 # Apache-2.0 distribution; copyleft (GPL/AGPL) and "unencumbered" must be
 # reviewed.
 version = 2
@@ -37,7 +37,7 @@ allow = [
     "CC0-1.0",
     "0BSD",
     # MPL-2.0 is weak (file-level) copyleft from `option-ext`, a transitive dep
-    # of `directories` (SRS §6) used by hh-core. We do not modify any MPL-2.0
+    # of `directories` used by hh-core. We do not modify any MPL-2.0
     # file, so the source-disclosure obligation never triggers; it is
     # compatible with Apache-2.0 distribution. Reviewed and accepted for v0.1.
     "MPL-2.0",
@@ -53,7 +53,7 @@ wildcards = "deny"
 highlight = "all"
 
 [sources]
-# NFR-2: no network at runtime, and we do not want unknown registries in the
+# No network at runtime, and we do not want unknown registries in the
 # build graph either.
 unknown-registry = "deny"
 unknown-git = "deny"

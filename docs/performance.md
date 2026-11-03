@@ -3,7 +3,7 @@
 Halfhand is a local-first flight recorder, so its performance budget is felt,
 not announced: `hh replay` opening instantly, `hh list` staying out of the way
 of a shell prompt, and a long recording not falling behind the agent. This page
-is the reference for the four performance-critical paths the SRS names, how to
+is the reference for the four performance-critical paths the requirements name, how to
 measure them, and what the regression gate does and does not enforce.
 
 The numbers below are **reference, not the gate**. The gate compares
@@ -13,16 +13,16 @@ developer machine sees," and the gate as "did we get slower than yesterday."
 
 ## The four benches
 
-Criterion benches live in `hh-core/benches/` (CLAUDE.md v1.0.0 addendum / NFR-1).
+Criterion benches live in `hh-core/benches/` (CLAUDE.md v1.0.0 addendum).
 Four groups, one per perf-critical path:
 
-| Group | What it measures | SRS hook |
+| Group | What it measures | Target |
 | --- | --- | --- |
-| `ingest` | `EventWriter::append_event` throughput — one durable round-trip through the single-writer channel per event (channel send → writer-thread INSERT → reply). | NFR-1 (≥5,000 events/s) |
-| `replay_index` | `Store::list_event_index` for 10k and 100k-event sessions — the `hh replay` open hot path. | FR-3.5 (<300 ms for 10k); Area 2 (<1 s for 100k) |
-| `blob_write` | `BlobStore::put` (BLAKE3 + zstd + atomic write) for 1 KiB / 1 MiB. | NFR-1 (file-change blob round-trips) |
+| `ingest` | `EventWriter::append_event` throughput — one durable round-trip through the single-writer channel per event (channel send → writer-thread INSERT → reply). | ingest ≥5,000 events/s |
+| `replay_index` | `Store::list_event_index` for 10k and 100k-event sessions — the `hh replay` open hot path. | replay open <300 ms for 10k; <1 s for 100k |
+| `blob_write` | `BlobStore::put` (BLAKE3 + zstd + atomic write) for 1 KiB / 1 MiB. | file-change blob round-trips |
 | `blob_read` | `BlobStore::get` (read + zstd decompress + BLAKE3 verify) for 1 KiB / 1 MiB. | replay / inspect body fetch |
-| `adapter_jsonl` | Claude JSONL line → event conversion via the dev-only `adapter::fuzzing` parser entry. | FR-1.5 adapter tail |
+| `adapter_jsonl` | Claude JSONL line → event conversion via the dev-only `adapter::fuzzing` parser entry. | Claude Code adapter tail |
 
 `ingest` batches 128 events per criterion iteration and reports
 `Throughput::Elements(128)`, bounding the session to a small steady-state table
@@ -53,22 +53,22 @@ machine, bounded settings). These are reference points, not pass/fail:
 | Bench | Median | Throughput |
 | --- | --- | --- |
 | `ingest/append_event` | 18.9 ms / 128 events | ~6.8k events/s (storage layer) |
-| `replay_index/10000` | 5.0 ms | FR-3.5 <300 ms ✓ |
-| `replay_index/100000` | 49 ms | Area 2 <1 s ✓ |
+| `replay_index/10000` | 5.0 ms | replay open <300 ms ✓ |
+| `replay_index/100000` | 49 ms | <1 s ✓ |
 | `blob_write/1KiB` | 6.1 ms | — |
 | `blob_write/1MiB` | 11.6 ms | ~86 MiB/s |
 | `blob_read/1KiB` | 6.7 µs | — |
 | `blob_read/1MiB` | 1.05 ms | ~950 MiB/s |
 | `adapter_jsonl/parse_lines` | 7.6 µs / 3 lines | ~395k records/s |
 
-### NFR-1 (ingest ≥5,000 events/s)
+### Ingest target (≥5,000 events/s)
 
 The bench measures the *storage layer* in isolation — `append_event` through the
 single-writer channel with `synchronous = NORMAL` (no per-commit fsync; the WAL
-fsyncs at checkpoint, matching NFR-3's "fsync on session finalize" design). At
+fsyncs at checkpoint, matching the "fsync on session finalize" durability design). At
 that layer it sustains ~6.8k events/s, above the 5k/s target.
 
-NFR-1 is an end-to-end target, and the real recorder (PTY reader → adapter
+The ingest target is end-to-end, and the real recorder (PTY reader → adapter
 parse → serialize → channel → writer) runs slower than the storage layer
 alone. The `synchronous = NORMAL` fix lifted end-to-end ingest ~5× off the old
 per-event-fsync baseline (see the `### Performance` entry in the CHANGELOG);
@@ -76,7 +76,7 @@ closing the remaining gap to 5k/s end-to-end needs statement caching + a batched
 writer, tracked as follow-up. The regression gate below protects the storage-
 layer gain from slipping back.
 
-### Big sessions (Area 2)
+### Big sessions
 
 `hh replay` opens by loading the event index (`list_event_index`), then fetches
 bodies lazily through a bounded 50-entry LRU cache (`ReplayData`). At 100k
@@ -134,7 +134,7 @@ just bench-compare ./bench-baseline         # same script the nightly gate uses
 (criterion writes this on every run — no special flag) and reads each median
 point estimate in nanoseconds, criterion's native unit for `estimates.json`.
 
-## `hh list` cold start (Area 4)
+## `hh list` cold start
 
 **Target:** `hh list` cold start <50 ms on a warm cache. This is a manual check,
 not CI-gated — wall-clock timing is too noisy across CI runners to gate on, and

@@ -1,6 +1,6 @@
-//! Git metadata capture (FR-1.2: branch, HEAD sha, dirty flag).
+//! Git metadata capture (branch, HEAD sha, dirty flag).
 //!
-//! Shells out to `git` — the SRS does not list a git library in §6, and the
+//! Shells out to `git` — we avoid adding a git library dependency, and the
 //! recorder already spawns subprocesses. All failures are non-fatal: a missing
 //! `git` binary or a non-repo cwd simply yield `None` fields (best-effort, per
 //! "if the cwd is a repo"). We never let git problems fail a recording.
@@ -9,7 +9,7 @@ use std::collections::{HashMap, HashSet};
 use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
 
-/// Git metadata captured for a session (FR-1.2). All fields are `None` if the
+/// Git metadata captured for a session. All fields are `None` if the
 /// cwd is not a git repo or `git` is unavailable.
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct GitMeta {
@@ -22,12 +22,12 @@ pub struct GitMeta {
 }
 
 impl GitMeta {
-    /// Capture git metadata for `cwd`, best-effort (FR-1.2). Never errors.
+    /// Capture git metadata for `cwd`, best-effort. Never errors.
     #[must_use]
     pub fn capture(cwd: &Path) -> Self {
         let branch = git_output(cwd, &["rev-parse", "--abbrev-ref", "HEAD"]);
         // `--abbrev-ref HEAD` prints "HEAD" when detached; treat that as no
-        // branch (the SRS wants the branch name, not a sentinel).
+        // branch (we want the branch name, not a sentinel).
         let branch = branch.and_then(|b| {
             let trimmed = b.trim();
             if trimmed.is_empty() || trimmed == "HEAD" {

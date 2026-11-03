@@ -7,10 +7,10 @@
 # `cargo audit` exits cleanly (0 warnings) instead of re-surfacing them:
 #
 # - RUSTSEC-2017-0008 (`serial`, unmaintained): pulled transitively by
-#   `portable-pty` 0.8.1 (SRS §6-blessed PTY crate) for serial-port PTY support.
+#   `portable-pty` 0.8.1 (the project's chosen PTY crate) for serial-port PTY support.
 #   We never call into `serial`. Revisit when portable-pty drops it.
 # - RUSTSEC-2024-0436 (`paste`, unmaintained): pulled transitively by
-#   `ratatui` 0.26.3 (FR-3 TUI engine) for macro-generated widget code. We
+#   `ratatui` 0.26.3 (the `hh replay` TUI engine) for macro-generated widget code. We
 #   never depend on `paste` directly. Revisit on the next ratatui upgrade.
 # - RUSTSEC-2026-0002 (`lru` IterMut unsound): cargo-audit flags the
 #   transitive `lru` 0.12.5, but 0.12.5 is the *patched* release (cargo-deny

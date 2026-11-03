@@ -1,22 +1,19 @@
-//! CLI definition (clap derive) for `hh` (FR-6.2).
+//! CLI definition (clap derive) for `hh`.
 //!
 //! Every subcommand carries usage examples in its `after_help`, built by
 //! [`examples`] so the description column lines up, and `hh <sub> --help`
-//! always shows an example (FR-6.2).
+//! always shows an example.
 //!
-//! Requirement IDs (SRS FR-/NFR-/DR-, ENH-/BUG-, "Area n") are for
-//! maintainers, not users: they live in plain `//` comments next to the item
-//! they trace, never in a doc comment or attribute string clap renders. The
-//! `rendered_help_has_no_requirement_ids` test enforces that. Subcommand dispatch lives in
-//! the binary's `main.rs` (`crate::run`); `--version` and `--help` are handled
-//! directly by clap.
+//! Internal requirement or ticket identifiers never appear in a doc comment or
+//! attribute string clap renders; the `rendered_help_has_no_requirement_ids`
+//! test enforces that. Subcommand dispatch lives in the binary's `main.rs`
+//! (`crate::run`); `--version` and `--help` are handled directly by clap.
 
 use clap::{Args, Parser, Subcommand};
 
-/// The full version string, with git sha, produced by `build.rs` (NFR-8).
+/// The full version string, with git sha, produced by `build.rs`.
 use crate::HH_VERSION;
 
-// SRS NFR-2: zero network calls.
 /// Halfhand — local-first CLI flight recorder for AI agents.
 ///
 /// Records agent execution (prompts, tool calls, MCP traffic, file changes,
@@ -69,7 +66,6 @@ pub enum Command {
     ))]
     Init(InitArgs),
 
-    // SRS FR-1.
     /// Record an agent session inside a PTY.
     #[command(after_help = examples(&[
         ("hh run -- claude", "record a Claude Code session"),
@@ -82,7 +78,6 @@ pub enum Command {
     ]))]
     Run(RunArgs),
 
-    // SRS FR-3.
     /// Faithfully play back a recorded session in an interactive TUI.
     #[command(after_help = examples(&[
         ("hh replay last", "replay the most recent session"),
@@ -92,7 +87,6 @@ pub enum Command {
     ]))]
     Replay(ReplayArgs),
 
-    // SRS FR-4.
     /// Print non-interactive detail about a session.
     #[command(after_help = examples(&[
         ("hh inspect last", "summarize the most recent session"),
@@ -104,7 +98,6 @@ pub enum Command {
     ]))]
     Inspect(InspectArgs),
 
-    // SRS FR-5.
     /// List recorded sessions, newest first.
     #[command(after_help = examples(&[
         ("hh list", "the 20 most recent sessions"),
@@ -125,7 +118,6 @@ pub enum Command {
     ]))]
     Rename(RenameArgs),
 
-    // SRS FR-6.1.
     /// Delete a session and garbage-collect its blobs.
     #[command(after_help = examples(&[
         ("hh delete a1b2c3", "delete a session (asks first)"),
@@ -133,7 +125,7 @@ pub enum Command {
     ]))]
     Delete(DeleteArgs),
 
-    // SRS FR-2. Advanced: listed last in `hh --help` (ADVANCED_DISPLAY_ORDER)
+    // Advanced: listed last in `hh --help` (ADVANCED_DISPLAY_ORDER)
     // so the daily commands come first and `hh` does not read as an MCP tool.
     /// Advanced: run an MCP server behind a recording stdio proxy.
     ///
@@ -169,7 +161,6 @@ pub enum Command {
     ]))]
     Doctor(DoctorArgs),
 
-    // Area 3 (storage maintenance).
     /// Reclaim disk space: prune orphaned blobs and vacuum the database.
     #[command(after_help = examples(&[
         ("hh gc", "prune orphaned blobs, then vacuum"),
@@ -178,7 +169,6 @@ pub enum Command {
     ]))]
     Gc(GcArgs),
 
-    // Area 3 (storage maintenance).
     /// Summarize the store: sessions, events, disk usage, largest sessions.
     #[command(after_help = examples(&[
         ("hh stats", "store summary"),
@@ -257,7 +247,6 @@ pub enum Command {
     ]))]
     Search(SearchArgs),
 
-    // SRS FR-6.2 (ergonomics).
     /// Print a shell completion script for `hh`.
     ///
     /// Writes the completion script for the given shell to stdout. Install it
@@ -458,7 +447,6 @@ pub struct DoctorArgs {
 /// Arguments for `hh run`.
 #[derive(Args, Debug)]
 pub struct RunArgs {
-    // SRS NFR-4: keystrokes are not recorded unless asked for.
     /// Record user keystrokes (off by default; keystrokes may contain secrets).
     #[arg(long)]
     pub record_input: bool,

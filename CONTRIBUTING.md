@@ -31,7 +31,7 @@ cargo test --workspace
 ```
 
 CI runs these on every PR, plus a no-network-crate check (the binary must link
-no HTTP client — NFR-2) and a Windows build-only job.
+no HTTP client) and a Windows build-only job.
 
 ## Done-definition
 
@@ -160,7 +160,7 @@ just dist-plan v1.0.0          # dry-run the release plan (no builds)
 ```
 
 Then tag `v<x.y.z>` and push it; cargo-dist builds per-target binaries (with
-the git sha embedded via `HH_BUILD_SHA` — NFR-8), attaches SHA-256 checksums
+the git sha embedded via `HH_BUILD_SHA`), attaches SHA-256 checksums
 and keyless Sigstore attestations, publishes the shell/powershell installers,
 generates completion scripts + the `hh.1` man page via `hh-dist`, and pushes
 the Homebrew formula to `halfhand-org/homebrew-tap`.

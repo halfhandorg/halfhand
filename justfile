@@ -33,7 +33,7 @@ cov-check:
 proptest:
     cargo test --workspace -- prop_ blob_refcount_prop migration_idempotency_prop
 
-# Run all criterion benches (CLAUDE.md v1.0.0 addendum / NFR-1). `--features
+# Run all criterion benches (CLAUDE.md v1.0.0 addendum). `--features
 # fuzzing` enables the `adapter_jsonl` bench (which uses the dev-only
 # `adapter::fuzzing` parser entry point); the three storage benches run
 # ungated. The nightly regression gate (`.github/workflows/bench-nightly.yml`)
@@ -85,7 +85,7 @@ dist-generate:
 dist-plan tag="v1.0.0":
     cargo dist plan --tag {{tag}}
 
-# `hh list` cold-start manual check (Area 4: <50 ms on a warm cache). NOT
+# `hh list` cold-start manual check (target: <50 ms on a warm cache). NOT
 # CI-gated — wall clock is too noisy across CI runners; this is a developer-
 # experience target, not a correctness contract. Requires `hyperfine`
 # (`cargo install hyperfine`), which is NOT a build dependency. Builds a release

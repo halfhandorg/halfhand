@@ -1,4 +1,4 @@
-//! Pure application state and reducer for the replay TUI (FR-3).
+//! Pure application state and reducer for the replay TUI.
 //!
 //! `AppState` holds everything the UI needs to render and nothing that needs
 //! a terminal: no ratatui `Frame`, no crossterm event types. [`update`] is a
@@ -159,7 +159,7 @@ const SLOW_FLOOR_MS: i64 = 1000;
 pub struct AppState {
     /// The session being replayed (header data).
     pub session: SessionRow,
-    /// The full per-event index, eagerly loaded once (FR-3.5).
+    /// The full per-event index, eagerly loaded once.
     pub index: Vec<hh_core::EventIndexRow>,
     /// Session-wide facts computed before the first frame.
     pub insights: Insights,
@@ -318,7 +318,7 @@ impl AppState {
     }
 
     /// Build the initial state from a session header, its full event index
-    /// (FR-3.5 eager load), and the insights loaded before the first frame.
+    /// (eager load), and the insights loaded before the first frame.
     /// Terminal segments start hidden.
     #[must_use]
     pub fn with_insights(
@@ -737,7 +737,7 @@ impl AppState {
 }
 
 /// Case-insensitive substring match over a row's badge kind name or label
-/// text (FR-3.3 `/` filter). `query` must already be lowercased.
+/// text (the `/` filter). `query` must already be lowercased.
 fn matches_filter(row: &TimelineRow, query: &str) -> bool {
     let kind_name = super::kind::badge_label(row.kind()).to_ascii_lowercase();
     if kind_name.contains(query) {

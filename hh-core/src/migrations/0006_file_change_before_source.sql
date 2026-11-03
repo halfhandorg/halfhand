@@ -16,7 +16,7 @@
 -- Both columns are added by Rust code in `Store::open`
 -- (`add_file_change_provenance_columns`) behind a `PRAGMA table_info` check,
 -- because SQLite has no `ALTER TABLE ADD COLUMN IF NOT EXISTS`; that check is
--- what makes the migration idempotent (DR-4). The SQL half only adds an index
+-- what makes the migration idempotent. The SQL half only adds an index
 -- on `before_hash` (for `hh redact`'s repointing and refcount accounting) and
 -- is `IF NOT EXISTS`. It does not reference the new columns, so it can run
 -- before the Rust half — which must run after the migration runner anyway,

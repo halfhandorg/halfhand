@@ -1,10 +1,10 @@
 #!/usr/bin/env python3
-"""Fake agent fixture for `hh run` integration tests (FR-1).
+"""Fake agent fixture for `hh run` integration tests.
 
 Exercises the recorder end-to-end for a generic agent:
-  * prints ANSI-colored output (terminal_output capture, FR-1.3),
+  * prints ANSI-colored output (terminal_output capture),
   * creates, modifies, and deletes files with real time gaps so each change
-    kind is observed as a distinct `file_change` row (FR-1.4),
+    kind is observed as a distinct `file_change` row,
   * writes under built-in-ignored paths (`target/`, `.git/`) which must produce
     *no* events,
   * exits 3 so the session finalizes with `status=error`, `exit_code=3`.

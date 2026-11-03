@@ -60,8 +60,8 @@ gh attestation verify ./hh --repo halfhandorg/halfhand
   flags are now deprecated; see `docs/adapters.md`.
 - **Search** — `hh search` is FTS5 full-text across all sessions, with filters
   and `--json`.
-- **Windows** — builds on Windows every push (runtime PTY is best-effort per
-  the SRS).
+- **Windows** — builds on Windows every push (runtime PTY is
+  best-effort).
 - **Stability contract** — `STABILITY.md` freezes the JSON schema at `2` and
   pins the CLI/DB/MSRV/`hh-core` rules.
 - **Ergonomics** — `hh completions <shell>`, a `hh.1` man page, and a
@@ -132,7 +132,7 @@ median-time regression).
 
 ## Known limitations (unchanged from the beta, now documented as 1.0 scope)
 
-- **Windows PTY is best-effort** (SRS §2.2): Windows builds and installs, but
+- **Windows PTY is best-effort**: Windows builds and installs, but
   PTY recording there is not validated to the same bar as Linux/macOS.
 - **Replay is faithful playback, not deterministic re-execution**: the agent
   is not re-invoked during replay; no network calls are made. A session whose

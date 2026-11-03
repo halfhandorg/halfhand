@@ -1,11 +1,11 @@
-//! Criterion benches for the storage layer (CLAUDE.md v1.0.0 addendum / NFR-1:
+//! Criterion benches for the storage layer (CLAUDE.md v1.0.0 addendum:
 //! "criterion benches live in benches/", regression-gated at >15% vs baseline).
 //!
-//! Four groups, mirroring the four perf-critical paths in the SRS:
-//!   - `ingest` — `EventWriter::append_event` throughput (NFR-1 target ≥5k
+//! Four groups, mirroring the four perf-critical paths in the spec:
+//!   - `ingest` — `EventWriter::append_event` throughput (ingest target ≥5k
 //!     events/s). One durable round-trip per event.
 //!   - `replay_index` — `Store::list_event_index` for 10k / 100k-event sessions
-//!     (the `hh replay` open hot path; FR-3.5).
+//!     (the `hh replay` open hot path).
 //!   - `blob_write` — `BlobStore::put` for 1 KiB / 1 MiB payloads.
 //!   - `blob_read` — `BlobStore::get` (decompress + hash-verify) 1 KiB / 1 MiB.
 //!
@@ -122,7 +122,7 @@ fn entropy_bytes(size: usize) -> Vec<u8> {
     v
 }
 
-/// `append_event` throughput (NFR-1). Each call is one durable round-trip
+/// `append_event` throughput. Each call is one durable round-trip
 /// through the single-writer channel (channel send → writer-thread INSERT →
 /// reply), so this measures the real ingest cost a recorder pays per event.
 ///

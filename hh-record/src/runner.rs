@@ -1,5 +1,5 @@
-//! PTY runner: spawn the agent in a PTY and transparently proxy stdin/stdout
-//! (FR-1.1, FR-1.3). Drives terminal-output capture (chunked at 8 KiB or
+//! PTY runner: spawn the agent in a PTY and transparently proxy stdin/stdout.
+//! Drives terminal-output capture (chunked at 8 KiB or
 //! 50 ms), window-resize forwarding (SIGWINCH), and graceful shutdown on
 //! SIGTERM/SIGINT to `hh`.
 //!
@@ -32,7 +32,7 @@ use signal_hook::flag::register as register_flag;
 
 use crate::watcher::{spawn_watcher, WatchOptions};
 
-/// Chunk flush thresholds (FR-1.3): 8 KiB or 50 ms, whichever first.
+/// Chunk flush thresholds: 8 KiB or 50 ms, whichever first.
 const CHUNK_BYTES: usize = 8 * 1024;
 const CHUNK_INTERVAL: Duration = Duration::from_millis(50);
 
@@ -41,8 +41,8 @@ const CHUNK_INTERVAL: Duration = Duration::from_millis(50);
 pub struct RunOptions {
     /// The command argv to spawn (program + args).
     pub command: Vec<String>,
-    /// Forced adapter name (`hh run --adapter <name>`), overriding auto-detect
-    /// (FR-1.5). `None` → auto-detect via [`hh_core::select_adapter`]. Today
+    /// Forced adapter name (`hh run --adapter <name>`), overriding auto-detect.
+    /// `None` → auto-detect via [`hh_core::select_adapter`]. Today
     /// only `"claude-code"` is accepted; an unknown name is an actionable error
     /// from [`run`].
     pub adapter: Option<String>,
@@ -50,9 +50,9 @@ pub struct RunOptions {
     pub cwd: PathBuf,
     /// Max file size for FS capture (bytes).
     pub max_file_size: u64,
-    /// Record user keystrokes (FR-1.3/NFR-4; default off).
+    /// Record user keystrokes (default off; keystrokes may contain secrets).
     pub record_input: bool,
-    /// Store binary file contents (FR-1.4; default off).
+    /// Store binary file contents (default off).
     pub record_binary: bool,
     /// Extra ignore patterns for the watcher.
     pub extra_ignore: Vec<String>,
@@ -62,7 +62,7 @@ pub struct RunOptions {
     /// Absolute halfhand-owned paths under cwd to exclude from the watcher
     /// (the db file, the blobs dir) so the recorder doesn't record itself.
     pub internal_exclude: Vec<PathBuf>,
-    /// `hh` version string (FR-1.2).
+    /// `hh` version string.
     pub hh_version: String,
     /// Record-time redactor (`[redaction] at_record`, docs/redaction-design.md):
     /// when set, event summaries/bodies are redacted by the writer task and
@@ -70,7 +70,7 @@ pub struct RunOptions {
     pub redactor: Option<Arc<hh_core::redact::Detectors>>,
 }
 
-/// The outcome of a finished recording (FR-1.6).
+/// The outcome of a finished recording.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct RunOutcome {
     /// Full session UUID string.
@@ -83,14 +83,14 @@ pub struct RunOutcome {
     pub duration_ms: i64,
     /// Number of events written (including raw terminal chunks).
     pub event_count: i64,
-    /// Number of step-eligible events (FR-3.4; everything except
-    /// `terminal_output`). The "N steps" in the epilogue (FR-1.6).
+    /// Number of step-eligible events (everything except
+    /// `terminal_output`). The "N steps" in the epilogue.
     pub steps: i64,
     /// Number of distinct files changed.
     pub files_changed: i64,
     /// Final session status (`ok` | `error` | `interrupted`).
     pub status: &'static str,
-    /// Agent kind detected for the session (FR-1.5); the binary uses this to
+    /// Agent kind detected for the session; the binary uses this to
     /// decide whether a 0-step session warrants an "adapter may be broken"
     /// epilogue warning (only meaningful for adapter-active kinds).
     pub agent_kind: AgentKind,
@@ -100,7 +100,7 @@ pub struct RunOutcome {
     pub adapter_status: AdapterStatus,
     /// When [`Self::adapter_status`] is [`AdapterStatus::Degraded`], a single
     /// actionable line the binary prints to stderr *after* the child exits and
-    /// the terminal is restored (FR-1.5), instead of from the tailer thread
+    /// the terminal is restored, instead of from the tailer thread
     /// mid-session where the agent's TUI would bury it.
     pub degrade_reason: Option<String>,
     /// Events the recorder failed to write, with the first failure's cause.
@@ -148,9 +148,9 @@ impl Drop for RawModeGuard {
     }
 }
 
-/// Run one recording session (FR-1.1, FR-1.3). Creates the session row,
+/// Run one recording session. Creates the session row,
 /// spawns the PTY + watcher, drives capture, and finalizes. Returns the
-/// outcome for the epilogue (FR-1.6).
+/// outcome for the epilogue.
 ///
 /// # Errors
 ///
@@ -159,11 +159,11 @@ impl Drop for RawModeGuard {
 /// it's reflected in `RunOutcome.status`/`exit_code`.
 #[allow(clippy::too_many_lines)] // the run loop is inherently linear
 pub fn run(store: &Store, opts: &RunOptions) -> crate::Result<RunOutcome> {
-    // --- Session row (FR-1.2) -------------------------------------------
+    // --- Session row ----------------------------------------------------
     let start = Instant::now();
     let started_at = now_unix_ms();
     let session_uuid = hh_core::event::now_v7();
-    // FR-1.5: select a structured-event adapter (Claude Code today). A forced
+    // Select a structured-event adapter (Claude Code today). A forced
     // `--adapter <name>` overrides detection; an unknown name is actionable.
     let adapter: Option<Box<dyn Adapter>> = match opts.adapter.as_deref() {
         Some(name) => match hh_core::resolve_adapter_override(name) {
@@ -211,7 +211,7 @@ pub fn run(store: &Store, opts: &RunOptions) -> crate::Result<RunOutcome> {
         store.event_writer_with_redactor(opts.redactor.clone())?,
     ));
 
-    // --- FS watcher (FR-1.4) --------------------------------------------
+    // --- FS watcher -----------------------------------------------------
     let watch_opts = WatchOptions {
         cwd: opts.cwd.clone(),
         max_file_size: opts.max_file_size,
@@ -221,7 +221,7 @@ pub fn run(store: &Store, opts: &RunOptions) -> crate::Result<RunOutcome> {
         baseline_budget: opts.baseline_budget,
     };
     let blobs = Arc::new(crate::make_blob_store(store, opts.redactor.clone()));
-    // FR-1.5 best-effort: a watcher that cannot be set up (e.g. an unreadable
+    // Best-effort: a watcher that cannot be set up (e.g. an unreadable
     // subdir under cwd) degrades to `None` with a stderr warning rather than
     // aborting the whole recording — PTY + adapter capture continue.
     let watcher = spawn_watcher(
@@ -232,7 +232,7 @@ pub fn run(store: &Store, opts: &RunOptions) -> crate::Result<RunOutcome> {
         start,
     )?;
 
-    // --- Structured-event adapter (FR-1.5) -------------------------------
+    // --- Structured-event adapter ----------------------------------------
     // The adapter tails the agent's structured log and yields parsed events;
     // the drain thread resolves the adapter's `correlate_key` to DB row ids and
     // appends via the shared writer (single-writer invariant preserved). The
@@ -264,7 +264,7 @@ pub fn run(store: &Store, opts: &RunOptions) -> crate::Result<RunOutcome> {
         None => (None, None),
     };
 
-    // --- PTY + child (FR-1.1) --------------------------------------------
+    // --- PTY + child -----------------------------------------------------
     let pty_system = native_pty_system();
     let initial_size = current_pty_size();
     let pty_pair = pty_system
@@ -276,7 +276,7 @@ pub fn run(store: &Store, opts: &RunOptions) -> crate::Result<RunOutcome> {
         cmd.arg(arg);
     }
     cmd.cwd(&opts.cwd);
-    // FR-2.2: advertise the session id to the child process tree so a nested
+    // Advertise the session id to the child process tree so a nested
     // `hh mcp-proxy` can attach.
     cmd.env("HH_SESSION_ID", &session_id);
 
@@ -327,7 +327,7 @@ pub fn run(store: &Store, opts: &RunOptions) -> crate::Result<RunOutcome> {
     // so hh only receives SIGINT if something explicitly targets hh's PID.
     let _ = register_flag(SIGINT, Arc::clone(&stop));
 
-    // --- Reader thread (terminal_output capture, FR-1.3) ----------------
+    // --- Reader thread (terminal_output capture) ------------------------
     let writer_for_reader = Arc::clone(&writer);
     let blobs_for_reader = Arc::clone(&blobs);
     let session_id_for_reader = session_id.clone();
@@ -416,7 +416,7 @@ pub fn run(store: &Store, opts: &RunOptions) -> crate::Result<RunOutcome> {
     // exactly as the "no transcript found" degrade path already does.
     let adapter_outcome = adapter_outcome_handle.map(|h| adapter_outcome_from_join(h.join()));
 
-    // --- Finalize (FR-1.6) ----------------------------------------------
+    // --- Finalize -------------------------------------------------------
     drop(raw_guard); // restore terminal before printing the epilogue
     let duration_ms = i64::try_from(start.elapsed().as_millis()).unwrap_or(i64::MAX);
     let code = i32::try_from(exit_status.exit_code()).unwrap_or(i32::MAX);
@@ -458,7 +458,7 @@ pub fn run(store: &Store, opts: &RunOptions) -> crate::Result<RunOutcome> {
 }
 
 /// The reader thread: read PTY output, copy to stdout, and emit chunked
-/// `terminal_output` events (FR-1.3).
+/// `terminal_output` events.
 ///
 /// `needless_pass_by_value`: these values are moved into the spawning closure
 /// and owned for the thread's lifetime; taking them by value (not `&`) keeps
@@ -507,7 +507,7 @@ fn run_reader(
 }
 
 /// The stdin proxy thread: forward the user's stdin to the PTY writer, and
-/// optionally record keystrokes (FR-1.3 `--record-input`).
+/// optionally record keystrokes (`--record-input`).
 #[allow(clippy::needless_pass_by_value)] // owned for the thread's lifetime; see run_reader
 fn run_stdin_proxy(
     mut stdin_writer: Box<dyn Write + Send>,
@@ -541,7 +541,7 @@ fn run_stdin_proxy(
 
 /// The adapter drain thread: consume the adapter's parsed [`Event`] stream,
 /// resolve each event's `correlate_key` (in `body_json`) to a DB row id for
-/// `tool_call`→`tool_result` correlation (FR-1.5), and append via the shared
+/// `tool_call`→`tool_result` correlation, and append via the shared
 /// writer (single-writer invariant preserved: the `Mutex` serializes the send,
 /// the writer task serializes the write).
 ///
@@ -587,7 +587,7 @@ fn run_adapter_drain(events: std::sync::mpsc::Receiver<Event>, writer: Arc<Mutex
     }
 }
 
-/// Emit a `terminal_output` event for an output chunk (FR-1.3).
+/// Emit a `terminal_output` event for an output chunk.
 ///
 /// UTF-8 chunks are stored inline in `body_json` as `{"text":"...","encoding":"utf8"}`
 /// for replay convenience; non-UTF-8 chunks go to the blob store and the
@@ -624,7 +624,7 @@ fn flush_terminal_chunk(
         session_id: session_id.to_string(),
         ts_ms,
         kind: EventKind::TerminalOutput,
-        step: None, // terminal chunks are not steps (FR-3.4)
+        step: None, // terminal chunks are not steps
         summary: truncate_summary(&format!("terminal output {} bytes", bytes.len())),
         body_json: Some(body),
         blob_hash,
@@ -668,7 +668,7 @@ fn flush_input_chunk(
 /// Finalize the session row and return `(event_count, steps, files_changed,
 /// dropped)`.
 ///
-/// Order (FR-1.5 + FR-3.4): flush + close the writer (all events durable, the
+/// Order: flush + close the writer (all events durable, the
 /// writer thread joined → no intra-process contention) → assign step ordinals
 /// → persist the adapter's model/usage/status → finalize the session row →
 /// counts. `adapter_outcome` is `None` for PTY-only sessions.
@@ -692,7 +692,7 @@ fn finalize(
     // outright — a panic in any recording source must not also abort finalize.
     let dropped = {
         let mut w = lock_writer(writer);
-        // FR-1.5: persist the adapter's degrade reason as an `error` event so a
+        // Persist the adapter's degrade reason as an `error` event so a
         // degraded session self-documents in the DB (queryable as
         // `kind='error'`), not just on stderr. The adapter owns no writer (it is
         // kept unit-testable without a database), so the recorder writes this
@@ -737,14 +737,14 @@ fn finalize(
         w.close().map_err(crate::RecordError::from)?;
         w.dropped()
     };
-    // FR-3.4: assign 1-based step ordinals now that every event is durable.
+    // Assign 1-based step ordinals now that every event is durable.
     store.assign_steps(session_id)?;
-    // FR-1.5 / BUG-1.1: persist the adapter's model/usage/final status
-    // (Active/Degraded) and — when degraded — the machine-readable degrade
-    // reason code, atomically with the status. The code comes from the
-    // structured `AdapterError` the adapter reported (BUG-1.4); a panicked
-    // tailer thread has `error: None` and the column is left NULL (a
-    // future `hh doctor` surfaces "degraded, no code" as a diagnostic).
+    // Persist the adapter's model/usage/final status (Active/Degraded) and —
+    // when degraded — the machine-readable degrade reason code, atomically
+    // with the status. The code comes from the structured `AdapterError` the
+    // adapter reported; a panicked tailer thread has `error: None` and the
+    // column is left NULL (a future `hh doctor` surfaces "degraded, no code"
+    // as a diagnostic).
     if let Some(o) = adapter_outcome {
         let reason_code = hh_core::adapter::adapter_degrade_code(o.degrade_reason.as_deref());
         store.set_session_adapter_meta_with_reason(
@@ -767,7 +767,7 @@ fn finalize(
 }
 
 /// Query the current terminal size, falling back to 24×80 on non-TTY or
-/// error (FR-1.1 resize forwarding).
+/// error (used for resize forwarding).
 fn current_pty_size() -> PtySize {
     match crossterm::terminal::size() {
         Ok((cols, rows)) => PtySize {
@@ -787,8 +787,8 @@ fn now_unix_ms() -> i64 {
         .map_or(0, |d| i64::try_from(d.as_millis()).unwrap_or(i64::MAX))
 }
 
-/// Best-effort hostname (FR-1.2). Shells out to `hostname` so we don't add a
-/// hostname crate (not in SRS §6); returns `None` if unavailable.
+/// Best-effort hostname. Shells out to `hostname` so we don't add a
+/// hostname crate dependency; returns `None` if unavailable.
 fn hostname() -> Option<String> {
     Command::new("hostname")
         .output()
@@ -807,7 +807,7 @@ fn adapter_outcome_from_join(result: std::thread::Result<AdapterOutcome>) -> Ada
     result.unwrap_or_else(|_| {
         // Don't print here: the agent's TUI may still own the terminal. Surface
         // the reason via `degrade_reason` so the binary prints it after the child
-        // exits and the terminal is restored (FR-1.5). `AdapterOutcome` is
+        // exits and the terminal is restored. `AdapterOutcome` is
         // `#[non_exhaustive]` (additive under cargo-semver-checks), so external
         // crates cannot construct it with a struct literal — use the public
         // `hh_core::degraded` constructor instead. No structured `AdapterError`
@@ -819,7 +819,7 @@ fn adapter_outcome_from_join(result: std::thread::Result<AdapterOutcome>) -> Ada
     })
 }
 
-/// Truncate a summary to the SRS §4.1 limit of 120 chars.
+/// Truncate a summary to the 120-char event summary limit.
 fn truncate_summary(s: &str) -> String {
     const LIMIT: usize = 120;
     if s.chars().count() <= LIMIT {

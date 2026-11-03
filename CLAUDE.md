@@ -1,9 +1,15 @@
 # Halfhand engineering standards
 
 You are implementing Halfhand, a local-first CLI flight recorder for AI agents,
-per the SRS in halfhand-srs-v0.1.0-beta.1.md. Read the SRS before any task and
-treat its FR/NFR/DR numbers as the source of truth. If a task conflicts with the
-SRS, say so before writing code.
+as specified by the requirements documents in the repo root
+(halfhand-srs-*.md). Treat those documents as historical background: read them
+when you need the original intent behind a behaviour, but do not cite their
+section or requirement numbers. If a task conflicts with the documented
+behaviour or the standards below, say so before writing code.
+
+Do not put requirement or ticket IDs (SRS, FR-, NFR-, DR-, BUG-, ENH-, AC-,
+"Area n") in code, comments, tests, help text or docs. Describe the behaviour
+in plain words instead. hh-core/tests/no_requirement_ids.rs enforces this.
 
 ## Rust standards (non-negotiable)
 - Edition 2021, MSRV 1.88 (`rust-version` in the workspace Cargo.toml,
@@ -15,13 +21,15 @@ SRS, say so before writing code.
   with a one-line justification comment.
 - cargo fmt --check must pass. rustdoc on every public item (missing_docs deny
   in hh-core).
-- Prefer std and small, well-maintained crates already listed in the SRS §6.
-  Do not add a dependency without stating why in the commit message.
+- Prefer std and small, well-maintained crates already listed in the
+  requirements document's crate & dependency plan. Do not add a dependency
+  without stating why in the commit message.
 - Concurrency: single-writer for SQLite (one writer task fed by an mpsc
   channel). Never share a Connection across threads.
 - All user-facing errors must be actionable: what failed, why, suggested fix.
 - Every task ends with: tests written and passing, clippy clean, a short
-  summary of decisions, and any deviations from the SRS called out explicitly.
+  summary of decisions, and any deviations from the documented behaviour
+  called out explicitly.
 
 ## CLI/UX standards
 - Respect NO_COLOR and non-TTY output (plain, pipe-safe).
@@ -61,19 +69,25 @@ standards:
 
 # v1.1.0 addendum
 
-- SRS: halfhand-srs-v1.1.0.md is authoritative. Reference BUG-N / ENH-N IDs.
+- The v1.1.0 requirements (halfhand-srs-v1.1.0.md, when present) are
+  background for this era's fixes and enhancements; describe them in plain
+  words, never by ID.
 - Adapter failures route through AdapterError and persist to
-  sessions.adapter_degrade_reason. Silent degradation is BUG-1 — don't
-  reintroduce it.
+  sessions.adapter_degrade_reason. Silent degradation (a session
+  marked adapter-active with zero structured steps and no reason given) was a
+  real bug — don't reintroduce it.
 - Config loading has three paths (config.toml, halfhand.toml, defaults). All
-  three need tests if you touch resolution. See BUG-2.
+  three need tests if you touch resolution: an untested path once regressed
+  silently and the wrong config file was loaded.
 - No thread::sleep for test synchronization. Use channels, latches, or the
-  watcher's test seams. See BUG-4.
+  watcher's test seams: sleep-based waits made the watcher and adapter tests
+  flaky (notably on macOS).
 - No platform-skip escape hatches. #[cfg_attr(target_os = "...", ignore)]
   needs an upstream issue link. Otherwise gate with #[cfg(unix)] and comment.
-  See BUG-5, BUG-6.
+  Platform-specific ignores once hid real test failures on macOS/Windows.
 - FTS5 stays in sync via triggers only. Never write to events_fts from
   application code.
 - Homebrew formula updates flow through cargo-dist. No manual edits to
-  halfhandorg/homebrew-tap. See BUG-7.
+  halfhandorg/homebrew-tap: hand edits drift from what the release pipeline
+  generates and are overwritten or break the next release.
 - Every Stage ends with `cargo fmt --check && cargo clippy --workspace --all-targets -- -D warnings && cargo test --workspace`

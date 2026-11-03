@@ -1,4 +1,4 @@
-//! Build script: embed the git sha into `HH_VERSION` (NFR-8).
+//! Build script: embed the git sha into `HH_VERSION`.
 //!
 //! Writes a `pub const HH_VERSION: &str` to `$OUT_DIR/hh_version.rs`, which
 //! `main.rs` includes. No network, no `unwrap()`/`expect()` (workspace clippy
@@ -26,7 +26,7 @@ fn main() {
     // Prefer an explicit `HH_BUILD_SHA` (set by release CI) so release
     // binaries embed the exact released sha even when built in a container
     // (e.g. `cross`) where `.git` is not visible. Falls back to `git
-    // rev-parse`, then to "unknown" (NFR-8).
+    // rev-parse`, then to "unknown".
     let sha = std::env::var("HH_BUILD_SHA")
         .ok()
         .filter(|s| !s.is_empty())

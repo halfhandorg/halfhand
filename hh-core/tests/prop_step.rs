@@ -1,4 +1,4 @@
-//! Property tests for step assignment (FR-3.4, `hh_core::step::assign_steps`).
+//! Property tests for step assignment (`hh_core::step::assign_steps`).
 //!
 //! For any interleaving of events (arbitrary `ts_ms`/`kind`/`correlates`,
 //! including out-of-order call/result pairs and orphaned correlations), the

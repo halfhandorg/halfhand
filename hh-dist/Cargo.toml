@@ -22,9 +22,9 @@ path = "src/main.rs"
 halfhand = { workspace = true }
 # Justification: clap `Command`/`CommandFactory` to drive generation.
 clap = { version = "4", features = ["derive"] }
-# Justification (FR-6.2): emit shell completion scripts.
+# Justification: emit shell completion scripts.
 clap_complete = "4"
-# Justification (FR-6.2): emit the `hh.1` man page.
+# Justification: emit the `hh.1` man page.
 clap_mangen = "0.2"
-# Justification: error context (CLAUDE.md NFR-5).
+# Justification: error context (CLAUDE.md error standards).
 anyhow = "1"

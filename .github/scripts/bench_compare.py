@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """Compare criterion bench results against a saved baseline; fail on
->THRESHOLD regression (CLAUDE.md v1.0.0 addendum / NFR-1: "CI fails on >15%
+>THRESHOLD regression (CLAUDE.md v1.0.0 addendum: "CI fails on >15%
 regression vs the committed baseline").
 
 Criterion writes `target/criterion/<group>/<bench>/new/estimates.json` for

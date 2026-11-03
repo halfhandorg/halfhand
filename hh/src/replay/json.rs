@@ -1,4 +1,4 @@
-//! Pretty-printed JSON with syntax tinting for the detail pane (FR-3.2):
+//! Pretty-printed JSON with syntax tinting for the detail pane:
 //! 2-space indent (serde_json's pretty printer), keys and string values
 //! tinted, punctuation dimmed. Numbers/booleans/null are left in the base
 //! style — a deliberate simplification (see [`tokenize`]) rather than a full
@@ -13,7 +13,7 @@ use ratatui::style::Style;
 use ratatui::text::{Line, Span};
 
 /// A handful of internal bookkeeping fields that are meaningful to the
-/// recorder/adapters but not to a human reading the replay (FR-1.5's
+/// recorder/adapters but not to a human reading the replay (the adapter's
 /// `correlate_key`, used to resolve `events.correlates` before storage).
 /// Stripped before pretty-printing so the detail pane shows only
 /// user-relevant payload.

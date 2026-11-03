@@ -5,12 +5,12 @@
 
 <!-- One or two sentences: what this changes and why. Reference an issue if any. -->
 
-## SRS / stability check
+## Stability check
 
 - [ ] This change is **additive** to the 1.0-stable interfaces — CLI flags,
       `--json` output, DB schema, exit codes, env vars — OR a breaking change
       has been proposed and agreed per [STABILITY.md](../STABILITY.md).
-- [ ] Any deviation from the SRS (FR/NFR/DR) is called out explicitly below.
+- [ ] Any deviation from documented behaviour is called out explicitly below.
 
 <!-- If this touches a stable interface, explain how it stays backward-compatible
   or what the deprecation path is. -->

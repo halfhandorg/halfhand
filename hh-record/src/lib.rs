@@ -1,21 +1,20 @@
-//! `hh-record` — the Halfhand recorder layer (SRS §6).
+//! `hh-record` — the Halfhand recorder layer.
 //!
 //! Drives a PTY-recorded agent session: spawns the agent in a PTY
 //! (`runner`), watches the working tree for file changes (`watcher`),
 //! feeds both into the single-writer SQLite store via `hh-core`, and — when a
-//! structured-event adapter applies (FR-1.5, Claude Code today) — drains its
+//! structured-event adapter applies (Claude Code today) — drains its
 //! parsed events into the same store with `tool_call`→`tool_result` correlation.
-//! The MCP stdio proxy (FR-2) lives in `mcp_proxy`.
+//! The MCP stdio proxy lives in `mcp_proxy`.
 //!
 //! The threads-vs-tokio decision is recorded in
 //! `docs/adr/0001-threads-vs-tokio.md`.
 
-// BUG-3.2 (SRS v1.1.0 §3): `clippy::pedantic` is enabled explicitly at the
-// crate root so the lint set is enforced regardless of workspace-lint
-// inheritance — the SRS wording requires the enablement live at the crate
-// level, not only in `[workspace.lints]`. A crate-level group `warn` would
-// override the workspace's per-lint `allow`s (clippy gives the closer scope
-// precedence), so the same set of pedantic lints the workspace allows
+// `clippy::pedantic` is enabled explicitly at the crate root so the lint set
+// is enforced regardless of workspace-lint inheritance — the enablement must
+// live at the crate level, not only in `[workspace.lints]`. A crate-level
+// group `warn` would override the workspace's per-lint `allow`s (clippy gives
+// the closer scope precedence), so the same set of pedantic lints the workspace allows
 // project-wide is re-allowed here with one-line justifications, matching the
 // CLAUDE.md pattern ("Enable clippy::pedantic at crate level and #[allow]
 // individual lints with a one-line justification comment").

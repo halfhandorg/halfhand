@@ -1,4 +1,4 @@
-//! Rendering for the replay TUI (FR-3.2): the session header, the timeline
+//! Rendering for the replay TUI: the session header, the timeline
 //! or files-touched list, the detail pane (messages, tool calls, diffs), the
 //! status line, and the `?` help overlay.
 //!
@@ -897,7 +897,7 @@ mod tests {
     }
 
     /// Render one frame to an 80x24 `TestBackend` and return its plain-text
-    /// view (FR-3 testing standard: TestBackend, no real terminal).
+    /// view (testing standard: TestBackend, no real terminal).
     fn render(app: &mut AppState, data: &mut ReplayData) -> String {
         let backend = TestBackend::new(80, 24);
         let mut terminal = Terminal::new(backend).unwrap();
@@ -980,7 +980,7 @@ mod tests {
         );
     }
 
-    /// FR-3.6: a degraded/generic session (no structured adapter — just
+    /// A degraded/generic session (no structured adapter — just
     /// filesystem watcher + PTY capture) must still be a genuinely useful
     /// replay: file changes show as their own steps and terminal output is
     /// reachable via the `t` toggle, with no ToolCall/AgentMessage/UserMessage
@@ -1051,7 +1051,7 @@ mod tests {
         let index = store.list_event_index(&created.id).unwrap();
 
         // No structured-adapter kinds anywhere: this is exactly the
-        // degraded/generic shape FR-3.6 is about.
+        // degraded/generic shape this test is about.
         assert!(index.iter().all(|e| !matches!(
             e.kind,
             EventKind::ToolCall

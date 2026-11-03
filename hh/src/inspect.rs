@@ -1,4 +1,4 @@
-//! `hh inspect` — non-interactive session detail (SRS FR-4).
+//! `hh inspect` — non-interactive session detail.
 //!
 //! `hh inspect <session>` prints a summary view (header + one line per step).
 //! Flags select other views, all of which honor `NO_COLOR` / non-TTY (plain,
@@ -31,19 +31,19 @@ use std::fmt::Write as _;
 
 /// JSON schema version emitted by every `hh` JSON object — both the session
 /// objects in `hh list --json` and the event/step objects in `hh inspect
-/// --json` (FR-4 / FR-5.1). Consumers should gate on this before reading
+/// --json`. Consumers should gate on this before reading
 /// fields; see `docs/json.md`. Aliases [`hh_core::JSON_SCHEMA_VERSION`], the
 /// single counter shared by every JSON-emitting command (including
 /// `hh-core::bundle`, which cannot depend on this binary crate).
 pub(crate) const SCHEMA_VERSION: u64 = hh_core::JSON_SCHEMA_VERSION;
 
 /// Internal bookkeeping fields stripped from `body` before any human or JSON
-/// rendering (FR-1.5's `correlate_key` is resolved to `events.correlates`
+/// rendering (the adapter's `correlate_key` is resolved to `events.correlates`
 /// before storage and is not meaningful to a reader). Mirrors the replay
 /// detail pane's `HIDDEN_KEYS`.
 const HIDDEN_BODY_KEYS: &[&str] = &["correlate_key"];
 
-/// `hh inspect` (FR-4). Resolves the session, builds the step timeline, and
+/// `hh inspect`. Resolves the session, builds the step timeline, and
 /// dispatches to the requested view.
 pub(crate) fn inspect_command(args: &cli::InspectArgs) -> anyhow::Result<std::process::ExitCode> {
     if args.json && args.diff {
@@ -78,7 +78,7 @@ pub(crate) fn inspect_command(args: &cli::InspectArgs) -> anyhow::Result<std::pr
         return Ok(std::process::ExitCode::SUCCESS);
     }
 
-    // Fast path (Area 2 big-session hardening): `hh inspect --json` with no
+    // Fast path (big-session hardening): `hh inspect --json` with no
     // `--step` and no `--failed` streams the whole session as NDJSON straight
     // from the DB cursor in constant memory — it never materializes the event
     // index or builds the step timeline, which for a 100k-event session would
@@ -153,7 +153,7 @@ fn load_context(store: &Store, session: &SessionRow) -> anyhow::Result<SessionCo
     })
 }
 
-/// Open the store with the same config/FR-1.7 reconciliation as every other
+/// Open the store with the same config/stale-session reconciliation as every other
 /// subcommand. Kept local so `inspect` does not depend on a private main-rs
 /// helper.
 fn open_store_for_inspect() -> anyhow::Result<(Store, hh_core::config::Paths, hh_core::Config)> {
@@ -215,7 +215,7 @@ fn require_step(
     );
 }
 
-/// Find the first failed step (FR-4 `--failed`): a step containing an `error`
+/// Find the first failed step (`--failed`): a step containing an `error`
 /// event, or a `tool_result` whose body marks it `is_error: true`. Returns the
 /// step ordinal, or `None` if the session has no failed step.
 fn find_failed_step(store: &Store, timeline: &[TimelineRow]) -> anyhow::Result<Option<u64>> {
@@ -250,7 +250,7 @@ fn tool_result_is_error(detail: &EventDetail) -> bool {
 // ---------------------------------------------------------------------------
 
 /// The short badge label for an event kind, shared with the replay TUI's
-/// `kind::badge_label` (FR-3.2: six accent categories + two quiet ones).
+/// `kind::badge_label` (six accent categories + two quiet ones).
 fn badge_label(kind: EventKind) -> &'static str {
     match kind {
         EventKind::AgentMessage | EventKind::Thinking => "AGENT",
@@ -281,7 +281,7 @@ fn color_badge(label: &str, kind: EventKind) -> String {
     }
 }
 
-/// Render and print the summary view (FR-4): a header line (matching the
+/// Render and print the summary view: a header line (matching the
 /// replay header) followed by one aligned row per step.
 fn print_summary(
     session: &SessionRow,
@@ -294,7 +294,7 @@ fn print_summary(
 }
 
 /// The summary header: ` a1b2c3 ✓ ok · claude-code · 4m32s · 42 steps · 7 files changed`
-/// then a dimmed command line. Matches the replay TUI header (NFR-7).
+/// then a dimmed command line. Matches the replay TUI header.
 fn render_summary_header(session: &SessionRow, models: &[ModelSpan], color: bool) -> String {
     let duration = match session.ended_at {
         Some(end) => render::humanize_ms((end - session.started_at).max(0)),
@@ -627,7 +627,7 @@ fn context_json(session: &SessionRow, ctx: &SessionContext) -> serde_json::Value
     })
 }
 
-/// Print the full human-readable detail of one step (FR-4 `--step N`).
+/// Print the full human-readable detail of one step (`--step N`).
 fn print_step_detail(store: &Store, entry: &StepEntry, color: bool) {
     print!("{}", render_step_detail(store, entry, color));
 }
@@ -750,7 +750,7 @@ fn pretty_json(value: &serde_json::Value, color: bool) -> String {
 
 /// Decode every JSON string literal in already-pretty-printed `text`, turning
 /// `\n`/`\t`/etc. back into real control characters (mirrors the replay
-/// detail pane's `replay::json` decoding — see FR-4.2). String
+/// detail pane's `replay::json` decoding). String
 /// boundaries are found with an escape-aware scan over the still-escaped
 /// source before decoding, so a literal `"` or `\` inside decoded content
 /// can't be mistaken for a delimiter. Falls back to the untouched literal on
@@ -1120,10 +1120,10 @@ pub(crate) fn file_change_diff_json(fc: &FileChange, store: &Store) -> serde_jso
 // JSON output (`--json`, `--json --step N`)
 // ---------------------------------------------------------------------------
 
-/// Stream the whole session as NDJSON (FR-4) to stdout: one JSON object per
+/// Stream the whole session as NDJSON to stdout: one JSON object per
 /// event, in `(ts_ms, id)` order, on its own line, each carrying `schema: 1`.
 /// Streams straight from the DB cursor via [`Store::for_each_event_detail`] —
-/// peak memory is O(1) regardless of session size (Area 2), unlike the old
+/// peak memory is O(1) regardless of session size, unlike the old
 /// index-based path which materialized every event row.
 fn print_session_ndjson_stream(store: &Store, session: &SessionRow) -> anyhow::Result<()> {
     let stdout = std::io::stdout();
@@ -1131,7 +1131,7 @@ fn print_session_ndjson_stream(store: &Store, session: &SessionRow) -> anyhow::R
     write_session_ndjson(store, session, &mut out)
 }
 
-/// Write the session's NDJSON stream to `out` (FR-4): one JSON object per event
+/// Write the session's NDJSON stream to `out`: one JSON object per event
 /// in `(ts_ms, id)` order, one per line. Factored over a generic writer so a
 /// snapshot test can capture the exact bytes the streaming path produces
 /// without touching stdout, and so the stdout path and the test share one
@@ -1169,7 +1169,7 @@ fn write_session_ndjson<W: std::io::Write>(
     Ok(())
 }
 
-/// Emit a single JSON object for one step (FR-4 `--json --step N`).
+/// Emit a single JSON object for one step (`--json --step N`).
 fn print_step_json(
     store: &Store,
     session: &SessionRow,
@@ -1220,7 +1220,7 @@ fn step_json_value(
 }
 
 /// The `session` reference embedded in every inspect JSON object.
-/// Includes `adapter_degrade_reason` (SRS v1.1.0 BUG-1.1) so `hh inspect
+/// Includes `adapter_degrade_reason` so `hh inspect
 /// --json` on a degraded session shows the machine-readable code.
 pub(crate) fn session_ref(session: &SessionRow) -> serde_json::Value {
     serde_json::json!({
@@ -1284,7 +1284,7 @@ fn strip_hidden_keys(value: &serde_json::Value) -> serde_json::Value {
 }
 #[cfg(test)]
 mod tests {
-    //! Snapshot tests for `hh inspect`'s human + JSON output (FR-4; CLAUDE.md:
+    //! Snapshot tests for `hh inspect`'s human + JSON output (CLAUDE.md:
     //! "Snapshot tests with insta for rendered output"). All rendering is
     //! driven with `color = false` so snapshots are deterministic and
     //! pipe-safe (the colored path is the same strings plus ANSI escapes).
@@ -1612,8 +1612,8 @@ mod tests {
 
     /// `hh inspect --json` on a degraded session MUST include
     /// `"adapter_degrade_reason": "jsonl_parse_error"` in the `session`
-    /// object of every event's NDJSON line (SRS BUG-1 acceptance criterion,
-    /// ENH-2.3). This is the load-bearing assertion for BUG-1: a degraded
+    /// object of every event's NDJSON line. This is the load-bearing
+    /// assertion against silent adapter degradation: a degraded
     /// session self-documents its degrade code in the JSON output, not just
     /// in a one-line stderr warning.
     #[test]

@@ -63,7 +63,7 @@ until `1.0.0` ships (see `README.md`).
 ## (c) On-disk database
 
 - Migrations are forward-only and applied automatically, idempotently, on
-  every `Store::open` (`hh-core/src/migrations.rs`, DR-1). There is no
+  every `Store::open` (`hh-core/src/migrations.rs`). There is no
   down-migration and none is planned.
 - Any `1.x` release of `hh` can open and correctly read a database written
   by any earlier `1.x` release. A migration only ever adds (a table, a
@@ -74,7 +74,7 @@ until `1.0.0` ships (see `README.md`).
   promise; if one ever needs to, it requires a major version of `hh` and an
   explicit, documented migration path (e.g. `hh export --bundle` on the old
   version, `hh import` on the new one) — not a silent schema break.
-- `hh.db` **remains directly queryable** with `sqlite3` (DR-2) — that
+- `hh.db` **remains directly queryable** with `sqlite3` — that
   transparency isn't going away. But the SQL schema itself (table/column
   names, types, indexes) is *not* frozen the way `--json` is: migrations may
   still reshape it release to release. **The supported programmatic

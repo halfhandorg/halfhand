@@ -443,7 +443,7 @@ fn build_tar(manifest: &[u8], events: &[u8], blobs: &BTreeMap<String, Vec<u8>>) 
 /// --json`'s per-session object (`session_to_json` in the `hh` binary) so
 /// the two stay recognizable as the same "session" concept, without hh-core
 /// depending on the binary crate. Includes `adapter_degrade_reason`
-/// (SRS BUG-1.1) so a bundle round-trip preserves the degrade code, and the
+/// so a bundle round-trip preserves the degrade code, and the
 /// dropped-event tally so an imported session stays marked degraded.
 fn session_to_bundle_json(row: &SessionRow) -> serde_json::Value {
     let duration_ms = row.ended_at.map(|end| (end - row.started_at).max(0));
@@ -972,8 +972,8 @@ mod tests {
         assert_eq!(b.total_tokens(), a.total_tokens());
     }
 
-    /// A bundle round-trip preserves the `adapter_degrade_reason` code
-    /// (SRS BUG-1.1): a degraded session exported then imported into a
+    /// A bundle round-trip preserves the `adapter_degrade_reason` code:
+    /// a degraded session exported then imported into a
     /// fresh store must still carry its degrade code, so `hh inspect --json`
     /// on the imported session reports the same diagnosis. Without this,
     /// a bundle archived from a degraded session would lose its
@@ -1016,7 +1016,7 @@ mod tests {
         assert_eq!(
             imported.adapter_degrade_reason.as_deref(),
             Some("jsonl_not_found"),
-            "imported session preserves the degrade reason code (BUG-1.1)"
+            "imported session preserves the degrade reason code"
         );
     }
 

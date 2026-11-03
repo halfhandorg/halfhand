@@ -22,36 +22,36 @@ path = "src/main.rs"
 [dependencies]
 hh-core = { workspace = true }
 hh-record = { workspace = true }
-# Justification: CLI parsing (SRS §6).
+# Justification: CLI parsing.
 clap = { version = "4", features = ["derive"] }
-# Justification: error context in the binary (CLAUDE.md / NFR-5).
+# Justification: error context in the binary (CLAUDE.md error standards).
 anyhow = "1"
-# Justification: colored output, respecting NO_COLOR (SRS §6 / NFR-7).
+# Justification: colored output, respecting NO_COLOR.
 owo-colors = "4"
-# Justification: `hh list --json` and `hh inspect --json` emit stable JSON
-# (FR-5.1/FR-4). Already in the dependency tree via hh-core; named here so the
+# Justification: `hh list --json` and `hh inspect --json` emit stable JSON.
+# Already in the dependency tree via hh-core; named here so the
 # binary builds event payloads directly rather than hand-formatting JSON.
 serde_json = "1"
-# Justification (SRS §6/FR-3): the replay TUI's widget/layout/rendering
+# Justification: the replay TUI's widget/layout/rendering
 # engine. Version pinned to the crossterm 0.27 line already used by hh-record
-# (FR-1.1's PTY proxy) so the workspace carries one crossterm major version.
+# (for the PTY proxy) so the workspace carries one crossterm major version.
 ratatui = "0.26"
-# Justification (SRS §6/FR-3): raw mode, alternate screen, and input events
+# Justification: raw mode, alternate screen, and input events
 # for the replay TUI. Matches hh-record's crossterm version.
 crossterm = "0.27"
-# Justification (FR-3.2): unified diffs in the detail pane. Already in the
+# Justification: unified diffs in the detail pane. Already in the
 # dependency tree transitively via insta (hh-core dev-dependency); named here
 # so the binary can compute diffs directly.
 similar = "2.7"
-# Justification (FR-3.5): bounded LRU cache for the last 50 lazily-fetched
+# Justification: bounded LRU cache for the last 50 lazily-fetched
 # event bodies, so scrolling the timeline does not re-hit SQLite/blob storage
 # for rows already visited. Pinned >=0.16.3 (RUSTSEC-2026-0002: 0.12's
 # `IterMut` unsound; fixed upstream, we never use `iter_mut` but take the fix
 # anyway since it's a free version bump).
 lru = "0.18"
-# Justification (FR-6.2 / CLI ergonomics): `hh completions <shell>` emits
+# Justification (CLI ergonomics): `hh completions <shell>` emits
 # shell completion scripts at runtime. Dual Apache-2.0/MIT, offline (no
-# network), so it stays compatible with NFR-2's no-network-crate check.
+# network), so it stays compatible with the no-network-crate check.
 clap_complete = "4"
 
 [dev-dependencies]
@@ -59,11 +59,11 @@ clap_complete = "4"
 # never the real data dir — set HH_DATA_DIR).
 tempfile = "3"
 # Justification: integration tests assert on the on-disk SQLite schema
-# directly (DR-2: hh.db is a public, documented interface), without going
+# directly (hh.db is a public, documented interface), without going
 # through hh-core's Store (which would re-run migrations and hide the schema).
 rusqlite = { version = "0.31", features = ["bundled"] }
 # Justification: snapshot tests of `hh inspect`'s human-readable output
-# (FR-4; CLAUDE.md testing standards: "Snapshot tests with insta for rendered
+# (CLAUDE.md testing standards: "Snapshot tests with insta for rendered
 # output"). Dual Apache-2.0/MIT, already in the workspace via hh-core.
 insta = "1"
 # Justification: no new crate — re-lists the workspace's own hh-record with the

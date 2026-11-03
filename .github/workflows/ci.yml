@@ -8,7 +8,7 @@ on:
 env:
   CARGO_TERM_COLOR: always
   RUSTFLAGS: "-D warnings"
-  # NFR-2: no network. Keep toolchain updates pinned via the rust-toolchain
+  # No network. Keep toolchain updates pinned via the rust-toolchain
   # file rather than fetching latest at runtime.
   CARGO_UNSTABLE_SPARSE_REGISTRY: "true"
 
@@ -47,7 +47,7 @@ jobs:
       - uses: dtolnay/rust-toolchain@stable
       - name: cargo test --workspace
         run: cargo test --workspace --locked
-      # NFR-2 enforcement: the binary must link no HTTP client crate. We list
+      # No-network enforcement: the binary must link no HTTP client crate. We list
       # the tree and grep for known offenders; failure here means someone added
       # a network dependency.
       - name: no-network-crate check
@@ -99,7 +99,7 @@ jobs:
             sh -c 'test "$(id -u)" = 0 || { echo "not running as root"; exit 1; }; cargo test --workspace --locked'
 
   build-windows:
-    name: build (windows, build-only per SRS §2.2)
+    name: build (windows, build-only)
     runs-on: windows-latest
     steps:
       - uses: actions/checkout@v4

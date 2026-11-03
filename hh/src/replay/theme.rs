@@ -1,4 +1,4 @@
-//! Color theme for the replay TUI (FR-3.2, CLAUDE.md CLI/UX standards:
+//! Color theme for the replay TUI (CLAUDE.md CLI/UX standards:
 //! restrained styling, one accent colour, `NO_COLOR` respected).
 //!
 //! Three palettes: [`Palette::Dark`] and [`Palette::Light`] (the configured

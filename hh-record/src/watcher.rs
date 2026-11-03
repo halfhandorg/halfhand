@@ -1,4 +1,4 @@
-//! Recursive filesystem watcher (FR-1.4).
+//! Recursive filesystem watcher.
 //!
 //! Spawns a `notify` watcher on the session cwd and records `file_change`
 //! events through the shared writer. Honors a built-in ignore list, the
@@ -6,16 +6,17 @@
 //! stored in the blob store (BLAKE3-keyed, zstd); binary files record hashes
 //! only unless `--record-binary` is set.
 //!
-//! # SRS deviation (flagged): nested `.gitignore`
+//! # Known limitation: nested `.gitignore`
 //!
-//! FR-1.4 says "honoring `.gitignore`". This implementation honors the cwd's
-//! root `.gitignore` and the global gitignore, plus built-in + extra patterns,
-//! via a single `ignore::gitignore::Gitignore` matcher. It does **not** honor
-//! `.gitignore` files in subdirectories (the `ignore` crate does not expose a
-//! public path-based matcher for the full directory-ignore tree without
-//! `WalkBuilder`, which is walk-oriented, not event-oriented). For v0.1 this
-//! covers the common case (one root `.gitignore`); nested ignores are a
-//! roadmap refinement. See the decisions summary.
+//! File-change capture is meant to honor `.gitignore`. This implementation
+//! honors the cwd's root `.gitignore` and the global gitignore, plus
+//! built-in and extra patterns, via a single `ignore::gitignore::Gitignore`
+//! matcher. It does **not** honor `.gitignore` files in subdirectories (the
+//! `ignore` crate does not expose a public path-based matcher for the full
+//! directory-ignore tree without `WalkBuilder`, which is walk-oriented, not
+//! event-oriented). For v0.1 this covers the common case (one root
+//! `.gitignore`); nested ignores are a roadmap refinement. See the decisions
+//! summary.
 //!
 //! A one-time recursive scan of `cwd` runs before the event loop starts, to
 //! build the session-start baseline ([`scan_baseline`]). It serves two
@@ -61,7 +62,7 @@ use hh_core::store::EventWriter;
 use ignore::gitignore::{Gitignore, GitignoreBuilder};
 use notify::{RecommendedWatcher, RecursiveMode, Watcher};
 
-/// Built-in ignore patterns (FR-1.4: `.git/`, `node_modules/`, `target/`).
+/// Built-in ignore patterns (`.git/`, `node_modules/`, `target/`).
 const BUILTIN_IGNORE: &[&str] = &[".git/", "node_modules/", "target/"];
 
 /// Panic-injection flag for the panic-hygiene test (`tests::mod
@@ -83,7 +84,7 @@ static INJECT_PANIC_FOR_TEST: AtomicBool = AtomicBool::new(false);
 #[cfg(test)]
 static REAL_RUN_LOOP_MUTEX: Mutex<()> = Mutex::new(());
 
-/// Coalescing window for editor-style double-writes (FR-1.4). Editors save a
+/// Coalescing window for editor-style double-writes. Editors save a
 /// file as a burst of filesystem events within tens of milliseconds — e.g.
 /// write-content then touch-mtime, or write-then-rename-into-place producing
 /// two Modify events on the final path. A 100 ms window merges such a burst
@@ -154,7 +155,7 @@ fn watch_path(
     watcher.watch(path, mode)
 }
 
-/// Options for the filesystem watcher (FR-1.4).
+/// Options for the filesystem watcher.
 #[derive(Debug, Clone)]
 pub struct WatchOptions {
     /// Directory to watch recursively.
@@ -198,7 +199,7 @@ impl WatcherHandle {
 /// could not be built, the notify watcher could not initialize, or even the
 /// cwd itself is unwatchable. In every one of those cases the recorder **does
 /// not abort**: it prints a single actionable stderr warning and continues
-/// without file-change recording (FR-1.5 best-effort: PTY + adapter capture
+/// without file-change recording (best-effort: PTY + adapter capture
 /// proceed regardless). Only a failure to spawn the worker thread returns `Err`
 /// (a fatal OS-resource error).
 ///
@@ -209,7 +210,7 @@ impl WatcherHandle {
 /// blacks out file recording for the entire session.
 ///
 /// `start` is the session-start `Instant` used to compute event timestamps
-/// relative to session start (FR-1.3).
+/// relative to session start.
 #[allow(clippy::too_many_arguments)] // recorder wiring; a builder would be overkill here
 pub fn spawn_watcher(
     opts: WatchOptions,
@@ -248,7 +249,7 @@ pub fn spawn_watcher(
     };
 
     // Try one recursive watch; on failure fall back to per-directory watches,
-    // skipping unreadable / ignored subtrees (FR-1.4 best-effort).
+    // skipping unreadable / ignored subtrees (best-effort).
     let cwd_watched = match watch_path(&mut watcher, &opts.cwd, RecursiveMode::Recursive, &opts.cwd)
     {
         Ok(()) => true,
@@ -705,7 +706,7 @@ fn scan_baseline(
 /// The watcher event loop, run on the worker thread. Events are not processed
 /// immediately: each capturable path enters a [`pending`] map keyed by absolute
 /// path, and is processed only after its debounce window elapses with no
-/// further event on the same path (FR-1.4). On shutdown, any still-pending
+/// further event on the same path. On shutdown, any still-pending
 /// change is flushed so a quick exit doesn't drop a write that landed inside
 /// the window.
 // recorder wiring; values are moved into the spawning closure and owned for
@@ -769,7 +770,7 @@ fn run_loop(
         // Flush any pending changes whose debounce window has elapsed.
         flush_due(&mut pending, &mut renames, &sink, &mut tracker);
     }
-    // --- Shutdown grace drain (FR-1.4 robustness) ------------------------
+    // --- Shutdown grace drain (robustness) -------------------------------
     // `stop` was signaled: the child has exited and the recorder is shutting
     // down. But the OS filesystem event source may still have in-flight
     // events — notably macOS FSEvents, which coalesces deliveries through a
@@ -860,7 +861,7 @@ fn fold_event(
     }
 }
 
-/// Final shutdown backstop (FR-1.4 robustness): re-walk `cwd` and record any
+/// Final shutdown backstop (robustness): re-walk `cwd` and record any
 /// capturable file change the watcher never observed.
 ///
 /// This is deterministic and does **not** depend on the OS event source
@@ -936,7 +937,7 @@ enum Observed {
     Present(Present),
 }
 
-/// Stat and read `path` (FR-1.4 size limit applies). A vanished path is
+/// Stat and read `path` (the max file size limit applies). A vanished path is
 /// [`Observed::Gone`], not an error: the debounce window means a change is
 /// processed some time after it happened.
 fn observe(path: &Path, opts: &WatchOptions) -> std::result::Result<Observed, String> {
@@ -946,7 +947,7 @@ fn observe(path: &Path, opts: &WatchOptions) -> std::result::Result<Observed, St
         Err(e) => return Err(format!("stat {}: {e}", path.display())),
     };
     if !meta.is_file() || meta.len() > opts.max_file_size {
-        // FR-1.4: only capture files ≤ max_file_size.
+        // Only capture files ≤ max_file_size.
         return Ok(Observed::Skip);
     }
     let mut f = match std::fs::File::open(path) {
@@ -1429,7 +1430,7 @@ fn write_change(
             // The before/after chain must point at fetchable blobs, so it
             // tracks the stored hash when content was stored, and falls back
             // to the disk-content hash for unstored (binary) files where the
-            // hash is identity metadata only (FR-1.4).
+            // hash is identity metadata only.
             let effective_hash = stored_hash.clone().unwrap_or_else(|| raw.clone());
             tracker.known.insert(
                 path.to_path_buf(),
@@ -1459,7 +1460,7 @@ fn write_change(
         session_id: sink.session_id.to_string(),
         ts_ms: i64::try_from(sink.start.elapsed().as_millis()).unwrap_or(i64::MAX),
         kind: EventKind::FileChange,
-        step: None, // file changes are steps in replay (FR-3.4); step ordinal derived at read time.
+        step: None, // file changes are steps in replay; step ordinal derived at read time.
         summary: truncate_summary(&summary),
         body_json: Some(body),
         blob_hash,
@@ -1499,12 +1500,12 @@ fn lock_sink_writer<'a>(sink: &'a Sink<'_>) -> std::sync::MutexGuard<'a, EventWr
         .unwrap_or_else(std::sync::PoisonError::into_inner)
 }
 
-/// Binary heuristic (FR-1.4): a NUL byte in the first 8 KiB.
+/// Binary heuristic: a NUL byte in the first 8 KiB.
 fn is_binary(content: &[u8]) -> bool {
     content.iter().take(8192).any(|&b| b == 0)
 }
 
-/// Truncate a summary to the SRS §4.1 limit of 120 chars.
+/// Truncate a summary to the 120-char event summary limit.
 fn truncate_summary(s: &str) -> String {
     const LIMIT: usize = 120;
     if s.chars().count() <= LIMIT {
@@ -1838,7 +1839,7 @@ mod tests {
         .expect("the writer must still accept appends after the watcher thread panicked");
     }
 
-    /// Shutdown capture (FR-1.4 robustness on macOS FSEvents): a write
+    /// Shutdown capture (robustness on macOS FSEvents): a write
     /// performed immediately before `stop_and_join` must still be recorded.
     /// On macOS, FSEvents can deliver a write event AFTER the process that
     /// performed it has exited — or never deliver it at all on GitHub's macOS
@@ -2323,7 +2324,7 @@ mod tests {
         assert!(hints.is_empty(), "consumed hints are dropped");
     }
 
-    /// FR-1.5 best-effort: when the cwd itself cannot be watched (here: it does
+    /// Best-effort: when the cwd itself cannot be watched (here: it does
     /// not exist), `spawn_watcher` must return `Ok(None)` — degrading
     /// file-change recording with a warning — rather than `Err`, which would
     /// abort the whole recording. The recorder continues with PTY + adapter

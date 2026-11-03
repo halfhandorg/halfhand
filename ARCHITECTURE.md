@@ -3,9 +3,9 @@
 Halfhand is a local-first CLI flight recorder for AI agents. It records an
 agent's execution (prompts, tool calls, MCP traffic, file changes, terminal
 output) into a local SQLite database and replays it faithfully. It never makes
-network calls (SRS NFR-2).
+network calls.
 
-## Crates (SRS §6)
+## Crates
 
 ```
 halfhand (bin `hh`)   ──depends on──>   hh-core
@@ -41,25 +41,25 @@ adapter      ─┘
 - Blobs are BLAKE3-keyed, zstd-compressed, refcounted in the `blobs` table.
   Deleting a session decrements refcounts and GCs blobs that reach zero.
 
-## Storage (SRS §4.1)
+## Storage
 
 - SQLite, WAL, `foreign_keys = ON`. Schema is applied as embedded migration
-  `0001`, idempotently (DR-1): `schema_migrations` records the applied version;
+  `0001`, idempotently: `schema_migrations` records the applied version;
   the runner probes `sqlite_master` before running the DDL (the DDL itself
   creates `schema_migrations`).
 - `Store` exposes: `create_session`, `finalize_session`, `event_writer`
   (→ `EventWriter::append_event`), `list_sessions`, `resolve_session`,
   `delete_session`.
-- `resolve_session` implements FR-3.1: `last` → newest session; short-id prefix
+- `resolve_session` implements session lookup: `last` → newest session; short-id prefix
   → unique match; ambiguity → error listing candidates.
 
-## Config (SRS §4.2)
+## Config
 
 - `Paths::resolve(config)` precedence: `HH_DATA_DIR` env > `[storage] data_dir`
   file > platform default (`directories` crate). Unknown keys warn on stderr
   but never fail.
 
-## Security (NFR-4)
+## Security
 
 - DB and blob dirs created `0700`; blob files written `0600` (Unix). Atomic
   write via temp + rename + fsync. `--record-input` defaults off.
@@ -69,7 +69,7 @@ adapter      ─┘
   [`docs/redaction-design.md`](docs/redaction-design.md), disclosure policy
   in [`SECURITY.md`](SECURITY.md).
 
-## No-network guarantee (NFR-2)
+## No-network guarantee
 
 Halfhand never makes outbound network calls. Recorded agent data (prompts,
 tool I/O, MCP traffic, file contents, terminal output) stays on the machine
@@ -88,8 +88,8 @@ without enabling outbound HTTP, so listing them would cry wolf. A failure
 names the offending crate so the offender is obvious.
 
 Adding a crate that needs the network is therefore a visible, reviewable
-event: it either fails CI (forcing an explicit exemption + an SRS
-reconciliation) or it ships a new `schema` and a documented deviation.
+event: it either fails CI (forcing an explicit exemption + a documented
+requirements change) or it ships a new `schema` and a documented deviation.
 Neither happens silently.
 
 ## Out of scope here
