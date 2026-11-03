@@ -6,6 +6,7 @@
 
 include!(concat!(env!("OUT_DIR"), "/hh_version.rs"));
 
+mod capture_health;
 mod cli;
 mod completions;
 mod export;
@@ -388,6 +389,8 @@ fn print_mcp_epilogue(outcome: &hh_record::McpProxyOutcome) {
 ///   write some events has gaps in its timeline.
 ///
 /// `--json` emits a stable object with a per-check array for scripting.
+/// `--capture` appends a capture-health report for the most recent session
+/// (see `capture_health`); with `--json` it adds a `capture` object.
 fn doctor_command(args: &cli::DoctorArgs) -> anyhow::Result<ExitCode> {
     let (store, paths, _config) = open_store()?;
     let cwd = std::env::current_dir().unwrap_or_else(|_| PathBuf::from("."));
@@ -401,17 +404,32 @@ fn doctor_command(args: &cli::DoctorArgs) -> anyhow::Result<ExitCode> {
         check_dropped_events(&store),
     ];
     let any_failed = checks.iter().any(|c| !c.passed);
+    // `--capture`: an informational report on the most recent session's
+    // file-effect capture. It does not change the exit code (the checks do).
+    let capture = if args.capture {
+        Some(capture_health::build(&store)?)
+    } else {
+        None
+    };
 
     if args.json {
         let arr: Vec<serde_json::Value> = checks.iter().map(doctor_check_to_json).collect();
-        let obj = serde_json::json!({
+        let mut obj = serde_json::json!({
             "schema": inspect::SCHEMA_VERSION,
             "status": if any_failed { "fail" } else { "ok" },
             "checks": arr,
         });
+        if let Some(report) = &capture {
+            obj["capture"] = capture_health::to_json(report);
+        }
         println!("{obj}");
     } else {
-        print!("{}", render_doctor_plain(&checks, render::use_color()));
+        let color = render::use_color();
+        print!("{}", render_doctor_plain(&checks, color));
+        if let Some(report) = &capture {
+            println!();
+            print!("{}", capture_health::render_plain(report, color));
+        }
     }
 
     Ok(if any_failed {

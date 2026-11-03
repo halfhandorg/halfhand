@@ -1,0 +1,13 @@
+---
+source: hh/src/capture_health.rs
+expression: "render_plain(&r, false)"
+---
+capture health — session 0190aa (error, exit 3)
+  ● watched roots           /home/me/work  the session cwd; whether the watch succeeded is not persisted
+  ● observed live           —              not persisted per event
+  ● recovered by rescan     —              not persisted per event
+  ● file changes            5              2 created, 2 modified, 1 deleted; 1 renamed
+  ✓ dropped events          0
+  ● permission denied       —              not persisted; `hh run` prints a warning when a watch is refused
+  ✓ before-side coverage    100%           3 of 3 modified/deleted changes have a real before-side
+  ✓ inotify watch headroom  65000 free     536 of 65536 watches in use by this user

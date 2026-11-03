@@ -1,0 +1,6 @@
+---
+source: hh/src/capture_health.rs
+expression: "render_plain(&r, false)"
+---
+capture health — no recorded sessions yet (run `hh run -- <agent>` first)
+  ✓ inotify watch headroom  65000 free  536 of 65536 watches in use by this user

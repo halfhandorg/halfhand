@@ -188,6 +188,7 @@ They are documented in full on their own pages:
 |---|---|---|
 | `hh inspect --context --json` | `{ schema, session, name, model: {…}, context_used: {…}, usage: {…}, estimated: {…}, messages: {…}, …, estimated_cost_usd, models: […] }` | [`docs/context.md`](context.md) |
 | `hh doctor --json` | `{ schema, status, checks: [{ name, status, detail }] }` | [`docs/doctor.md`](doctor.md) |
+| `hh doctor --capture --json` | the `hh doctor --json` object plus `capture: { session, watched_roots, events_live, events_reconciled, file_changes, dropped_events, dropped_events_reason, permission_denied, before_side_coverage, platform }`; unknown facts are `null` | [`docs/capture.md`](capture.md) |
 | `hh gc --json` | `{ schema, orphan_files_removed, orphan_bytes_reclaimed, orphan_rows_removed, vacuumed }` | [`docs/gc.md`](gc.md) |
 | `hh stats --json` | `{ schema, sessions, events, blobs: {…}, disk: {…}, largest_sessions: [{ id, short_id, events }] }` | [`docs/stats.md`](stats.md) |
 | `hh scan --json` | `{ schema, total_findings, sessions: [{ id, short_id, findings: [{ type, hash8, count, event_id, step, event_kind, location }] }] }` — findings never contain the secret; `hash8` correlates one secret across rows | [`docs/redaction.md`](redaction.md) |

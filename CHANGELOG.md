@@ -11,6 +11,28 @@ in CI rather than tracking `latest` until 1.0.
 
 ## [Unreleased]
 
+### Added — `hh doctor --capture` and a capture-fidelity test harness
+
+- **`hh doctor --capture`** prints a capture-health report for the most
+  recent session after the usual checks. It shows the watched root, file
+  changes by kind, dropped events, and **before-side coverage**: the share
+  of modified and deleted files whose diff has a real before-side. It also
+  runs a per-platform probe: free inotify watches on Linux, a root blocked
+  by privacy permissions on macOS, and event-buffer overflow on Windows.
+  The report is informational and does not change the exit code. See
+  `docs/capture.md`.
+- **Unknown is a dash, never 0.** Facts the recorder does not store print
+  as `—`. These are which changes were observed live versus recovered at
+  exit, refused watches, and Windows overflow signals.
+- **`hh doctor --capture --json`** adds a `capture` object to the doctor
+  JSON. Unknown facts are `null`. No existing field changes, and without
+  `--capture` the output is the same as before.
+- **Capture-fidelity tests** (`hh/tests/fidelity.rs`). A fixture agent
+  creates two files, edits one line of an existing file, renames a file,
+  deletes a file, runs a command and exits 3. The test records it with
+  `hh run`, in a git repository and outside one, and checks every recorded
+  row and blob against that list.
+
 ### Added — session context: model, provider, duration and token cost
 
 - **`hh inspect --context`** prints a panel with the session's name, model,

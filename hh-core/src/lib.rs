@@ -51,7 +51,8 @@ pub use redact::{Detectors, Finding, SecretKind};
 pub use step::assign_steps;
 pub use store::{
     CreatedSession, DroppedEvents, EventWriter, FindingLocation, LargestSession, PruneStats,
-    RedactOutcome, ScanFinding, SearchFilters, SearchResult, SecretSummary, Store, StoreStats,
+    RedactOutcome, ScanFinding, SearchFilters, SearchResult, SecretSummary, SessionCapture, Store,
+    StoreStats,
 };
 pub use timeline::{build_timeline, StepEntry, TerminalSegment, TimelineRow};
 pub use usage::{ModelSpan, SessionContext, TokenSample};

@@ -31,6 +31,17 @@ modes behind that class of silent breakage.
 | `watcher smoke test` | `notify` delivers a file-change event on this platform | A watcher that silently never fires explains `0 files changed`. |
 | `dropped events` | None of the 20 most recent sessions dropped events it could not write | Lists each affected session with its count, plus the first cause (e.g. `database or disk is full`). Those sessions are marked degraded (`⚠` in `hh list`) and have gaps in their timelines. Free disk space / fix data-dir permissions; the check passes again once the affected sessions are no longer among the 20 most recent, or are deleted with `hh delete`. See [Recording → Dropped events](recording.md#dropped-events-and-the--marker). |
 
+## `--capture`
+
+`hh doctor --capture` runs the same checks, then prints a capture-health
+report for the most recent session: the watched root, events observed live
+versus recovered at exit, dropped events, permission problems, **before-side
+coverage** (how many modified/deleted files have a real before-side), and a
+per-platform probe (inotify watch headroom on Linux, a privacy-blocked root on
+macOS, event-buffer overflow on Windows). Values the recorder does not store
+print as `—`, never `0`. It does not change the exit code. With `--json` it
+adds a `capture` object. See [Effect capture & capture health](capture.md).
+
 ## `--json`
 
 `hh doctor --json` emits a stable, documented object (carrying `schema:2`)
