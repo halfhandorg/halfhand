@@ -1,0 +1,13 @@
+---
+source: hh/src/capture_health.rs
+expression: out
+---
+capture health — session 0190aa (error, exit 3)
+  ● watched roots          /home/me/work  the session cwd; whether the watch succeeded is not persisted
+  ● observed live          —              not persisted per event
+  ● recovered by rescan    —              not persisted per event
+  ● file changes           5              2 created, 2 modified, 1 deleted; 1 renamed
+  ✗ dropped events         4              first cause: database or disk is full — check free disk space and data-dir permissions
+  ● permission denied      —              not persisted; `hh run` prints a warning when a watch is refused
+  ● before-side coverage   —              no modified or deleted changes with recorded provenance; 2 recorded before provenance existed, excluded
+  ● event-buffer overflow  —              overflow signals are not persisted
