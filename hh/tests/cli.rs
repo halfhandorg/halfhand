@@ -370,6 +370,8 @@ fn run_marks_stale_recording_sessions_interrupted_on_next_open() {
     // 'interrupted' the next time hh opens the store. We simulate a crashed
     // session by inserting a 'recording' row with no ended_at directly, then
     // run a fresh `hh run` and assert the stale row flipped to 'interrupted'.
+    // The row has no recorder identity (a pre-migration-0008 row), which keeps
+    // the pre-0008 reconcile behaviour.
     let temp = Temp::new();
 
     // First, open the store once so the schema exists, then insert a stale row.
@@ -401,6 +403,122 @@ fn run_marks_stale_recording_sessions_interrupted_on_next_open() {
         stale_status, "interrupted",
         "stale recording session should be marked interrupted on next open"
     );
+}
+
+/// Migration 0008: running a second `hh` command while a recording is live
+/// must not flip the live session to `interrupted`. The fixture prints a
+/// marker once it is running under `hh run`, then blocks on stdin; the test
+/// waits on that output (no sleeps), runs `hh list`, checks the session is
+/// still `recording`, then releases the fixture and checks it finalizes `ok`.
+/// Unix-only: the fixture is a POSIX `sh` script.
+#[cfg(unix)]
+#[test]
+fn second_hh_command_does_not_interrupt_a_live_recording() {
+    use std::io::{BufRead, BufReader, Write};
+    let temp = Temp::new();
+    let fx = fixture("live_recording.sh").to_string_lossy().to_string();
+    let mut child = hh()
+        .args(["run", "--", "sh", &fx])
+        .env("HH_DATA_DIR", temp.data.path())
+        .current_dir(temp.work.path())
+        .stdin(Stdio::piped())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .spawn()
+        .expect("spawn hh run");
+
+    // Block until the wrapped program is running (the session row is created
+    // before the child is spawned).
+    let mut stdout = BufReader::new(child.stdout.take().expect("piped stdout"));
+    let mut seen = String::new();
+    loop {
+        let mut line = String::new();
+        let n = stdout.read_line(&mut line).expect("read hh run stdout");
+        assert!(n > 0, "hh run exited before the fixture was ready: {seen}");
+        seen.push_str(&line);
+        if line.contains("HH_LIVE_READY") {
+            break;
+        }
+    }
+
+    for args in [&["list"][..], &["list", "--json"][..]] {
+        let out = hh()
+            .args(args)
+            .env("HH_DATA_DIR", temp.data.path())
+            .output()
+            .expect("hh list should run");
+        assert!(
+            out.status.success(),
+            "hh {args:?} failed: {}",
+            String::from_utf8_lossy(&out.stderr)
+        );
+        let status: String = open_db(temp.data.path())
+            .query_row("SELECT status FROM sessions", [], |r| r.get(0))
+            .unwrap();
+        assert_eq!(
+            status, "recording",
+            "`hh {args:?}` during a live recording must leave it recording"
+        );
+    }
+
+    // Release the fixture; the recording then finishes normally.
+    {
+        let mut stdin = child.stdin.take().expect("piped stdin");
+        stdin.write_all(b"go\n").unwrap();
+    }
+    let mut rest = String::new();
+    std::io::Read::read_to_string(&mut stdout, &mut rest).unwrap();
+    let status = child.wait().expect("wait for hh run");
+    assert!(
+        status.success(),
+        "hh run should exit 0; output: {seen}{rest}"
+    );
+    let (status, ended_at): (String, Option<i64>) = open_db(temp.data.path())
+        .query_row("SELECT status, ended_at FROM sessions", [], |r| {
+            Ok((r.get(0)?, r.get(1)?))
+        })
+        .unwrap();
+    assert_eq!(status, "ok");
+    assert!(ended_at.is_some());
+}
+
+/// Migration 0008: a session whose recorder crashed — its recorded pid is
+/// held by no process — is reconciled to `interrupted` by the next `hh`
+/// command. The "crash" is simulated with the pid of a child that has
+/// already exited and been reaped.
+#[cfg(unix)]
+#[test]
+fn session_with_dead_recorder_pid_is_marked_interrupted() {
+    let temp = Temp::new();
+    let mut gone = Command::new("true").spawn().expect("spawn true");
+    let dead_pid = i64::from(gone.id());
+    gone.wait().expect("reap true");
+    {
+        let conn = open_db_after_init(temp.data.path());
+        conn.execute(
+            "INSERT INTO sessions (id, short_id, started_at, status, agent_kind,
+                                    adapter_status, command, cwd, hh_version,
+                                    recorder_pid, recorder_start_time)
+             VALUES ('dead-recorder-0', 'dead00', 1234, 'recording', 'generic',
+                     'none', '[]', '/tmp', 'test', ?1, 1)",
+            [dead_pid],
+        )
+        .unwrap();
+    }
+    let out = hh()
+        .args(["list"])
+        .env("HH_DATA_DIR", temp.data.path())
+        .output()
+        .expect("hh list should run");
+    assert!(out.status.success());
+    let status: String = open_db(temp.data.path())
+        .query_row(
+            "SELECT status FROM sessions WHERE id = 'dead-recorder-0'",
+            [],
+            |r| r.get(0),
+        )
+        .unwrap();
+    assert_eq!(status, "interrupted");
 }
 
 /// Ensure the DB exists (run a trivial `hh run` and tear it down) — actually we
@@ -1041,9 +1159,9 @@ fn mcp_proxy_attaches_to_existing_session() {
 
     let conn = open_db(temp.data.path());
     // The proxy did NOT finalize the parent: no ended_at, and the status is not
-    // a finalized one. (The proxy's own `open_store` runs `mark_stale_interrupted`,
-    // which may flip `recording` → `interrupted` — that is a separate, pre-existing
-    // cross-process behavior, not the proxy finalizing.)
+    // a finalized one. (The proxy's own `open_store` runs `mark_stale_interrupted`;
+    // since migration 0008 that leaves the parent `recording`, because its
+    // recorder — this test process — is alive.)
     let (status, ended_at): (String, Option<i64>) = conn
         .query_row(
             "SELECT status, ended_at FROM sessions WHERE id = ?1",
@@ -1055,9 +1173,9 @@ fn mcp_proxy_attaches_to_existing_session() {
         ended_at.is_none(),
         "attached proxy must not set ended_at on the parent (got {ended_at:?})"
     );
-    assert!(
-        status != "ok" && status != "error",
-        "attached proxy must not finalize the parent (status is {status})"
+    assert_eq!(
+        status, "recording",
+        "attached proxy must neither finalize nor interrupt the live parent"
     );
 
     // MCP events landed in the parent session.
