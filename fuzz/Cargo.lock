@@ -581,6 +581,7 @@ version = "1.1.0"
 dependencies = [
  "blake3",
  "directories",
+ "libc",
  "regex",
  "rusqlite",
  "serde",
@@ -590,6 +591,7 @@ dependencies = [
  "time",
  "toml",
  "uuid",
+ "windows-sys 0.61.2",
  "zstd",
 ]
 

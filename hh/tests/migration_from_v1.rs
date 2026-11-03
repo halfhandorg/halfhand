@@ -131,7 +131,7 @@ fn v1_1_database_upgrades_to_0007_without_data_loss() {
             r.get(0)
         })
         .unwrap();
-    assert_eq!(v, 7);
+    assert_eq!(v, hh_core::migrations::LATEST_VERSION);
     let session_cols = columns(&conn, "sessions");
     for c in [
         "name",
@@ -146,6 +146,9 @@ fn v1_1_database_upgrades_to_0007_without_data_loss() {
         "reasoning_tokens",
         "capture_tier",
         "adapter_id",
+        // Migration 0008 (recorder identity) also lands on this upgrade.
+        "recorder_pid",
+        "recorder_start_time",
     ] {
         assert_eq!(
             session_cols.iter().filter(|n| *n == c).count(),

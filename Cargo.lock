@@ -728,6 +728,7 @@ dependencies = [
  "criterion",
  "directories",
  "insta",
+ "libc",
  "proptest",
  "regex",
  "rusqlite",
@@ -739,6 +740,7 @@ dependencies = [
  "time",
  "toml",
  "uuid",
+ "windows-sys 0.61.2",
  "zstd",
 ]
 

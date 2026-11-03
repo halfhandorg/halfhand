@@ -552,6 +552,9 @@ impl Store {
         // Migration 0007 (DR-4): the session-context columns, each behind a
         // `PRAGMA table_info` check.
         add_session_context_columns(&conn)?;
+        // Migration 0008 (DR-4): the recorder-identity columns, each behind a
+        // `PRAGMA table_info` check.
+        add_recorder_identity_columns(&conn)?;
         let store = Self {
             conn,
             blobs: BlobStore::new(blobs_dir.to_path_buf()),
@@ -716,17 +719,23 @@ impl Store {
     }
 
     /// Create a new session row (FR-1.2).
+    ///
+    /// The calling process is recorded as the session's recorder (its pid and
+    /// start time, migration 0008): whoever creates a `recording` session is
+    /// the process whose liveness [`Self::mark_stale_interrupted`] checks.
     pub fn create_session(&self, new: &NewSession) -> Result<CreatedSession> {
         let id = new.id.to_string();
         let short_id = new.short_id();
         let command_json = serde_json::to_string(&new.command).map_err(|e| {
             StorageError::Sqlite(rusqlite::Error::ToSqlConversionFailure(Box::new(e)))
         })?;
+        let recorder = crate::liveness::ProcessIdentity::current();
         self.conn.execute(
             "INSERT INTO sessions
                (id, short_id, started_at, status, agent_kind, adapter_status,
-                command, cwd, hostname, hh_version, model, git_branch, git_sha, git_dirty)
-             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14)",
+                command, cwd, hostname, hh_version, model, git_branch, git_sha, git_dirty,
+                recorder_pid, recorder_start_time)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16)",
             params![
                 id,
                 short_id,
@@ -742,6 +751,8 @@ impl Store {
                 new.git_branch,
                 new.git_sha,
                 new.git_dirty.map(i64::from),
+                i64::from(recorder.pid),
+                recorder.start_time,
             ],
         )?;
         Ok(CreatedSession { id, short_id })
@@ -2200,25 +2211,54 @@ impl Store {
         Ok(())
     }
 
-    /// Mark any sessions still in `recording` status as `interrupted`
-    /// (FR-1.7 crash-safety). Called on `Store::open` so a crashed `hh run`
-    /// is readable on the next invocation.
+    /// Mark sessions left in `recording` status by a recorder that is no
+    /// longer running as `interrupted` (FR-1.7 crash-safety: "missing end
+    /// timestamp + no live PID"). Called by every `hh` invocation after
+    /// opening the store, so a crashed `hh run` is readable on the next one.
+    /// Returns how many sessions were marked.
     ///
-    /// # SRS deviation (flagged)
+    /// A session is marked only when its recorder is provably gone: no process
+    /// holds the recorded `recorder_pid`, or the one that does has a different
+    /// start time (the pid was reused). A live recording in another terminal
+    /// is left alone. When liveness cannot be determined (unsupported
+    /// platform, permission denied, `/proc` unavailable) the session is left
+    /// `recording` — fail safe.
     ///
-    /// FR-1.7 says "detected via missing end timestamp + no live PID". The
-    /// SRS schema (§4.1 `sessions`) has no PID column, so we cannot check
-    /// liveness; we mark *all* `recording` sessions as `interrupted` on open.
-    /// This is correct for the common case (one `hh` at a time) but would
-    /// mis-mark a genuinely-live recording if two `hh run`s share a data dir
-    /// — which the SRS does not support in v0.1 anyway. See the decisions
-    /// summary.
+    /// A row from before migration 0008 has no recorded identity and keeps
+    /// the pre-0008 behaviour: it is marked `interrupted`. Such a row can only
+    /// belong to a live recording if an older `hh` is recording against the
+    /// upgraded data dir at this moment.
     pub fn mark_stale_interrupted(&self) -> Result<usize> {
-        let updated = self.conn.execute(
-            "UPDATE sessions SET status = 'interrupted'
-             WHERE status = 'recording' AND ended_at IS NULL",
-            [],
-        )?;
+        let candidates: Vec<(String, Option<i64>, Option<i64>)> = {
+            let mut stmt = self.conn.prepare(
+                "SELECT id, recorder_pid, recorder_start_time FROM sessions
+                 WHERE status = 'recording' AND ended_at IS NULL",
+            )?;
+            let rows = stmt.query_map([], |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?)))?;
+            rows.collect::<std::result::Result<_, _>>()?
+        };
+        let mut updated = 0;
+        for (id, pid, start) in candidates {
+            let stale = match pid {
+                None => true,
+                Some(pid) => match u32::try_from(pid) {
+                    Ok(pid) => {
+                        crate::liveness::check(pid, start) == crate::liveness::Liveness::Gone
+                    }
+                    // Not a pid this platform could have written: unknown.
+                    Err(_) => false,
+                },
+            };
+            if stale {
+                // Re-check the status in the UPDATE: the recorder may have
+                // finalized the session since the SELECT.
+                updated += self.conn.execute(
+                    "UPDATE sessions SET status = 'interrupted'
+                     WHERE id = ?1 AND status = 'recording' AND ended_at IS NULL",
+                    params![id],
+                )?;
+            }
+        }
         Ok(updated)
     }
 
@@ -2858,6 +2898,25 @@ fn add_session_context_columns(conn: &Connection) -> Result<()> {
                 // presenting it as one would be wrong.
                 conn.execute_batch("UPDATE sessions SET model_id = model WHERE model IS NOT NULL")?;
             }
+        }
+    }
+    Ok(())
+}
+
+/// Idempotently add migration 0008's recorder-identity columns
+/// ([`crate::migrations::RECORDER_IDENTITY_COLUMNS`]) to `sessions`, each
+/// behind a `PRAGMA table_info` check: a no-op on a migrated DB, completes a
+/// partially-applied one, safe on every `Store::open` (DR-4). Existing rows
+/// keep NULL (recorder unknown); nothing is backfilled.
+fn add_recorder_identity_columns(conn: &Connection) -> Result<()> {
+    let names: Vec<String> = {
+        let mut stmt = conn.prepare("PRAGMA table_info(sessions)")?;
+        let rows = stmt.query_map([], |r| r.get::<_, String>(1))?;
+        rows.collect::<std::result::Result<_, _>>()?
+    };
+    for &(column, ty) in crate::migrations::RECORDER_IDENTITY_COLUMNS {
+        if !names.iter().any(|n| n == column) {
+            conn.execute_batch(&format!("ALTER TABLE sessions ADD COLUMN {column} {ty}"))?;
         }
     }
     Ok(())
@@ -3615,13 +3674,19 @@ mod tests {
                      DELETE FROM schema_migrations WHERE version >= 6;",
                 )
                 .unwrap();
-            for (column, _) in crate::migrations::SESSION_CONTEXT_COLUMNS {
+            // Create the legacy row while every column still exists, then drop
+            // 0007's and 0008's columns (pre-0006 is also pre-0008) so the
+            // re-added columns come back in fresh-DB order.
+            sid = store.create_session(&new_session()).unwrap().id;
+            for (column, _) in crate::migrations::SESSION_CONTEXT_COLUMNS
+                .iter()
+                .chain(crate::migrations::RECORDER_IDENTITY_COLUMNS)
+            {
                 store
                     .conn
                     .execute_batch(&format!("ALTER TABLE sessions DROP COLUMN {column}"))
                     .unwrap();
             }
-            sid = store.create_session(&new_session()).unwrap().id;
             store
                 .conn
                 .execute(
@@ -5076,6 +5141,230 @@ mod tests {
                 prop_assert!(store.blobs().iter_hashes().unwrap().is_empty(), "gc reclaims every blob");
                 let rows: i64 = store.conn.query_row("SELECT COUNT(*) FROM blobs", [], |r| r.get(0)).unwrap();
                 prop_assert_eq!(rows, 0);
+            }
+        }
+    }
+
+    /// Read a session's status straight from the row.
+    fn status_of(store: &Store, id: &str) -> String {
+        store
+            .conn
+            .query_row("SELECT status FROM sessions WHERE id = ?1", [id], |r| {
+                r.get(0)
+            })
+            .unwrap()
+    }
+
+    /// Overwrite a session's recorded recorder identity.
+    fn set_recorder(store: &Store, id: &str, pid: Option<i64>, start: Option<i64>) {
+        store
+            .conn
+            .execute(
+                "UPDATE sessions SET recorder_pid = ?1, recorder_start_time = ?2 WHERE id = ?3",
+                params![pid, start, id],
+            )
+            .unwrap();
+    }
+
+    #[test]
+    fn create_session_records_the_calling_process_as_recorder() {
+        let (_tmp, store) = open_store();
+        let id = store.create_session(&new_session()).unwrap().id;
+        let (pid, start): (i64, Option<i64>) = store
+            .conn
+            .query_row(
+                "SELECT recorder_pid, recorder_start_time FROM sessions WHERE id = ?1",
+                [&id],
+                |r| Ok((r.get(0)?, r.get(1)?)),
+            )
+            .unwrap();
+        assert_eq!(pid, i64::from(std::process::id()));
+        #[cfg(any(target_os = "linux", target_os = "macos", windows))]
+        assert!(start.is_some(), "start time is readable on this platform");
+        let _ = start;
+    }
+
+    /// The bug this fixes: a second `hh` invocation (here, the same store
+    /// reconciling) must not interrupt a recording whose recorder is alive.
+    #[test]
+    fn mark_stale_interrupted_leaves_live_recordings_alone() {
+        let (_tmp, store) = open_store();
+        let id = store.create_session(&new_session()).unwrap().id;
+        assert_eq!(store.mark_stale_interrupted().unwrap(), 0);
+        assert_eq!(status_of(&store, &id), "recording");
+    }
+
+    /// A crashed recorder: the recorded pid is held by no process.
+    #[cfg(any(target_os = "linux", target_os = "macos", windows))]
+    #[test]
+    fn mark_stale_interrupted_marks_a_dead_recorder() {
+        let (_tmp, store) = open_store();
+        let id = store.create_session(&new_session()).unwrap().id;
+        let pid = exited_pid();
+        set_recorder(&store, &id, Some(pid), Some(1));
+        assert_eq!(store.mark_stale_interrupted().unwrap(), 1);
+        assert_eq!(status_of(&store, &id), "interrupted");
+    }
+
+    /// PID reuse: the recorded pid exists (it is this test process) but its
+    /// start time differs from the recorded one, so it is a different process.
+    #[cfg(any(target_os = "linux", target_os = "macos", windows))]
+    #[test]
+    fn mark_stale_interrupted_treats_a_reused_pid_as_gone() {
+        let (_tmp, store) = open_store();
+        let id = store.create_session(&new_session()).unwrap().id;
+        let start: i64 = store
+            .conn
+            .query_row(
+                "SELECT recorder_start_time FROM sessions WHERE id = ?1",
+                [&id],
+                |r| r.get(0),
+            )
+            .unwrap();
+        set_recorder(
+            &store,
+            &id,
+            Some(i64::from(std::process::id())),
+            Some(start - 1),
+        );
+        assert_eq!(store.mark_stale_interrupted().unwrap(), 1);
+        assert_eq!(status_of(&store, &id), "interrupted");
+    }
+
+    /// Fail safe: a live pid with no recorded start time cannot be confirmed
+    /// either way, and an out-of-range pid is not one this platform wrote;
+    /// both stay `recording`.
+    #[test]
+    fn mark_stale_interrupted_fails_safe_when_identity_is_unverifiable() {
+        let (_tmp, store) = open_store();
+        let a = store.create_session(&new_session()).unwrap().id;
+        set_recorder(&store, &a, Some(i64::from(std::process::id())), None);
+        let b = store.create_session(&new_session()).unwrap().id;
+        set_recorder(&store, &b, Some(-7), Some(1));
+        assert_eq!(store.mark_stale_interrupted().unwrap(), 0);
+        assert_eq!(status_of(&store, &a), "recording");
+        assert_eq!(status_of(&store, &b), "recording");
+    }
+
+    /// A pre-0008 row (no recorder identity) keeps the pre-0008 behaviour, and
+    /// finalized sessions are never touched.
+    #[test]
+    fn mark_stale_interrupted_reconciles_legacy_rows_only() {
+        let (_tmp, store) = open_store();
+        let legacy = store.create_session(&new_session()).unwrap().id;
+        set_recorder(&store, &legacy, None, None);
+        let done = store.create_session(&new_session()).unwrap().id;
+        set_recorder(&store, &done, None, None);
+        store
+            .finalize_session(&done, 2, Some(0), SessionStatus::Ok)
+            .unwrap();
+        assert_eq!(store.mark_stale_interrupted().unwrap(), 1);
+        assert_eq!(status_of(&store, &legacy), "interrupted");
+        assert_eq!(status_of(&store, &done), "ok");
+    }
+
+    /// The pid of a child process that has exited and been reaped.
+    #[cfg(any(target_os = "linux", target_os = "macos", windows))]
+    fn exited_pid() -> i64 {
+        #[cfg(unix)]
+        let mut cmd = std::process::Command::new("true");
+        #[cfg(windows)]
+        let mut cmd = {
+            let mut c = std::process::Command::new("cmd");
+            c.args(["/C", "exit 0"]);
+            c
+        };
+        let mut child = cmd.spawn().unwrap();
+        let pid = i64::from(child.id());
+        child.wait().unwrap();
+        pid
+    }
+
+    /// Migration 0008 property test (DR-4): from a pre-0008 database holding
+    /// any subset of the 0008 columns, any number of reopens ends with every
+    /// column present exactly once, `schema_migrations` at the latest version,
+    /// surviving recorder values intact and re-added ones NULL (unknown) —
+    /// and a NULL-identity row still reconciles like a pre-0008 one.
+    mod migration_0008_prop {
+        use crate::migrations::RECORDER_IDENTITY_COLUMNS;
+        use proptest::prelude::*;
+        use rusqlite::params;
+        use tempfile::TempDir;
+
+        fn session_columns(conn: &rusqlite::Connection) -> Vec<String> {
+            let mut stmt = conn.prepare("PRAGMA table_info(sessions)").unwrap();
+            stmt.query_map([], |r| r.get::<_, String>(1))
+                .unwrap()
+                .collect::<std::result::Result<_, _>>()
+                .unwrap()
+        }
+
+        proptest! {
+            #![proptest_config(ProptestConfig { cases: 32, ..ProptestConfig::default() })]
+
+            #[test]
+            fn any_partial_0008_converges_without_data_loss(
+                keep_mask in 0u8..(1 << 2),
+                extra_opens in 1usize..5,
+                start in 1i64..i64::MAX,
+            ) {
+                let tmp = TempDir::new().unwrap();
+                let db = tmp.path().join("hh.db");
+                let blobs = tmp.path().join("blobs");
+                let sid;
+                let expected_columns;
+                let pid = i64::from(std::process::id());
+                {
+                    let store = crate::store::Store::open(&db, &blobs).unwrap();
+                    expected_columns = {
+                        let mut c = session_columns(&store.conn);
+                        c.sort();
+                        c
+                    };
+                    sid = store.create_session(&super::new_session()).unwrap().id;
+                    store
+                        .conn
+                        .execute(
+                            "UPDATE sessions SET recorder_start_time = ?1 WHERE id = ?2",
+                            params![start, sid],
+                        )
+                        .unwrap();
+                    for (i, (column, _)) in RECORDER_IDENTITY_COLUMNS.iter().enumerate() {
+                        if keep_mask & (1 << i) == 0 {
+                            store
+                                .conn
+                                .execute_batch(&format!("ALTER TABLE sessions DROP COLUMN {column}"))
+                                .unwrap();
+                        }
+                    }
+                    store
+                        .conn
+                        .execute_batch("DELETE FROM schema_migrations WHERE version >= 8")
+                        .unwrap();
+                }
+                for _ in 0..extra_opens {
+                    let store = crate::store::Store::open(&db, &blobs).unwrap();
+                    let mut cols = session_columns(&store.conn);
+                    cols.sort();
+                    prop_assert_eq!(&cols, &expected_columns, "every column exactly once");
+                    let v: i64 = store
+                        .conn
+                        .query_row("SELECT MAX(version) FROM schema_migrations", [], |r| r.get(0))
+                        .unwrap();
+                    prop_assert_eq!(v, crate::migrations::LATEST_VERSION);
+                    let (got_pid, got_start): (Option<i64>, Option<i64>) = store
+                        .conn
+                        .query_row(
+                            "SELECT recorder_pid, recorder_start_time FROM sessions WHERE id = ?1",
+                            [&sid],
+                            |r| Ok((r.get(0)?, r.get(1)?)),
+                        )
+                        .unwrap();
+                    prop_assert_eq!(got_pid, (keep_mask & 1 != 0).then_some(pid));
+                    prop_assert_eq!(got_start, (keep_mask & 2 != 0).then_some(start));
+                    let row = store.get_session(&sid).unwrap();
+                    prop_assert_eq!(&row.command, &vec!["claude".to_string()]);
+                }
             }
         }
     }

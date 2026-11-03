@@ -184,6 +184,9 @@ hh inspect last                     # still readable
 - [ ] **Linux**: The SIGKILLed session shows `status: interrupted` (or
   equivalent) in `hh list`, and `hh inspect last` reads it back without
   erroring — no partial-write corruption, no orphaned blob crash.
+- [ ] **Linux / macOS / Windows**: While `hh run -- sleep 60` records in one
+  terminal, `hh list` in another shows that session as `recording`, not
+  `interrupted`.
 
 ---
 

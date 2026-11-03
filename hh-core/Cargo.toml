@@ -63,6 +63,18 @@ thiserror = "1"
 # network, no unsafe in the read/write paths this crate uses.
 tar = "0.4"
 
+# Justification (recorder liveness, migration 0008): checking whether the `hh`
+# process recording a session is still alive needs the OS process table. Linux
+# reads /proc with std alone; macOS needs `proc_pidinfo` (libc) and Windows
+# needs `OpenProcess`/`GetProcessTimes` (windows-sys). Both crates are already
+# in the dependency graph (via blake3/dirs-sys and clap), so no new crate is
+# added. Never shells out.
+[target.'cfg(target_os = "macos")'.dependencies]
+libc = "0.2"
+
+[target.'cfg(windows)'.dependencies]
+windows-sys = { version = "0.61", features = ["Win32_Foundation", "Win32_System_Threading"] }
+
 [dev-dependencies]
 tempfile = "3"
 # Justification: snapshot tests of the Claude adapter's pure parser output

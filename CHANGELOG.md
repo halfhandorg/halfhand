@@ -48,6 +48,23 @@ flags, JSON fields, exit codes or schema changes. See
   the new `FileChangeEntry` type) and `Store::failed_tool_result_ids`.
   Both are additive.
 
+### Fixed — a second `hh` command interrupted the live recording
+
+- Running any `hh` command (for example `hh list`) while `hh run` was
+  recording in another terminal flipped the live session to `interrupted`.
+  Every invocation marked all `recording` sessions interrupted without
+  checking whether their recorder was still running.
+- Sessions now record the recording process's id and start time
+  (migration 0008: nullable `sessions.recorder_pid` and
+  `sessions.recorder_start_time`, added idempotently). A session is marked
+  `interrupted` only when no process has that id, or the process that has it
+  started at a different time (the id was reused). Liveness is checked on
+  Linux, macOS and Windows without shelling out. Where it cannot be
+  determined, the session stays `recording` rather than being wrongly
+  marked `interrupted`.
+- Sessions recorded before this release have no recorder identity and are
+  reconciled as before. See `docs/recording.md` (Session status).
+
 ### Added — `hh doctor --capture` and a capture-fidelity test harness
 
 - **`hh doctor --capture`** prints a capture-health report for the most

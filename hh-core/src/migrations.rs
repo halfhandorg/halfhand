@@ -11,7 +11,7 @@
 //! STABILITY.md's policy instead.
 
 /// The highest migration version applied by a fresh [`crate::store::Store::open`].
-pub const LATEST_VERSION: i64 = 7;
+pub const LATEST_VERSION: i64 = 8;
 
 /// The ordered migration set: `(version, DDL)`. Applied in ascending order;
 /// each is run only when the DB's recorded `schema_migrations.version` is below
@@ -34,6 +34,9 @@ pub const LATEST_VERSION: i64 = 7;
 /// Migration 0007 is all Rust: `Store::open` adds the
 /// [`SESSION_CONTEXT_COLUMNS`] behind `PRAGMA table_info` checks; its SQL file
 /// only documents them.
+///
+/// Migration 0008 is all Rust too: `Store::open` adds the
+/// [`RECORDER_IDENTITY_COLUMNS`] the same way.
 pub const MIGRATIONS: &[(i64, &str)] = &[
     (1, include_str!("migrations/0001_initial.sql")),
     (2, include_str!("migrations/0002_events_heal_index.sql")),
@@ -48,6 +51,7 @@ pub const MIGRATIONS: &[(i64, &str)] = &[
         include_str!("migrations/0006_file_change_before_source.sql"),
     ),
     (7, include_str!("migrations/0007_session_context.sql")),
+    (8, include_str!("migrations/0008_recorder_identity.sql")),
 ];
 
 /// Migration 0007's `sessions` columns, as `(name, SQLite type)`, in the
@@ -67,6 +71,17 @@ pub const SESSION_CONTEXT_COLUMNS: &[(&str, &str)] = &[
     ("reasoning_tokens", "INTEGER"),
     ("capture_tier", "TEXT"),
     ("adapter_id", "TEXT"),
+];
+
+/// Migration 0008's `sessions` columns, as `(name, SQLite type)`: the
+/// recording process's id and its platform start-time token. Together they
+/// let `Store::mark_stale_interrupted` tell a live recording from a crashed
+/// one even when the pid has been reused. Added behind `PRAGMA table_info`
+/// checks like [`SESSION_CONTEXT_COLUMNS`]; both nullable, and NULL (a
+/// pre-0008 row) means the recorder is unknown.
+pub const RECORDER_IDENTITY_COLUMNS: &[(&str, &str)] = &[
+    ("recorder_pid", "INTEGER"),
+    ("recorder_start_time", "INTEGER"),
 ];
 
 /// Migration 0001: the v0.1.0-beta.1 schema, verbatim from SRS §4.1.
