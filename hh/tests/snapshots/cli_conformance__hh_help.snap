@@ -12,6 +12,7 @@ outputs — use `hh delete` to remove them.
 Usage: hh <COMMAND>
 
 Commands:
+  init         Set up Halfhand: create the data directory and a starter config
   run          Record an agent session inside a PTY
   replay       Faithfully play back a recorded session in an interactive TUI
   inspect      Print non-interactive detail about a session

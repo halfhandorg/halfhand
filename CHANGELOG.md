@@ -11,6 +11,59 @@ in CI rather than tracking `latest` until 1.0.
 
 ## [Unreleased]
 
+**At a glance** (details in the sections below):
+
+- **New:** `hh init` for an explained first-time setup; `hh doctor --capture`
+  for capture health; `hh inspect --context` for model, provider, duration
+  and token cost; `hh replay --web --open` / `--no-open` / `-o -`;
+  `[record] baseline_budget`; `[export] html_terminal_max_bytes`.
+- **Fixed:** a second `hh` command no longer marks a live recording
+  `interrupted`; failed event writes are counted and the session is marked
+  degraded instead of being silently discarded; HTML replay pages include
+  terminal output; diffs of the first change to a pre-existing file have a
+  real before-side; Claude Desktop sessions record structured steps.
+- **Changed:** the `hh replay` TUI is rebuilt around diffs, a session header,
+  files touched and moments (no new flags or fields); `hh replay --web`
+  writes to `<data dir>/exports/`; docs moved to halfhand.org/docs; MSRV is
+  1.88; `--help` text no longer shows internal requirement IDs.
+- **Deprecated:** `--adapter codex-cli`, `gemini-cli` and `claude-desktop`.
+- **Schema:** migrations 0005–0008 run automatically on first open and add
+  columns or indexes only; 0005 also rebuilds the full-text search index.
+
+### Added — `hh init`: explained first-time setup
+
+- **`hh init`** creates the data directory, blob store, exports directory and
+  database (running migrations), and writes a commented starter `config.toml`
+  if no config file exists. Every key in it carries its real default and
+  purpose, and the ignore list is seeded with `**/target/**`, `**/.git/**`,
+  `**/node_modules/**`, `**/.DS_Store` and `**/.claude/worktrees/**`. It
+  honors `HH_DATA_DIR` and `[storage] data_dir`. On Unix every directory it
+  creates is mode `0700`.
+- **Prints every path it created or found**, labelled and absolute: config
+  file, data dir, database, blobs, exports. When config and data share one
+  directory (the macOS default), it says so, because deleting that folder to
+  clear sessions also deletes the config.
+- **Idempotent.** A second run changes nothing and says so. An existing
+  config is never overwritten. `--force` rewrites it from the template after
+  saving the old file as `config.toml.bak`.
+- **Legacy `halfhand.toml`.** When only `halfhand.toml` (or `hh.toml`) exists,
+  `hh init` says that file is the one being read and does not write a
+  `config.toml` that would shadow it. `--migrate-config` renames it to
+  `config.toml`.
+- **Optional.** Every other command still sets itself up on first use.
+- **`hh doctor`** prints a `● init` line, and `hh doctor --json` gains an
+  additive `init: { initialized, would_create: [{ label, path }] }` object
+  saying what `hh init` would create. No existing field changes, and the
+  exit code is unaffected.
+- `hh-core` adds `starter_config_template`, `STARTER_IGNORE`,
+  `platform_config_dir`, `platform_default_data_dir` and a public
+  `config::legacy_fallback_path` (all additive).
+- Docs: new [Setup](docs/init.md) page with the per-platform path table. A
+  unit test checks that table against the code. The README, quickstart and FAQ
+  now state the macOS/Windows paths correctly; the README previously described
+  the Linux data dir as the default everywhere. User-facing docs no longer
+  quote internal requirement IDs. The README explains how to run the latest
+  unreleased CLI from source.
 ### Changed — the replay TUI
 
 `hh replay` is rebuilt around what a developer needs to see. No new commands,

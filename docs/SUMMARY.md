@@ -5,6 +5,7 @@
 # Getting started
 
 - [Quickstart](./quickstart.md)
+- [Setup (`hh init`)](./init.md)
 - [Recording](./recording.md)
 - [Effect capture & capture health](./capture.md)
 - [Replay & Inspect](./replay-inspect.md)

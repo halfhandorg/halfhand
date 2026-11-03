@@ -1,4 +1,4 @@
-# `hh mcp-proxy` — stdio JSON-RPC middleman (FR-2)
+# `hh mcp-proxy` — stdio JSON-RPC middleman
 
 `hh mcp-proxy -- <server command>` sits between an MCP client (which talks to
 `hh` over stdin/stdout) and an MCP server (the child process `hh` spawns). It
@@ -84,7 +84,7 @@ itself, it only forwards.
 
 To correlate an MCP server's traffic with the agent session that drove it, run
 the proxy as a child of `hh run`. `hh run` exports `HH_SESSION_ID` to the
-child process tree (FR-2.2), so a nested `hh mcp-proxy` attaches automatically:
+child process tree, so a nested `hh mcp-proxy` attaches automatically:
 
 ```sh
 hh run -- claude   # claude spawns `hh mcp-proxy -- <server>` internally → attached

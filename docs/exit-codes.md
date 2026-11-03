@@ -32,6 +32,7 @@ The command did what was asked. Some commands give `0` a narrower meaning:
 |---|---|
 | `hh scan` | No secrets found (clean). |
 | `hh doctor` | Every check passed. |
+| `hh init` | Setup succeeded, including "already set up; nothing changed". |
 | `hh run`, `hh mcp-proxy` | The **wrapped** command exited `0` (see below). |
 | `hh --help`, `hh <sub> --help`, `hh help`, `hh --version` | Help or version printed. |
 
@@ -48,6 +49,10 @@ Examples, all observed:
   ([Export & import](./export-import.md#exit-codes)).
 - `hh search`: an invalid FTS5 query (for example an unterminated `"`).
 - `hh doctor`: at least one check failed ([Doctor](./doctor.md#exit-codes)).
+- `hh init`: a directory, the database or the config file could not be
+  created, read, renamed or backed up; the existing config is malformed; or
+  `--force` while a legacy `halfhand.toml` is the file in use
+  ([Setup](./init.md#exit-codes)).
 - `hh gc`, `hh stats`: a prune, vacuum or read error.
 - A refused irreversible action in a non-interactive shell:
   `hh delete` or `hh redact` without `--yes`, and `hh export --no-redact`

@@ -1,0 +1,15 @@
+---
+source: hh/tests/init.rs
+expression: env.normalize(&text)
+---
+✓ Halfhand is set up
+
+  config    created  <config-dir>/config.toml
+  data dir  created  <data-dir>
+  database  created  <data-dir>/hh.db
+  blobs     created  <data-dir>/blobs
+  exports   created  <data-dir>/exports
+
+● Sessions hold prompts and source code, so new directories are private (mode 0700).
+
+Next: hh run -- <agent>   e.g. hh run -- claude
