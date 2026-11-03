@@ -148,6 +148,7 @@ pub enum Command {
     #[command(after_help = examples(&[
         ("hh doctor", "run every check"),
         ("hh doctor --json | jq", "machine-readable results"),
+        ("hh doctor --capture", "also report how faithfully the last session was captured"),
     ]))]
     Doctor(DoctorArgs),
 
@@ -415,6 +416,12 @@ pub struct DoctorArgs {
     /// of plain pass/fail lines.
     #[arg(long)]
     pub json: bool,
+
+    /// Also report capture health for the most recent session: watched
+    /// roots, dropped events, before-side coverage of its file changes, and
+    /// a per-platform watcher probe. Unknown values print as a dash.
+    #[arg(long)]
+    pub capture: bool,
 }
 
 /// Arguments for `hh run`.

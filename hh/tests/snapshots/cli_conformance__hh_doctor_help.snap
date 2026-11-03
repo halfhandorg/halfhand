@@ -12,9 +12,13 @@ Options:
       --json
           Emit machine-readable JSON (one object with a per-check array) instead of plain pass/fail lines
 
+      --capture
+          Also report capture health for the most recent session: watched roots, dropped events, before-side coverage of its file changes, and a per-platform watcher probe. Unknown values print as a dash
+
   -h, --help
           Print help (see a summary with '-h')
 
 Examples:
   hh doctor              run every check
   hh doctor --json | jq  machine-readable results
+  hh doctor --capture    also report how faithfully the last session was captured
