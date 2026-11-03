@@ -47,8 +47,11 @@ That's the whole loop. `hh delete last --yes` removes a recording.
 ## Where your data lives
 
 Recordings go in your Halfhand data dir (`~/.local/share/halfhand/` on Linux,
-`~/Library/Application Support/halfhand/` on macOS by default). Point it
-elsewhere with `HH_DATA_DIR`:
+`~/Library/Application Support/halfhand/` on macOS, `%APPDATA%\halfhand\data\`
+on Windows, by default). Run `hh init` to create it along with a commented
+starter config and print every path. It's optional, since `hh` creates what
+it needs on first use. See [Setup](./init.md). Point it elsewhere with
+`HH_DATA_DIR`:
 
 ```bash
 HH_DATA_DIR=./hh-data hh run -- echo hello

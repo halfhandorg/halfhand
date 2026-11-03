@@ -1,0 +1,26 @@
+---
+source: hh/tests/cli_conformance.rs
+expression: "String::from_utf8_lossy(&out.stdout)"
+---
+Set up Halfhand: create the data directory and a starter config.
+
+Creates the data directory, database, blob store and exports directory, and writes a commented starter config.toml if no config file exists yet. Prints every path it created or found. Safe to run again: an existing config is never overwritten without --force. Optional: every other command sets up what it needs on first use.
+
+Usage: hh init [OPTIONS]
+
+Options:
+      --force
+          Recreate config.toml from the starter template, first saving the existing file as config.toml.bak
+
+      --migrate-config
+          Rename a legacy halfhand.toml (or hh.toml) to config.toml, the name Halfhand reads first. Does nothing if config.toml already exists
+
+  -h, --help
+          Print help (see a summary with '-h')
+
+Examples:
+  hh init                   create the data dir and a starter config
+  hh init --migrate-config  rename halfhand.toml to config.toml
+  hh init --force           rewrite config.toml from the template (old one kept as .bak)
+
+Docs: https://halfhand.org/docs/init/

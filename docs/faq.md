@@ -9,8 +9,10 @@ A CI check enforces this. Everything stays in your local data dir.
 
 One SQLite file (`hh.db`) plus a content-addressed blob store, under your
 Halfhand data dir (`~/.local/share/halfhand/` on Linux,
-`~/Library/Application Support/halfhand/` on macOS). Override with
-`HH_DATA_DIR`. `hh stats` summarizes it; `hh gc` reclaims space; `hh delete`
+`~/Library/Application Support/halfhand/` on macOS, `%APPDATA%\halfhand\data\`
+on Windows). On macOS that directory also holds `config.toml`. `hh init`
+prints every path in effect. Override with `HH_DATA_DIR`. See
+[Setup](./init.md). `hh stats` summarizes it; `hh gc` reclaims space; `hh delete`
 removes a session and garbage-collects its blobs.
 
 ## Can recordings contain secrets?
@@ -26,8 +28,7 @@ confirmation. See [Redaction](./redaction.md).
 
 ## Is Windows supported?
 
-Windows builds and ships, but runtime support is best-effort / build-only —
-the PTY layer is tuned for Unix. Linux and macOS are fully
+Windows builds and ships, but runtime support is best-effort / build-only — the PTY layer is tuned for Unix. Linux and macOS are fully
 supported and CI-tested end-to-end.
 
 ## What does "faithful playback" mean?

@@ -19,6 +19,7 @@ use std::sync::OnceLock;
 /// A subcommand leaving this list is a CLI-stability break — removing one
 /// requires the STABILITY.md (a) deprecation cycle, not a silent drop here.
 const SUBCOMMANDS: &[&str] = &[
+    "init",
     "run",
     "replay",
     "inspect",

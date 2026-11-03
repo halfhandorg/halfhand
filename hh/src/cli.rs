@@ -49,6 +49,23 @@ pub struct Cli {
 /// Subcommands of `hh`.
 #[derive(Subcommand, Debug)]
 pub enum Command {
+    /// Set up Halfhand: create the data directory and a starter config.
+    ///
+    /// Creates the data directory, database, blob store and exports
+    /// directory, and writes a commented starter config.toml if no config
+    /// file exists yet. Prints every path it created or found. Safe to run
+    /// again: an existing config is never overwritten without --force.
+    /// Optional: every other command sets up what it needs on first use.
+    #[command(after_help = with_docs(
+        &examples(&[
+            ("hh init", "create the data dir and a starter config"),
+            ("hh init --migrate-config", "rename halfhand.toml to config.toml"),
+            ("hh init --force", "rewrite config.toml from the template (old one kept as .bak)"),
+        ]),
+        "init/",
+    ))]
+    Init(InitArgs),
+
     /// Record an agent session inside a PTY.
     #[command(after_help = examples(&[
         ("hh run -- claude", "record a Claude Code session"),
@@ -396,6 +413,20 @@ pub struct SearchArgs {
     /// Emit JSON instead of a table.
     #[arg(long)]
     pub json: bool,
+}
+
+/// Arguments for `hh init`.
+#[derive(Args, Debug)]
+pub struct InitArgs {
+    /// Recreate config.toml from the starter template, first saving the
+    /// existing file as config.toml.bak.
+    #[arg(long)]
+    pub force: bool,
+
+    /// Rename a legacy halfhand.toml (or hh.toml) to config.toml, the name
+    /// Halfhand reads first. Does nothing if config.toml already exists.
+    #[arg(long)]
+    pub migrate_config: bool,
 }
 
 /// Arguments for `hh doctor`.

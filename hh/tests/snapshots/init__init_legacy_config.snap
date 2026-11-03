@@ -1,0 +1,16 @@
+---
+source: hh/tests/init.rs
+expression: env.normalize(&text)
+---
+✓ Halfhand is set up
+
+  config    found    <config-dir>/halfhand.toml
+  data dir  created  <data-dir>
+  database  created  <data-dir>/hh.db
+  blobs     created  <data-dir>/blobs
+  exports   created  <data-dir>/exports
+
+● reading <config-dir>/halfhand.toml (config.toml does not exist). Run `hh init --migrate-config` to rename it to config.toml.
+● Sessions hold prompts and source code, so new directories are private (mode 0700).
+
+Next: hh run -- <agent>   e.g. hh run -- claude

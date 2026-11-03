@@ -11,6 +11,7 @@ mod cli;
 mod completions;
 mod export;
 mod import;
+mod init;
 mod inspect;
 mod render;
 mod replay;
@@ -75,6 +76,7 @@ fn resolve_session_arg(store: &Store, hint: &str) -> anyhow::Result<String> {
 
 fn run(cli: Cli) -> anyhow::Result<ExitCode> {
     match cli.command {
+        Command::Init(args) => init::init_command(&args),
         Command::Run(args) => run_command(args),
         Command::Replay(args) => replay_command(&args),
         Command::Inspect(args) => inspect::inspect_command(&args),
@@ -392,6 +394,10 @@ fn print_mcp_epilogue(outcome: &hh_record::McpProxyOutcome) {
 /// `--capture` appends a capture-health report for the most recent session
 /// (see `capture_health`); with `--json` it adds a `capture` object.
 fn doctor_command(args: &cli::DoctorArgs) -> anyhow::Result<ExitCode> {
+    // Probed before `open_store`, which creates the data dir, database and
+    // blobs implicitly: report the state the user left, not the one doctor
+    // made. Informational only; never affects the exit code.
+    let init_status = init::InitStatus::probe().ok();
     let (store, paths, _config) = open_store()?;
     let cwd = std::env::current_dir().unwrap_or_else(|_| PathBuf::from("."));
 
@@ -422,10 +428,16 @@ fn doctor_command(args: &cli::DoctorArgs) -> anyhow::Result<ExitCode> {
         if let Some(report) = &capture {
             obj["capture"] = capture_health::to_json(report);
         }
+        if let Some(init) = &init_status {
+            obj["init"] = init.to_json();
+        }
         println!("{obj}");
     } else {
         let color = render::use_color();
         print!("{}", render_doctor_plain(&checks, color));
+        if let Some(init) = &init_status {
+            print!("{}", init.render_plain());
+        }
         if let Some(report) = &capture {
             println!();
             print!("{}", capture_health::render_plain(report, color));

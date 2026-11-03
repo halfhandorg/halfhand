@@ -14,6 +14,7 @@ $ hh doctor
 ✓ claude jsonl discoverable — /home/me/.claude/projects/-home-me-work/abc.jsonl (newest record type: user)
 ✓ watcher smoke test — file-change event delivered
 ✓ dropped events — 0 dropped events in the last 20 session(s)
+● init — done; config, data dir, database, blobs and exports all exist
 ```
 
 Run it when a session finalized `ok` but recorded `0 steps` or `0 files changed`,
@@ -30,6 +31,14 @@ modes behind that class of silent breakage.
 | `claude jsonl discoverable` | `~/.claude/projects/<slug>/` has a transcript for the current cwd, and its first `type`-bearing record parses as JSON | The Claude Code adapter tailer reads these files; a missing or unparseable transcript is the direct cause of a session that records `0 steps`. Run a Claude Code session from this directory first. |
 | `watcher smoke test` | `notify` delivers a file-change event on this platform | A watcher that silently never fires explains `0 files changed`. |
 | `dropped events` | None of the 20 most recent sessions dropped events it could not write | Lists each affected session with its count, plus the first cause (e.g. `database or disk is full`). Those sessions are marked degraded (`⚠` in `hh list`) and have gaps in their timelines. Free disk space / fix data-dir permissions; the check passes again once the affected sessions are no longer among the 20 most recent, or are deleted with `hh delete`. See [Recording → Dropped events](recording.md#dropped-events-and-the--marker). |
+
+## Setup status (`● init`)
+
+After the checks, `hh doctor` prints one informational `●` line saying whether
+everything [`hh init`](init.md) creates exists (config file, data dir,
+database, blobs, exports), and if not, what `hh init` would create. It is
+probed before doctor opens the store, so it reflects the state you left. It
+never affects the exit code, because `hh init` is optional.
 
 ## `--capture`
 
@@ -58,9 +67,15 @@ with a `status` of `ok` or `fail` and a per-check array, for scripting / CI:
     { "name": "claude jsonl discoverable", "status": "ok",   "detail": "…" },
     { "name": "watcher smoke test",        "status": "ok",   "detail": "file-change event delivered" },
     { "name": "dropped events",            "status": "ok",   "detail": "0 dropped events in the last 20 session(s)" }
-  ]
+  ],
+  "init": { "initialized": true, "would_create": [] }
 }
 ```
+
+`init` is additive: `initialized` is `true` when every artefact `hh init`
+creates exists. Otherwise `would_create` lists each missing one as
+`{ "label", "path" }`, with `label` one of `config`, `data dir`, `database`,
+`blobs` or `exports`. The key is omitted if the paths cannot be resolved.
 
 ## Exit codes
 
