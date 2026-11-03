@@ -8,7 +8,7 @@
 > real agent, a live API key, a real PTY, or a human eye on rendered output.
 
 **How to use:** three columns below — **Linux**, **macOS**, **Windows**. Tick
-each OS you actually ran on. Windows is build-only / best-effort per SRS §2.2
+each OS you actually ran on. Windows is build-only / best-effort
 (the PTY layer is Unix-first), so Windows rows are marked *(build-only)* where
 the runtime path is not claimed; still run them and record what happened.
 
@@ -49,7 +49,7 @@ On a machine with no prior Halfhand state, for each OS:
 
 Needs the real `claude` CLI on PATH, `ANTHROPIC_API_KEY` exported, a throwaway
 work dir, and `HH_DATA_DIR` at a temp path. Halfhand itself makes zero network
-calls (NFR-2); only the wrapped agent does. This spends real tokens.
+calls; only the wrapped agent does. This spends real tokens.
 
 ```bash
 mkdir -p /tmp/hh-qa && cd /tmp/hh-qa

@@ -33,7 +33,7 @@ cov-check:
 proptest:
     cargo test --workspace -- prop_ blob_refcount_prop migration_idempotency_prop
 
-# Run all criterion benches (CLAUDE.md v1.0.0 addendum / NFR-1). `--features
+# Run all criterion benches (CLAUDE.md v1.0.0 addendum). `--features
 # fuzzing` enables the `adapter_jsonl` bench (which uses the dev-only
 # `adapter::fuzzing` parser entry point); the three storage benches run
 # ungated. The nightly regression gate (`.github/workflows/bench-nightly.yml`)

@@ -6,7 +6,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 Pre-1.0 (`0.1.x-beta`) releases may make additive or breaking changes to the
 documented JSON schema and the on-disk SQLite schema; both carry a version
-field consumers can gate on (see `docs/json.md` and DR-2). Pin a beta version
+field consumers can gate on (see `docs/json.md`). Pin a beta version
 in CI rather than tracking `latest` until 1.0.
 
 ## [Unreleased]
@@ -288,7 +288,7 @@ flags, JSON fields, exit codes or schema changes. See
 - crates.io `homepage` is now `https://halfhand.org`, and `documentation`
   is set to `https://halfhand.org/docs/`.
 
-### Fixed — Claude Desktop adapter records structured steps (SRS v1.1.0, BUG-1)
+### Fixed — Claude Desktop adapter records structured steps
 
 - **`hh run --adapter claude-desktop` now finds the Desktop session.** The
   1.0.0 adapter was a stub that only engaged for a binary literally named
@@ -308,7 +308,7 @@ flags, JSON fields, exit codes or schema changes. See
   transcript is read to EOF when the recording stops (Desktop outlives the
   wrapped command). Recording recipe: `hh run --adapter claude-desktop --
   $SHELL`, exit the shell to finish — see `docs/adapters.md`.
-- **Degrade path (BUG-1):** explicit `--adapter claude-desktop` with no
+- **Degrade path:** explicit `--adapter claude-desktop` with no
   Desktop session routes through `AdapterError` (`jsonl_not_found`, or
   `discovery_ambiguous` when sessions appeared but none were for this cwd)
   with a one-line reason naming the index dir and projects dir that were
@@ -321,7 +321,7 @@ flags, JSON fields, exit codes or schema changes. See
   also rejects a `cliSessionId` that could escape the projects dir) are
   registered in `fuzz/`, the nightly fuzz matrix and `just fuzz-all`.
 - Tests: hh-core discovery tests for every tier and degrade (channel/latch
-  synchronized, no sleeps — BUG-4); `hh` end-to-end over the fixture corpus
+  synchronized, no sleeps); `hh` end-to-end over the fixture corpus
   asserting 34 steps and the event-kind mix, an insta snapshot of `hh inspect`
   for a Desktop session, and a degrade-path test asserting
   `adapter_degrade_reason = jsonl_not_found`.
@@ -378,41 +378,40 @@ flags, JSON fields, exit codes or schema changes. See
   events) and `tailer_parses_committed_claude_desktop_fixture` (end-to-end
   through `ClaudeDesktopAdapter`, channel-driven wait, no sleeps).
 
-### Added — v1.1.0 Stage 2 (migration 0005 + adapter degrade infrastructure, BUG-1)
+### Added — v1.1.0 Stage 2 (migration 0005 + adapter degrade infrastructure)
 
-- **`sessions.adapter_degrade_reason`** column (migration 0005, SRS §5.1,
-  BUG-1.1): a machine-readable degrade code (`jsonl_not_found`,
+- **`sessions.adapter_degrade_reason`** column (migration 0005): a machine-readable degrade code (`jsonl_not_found`,
   `jsonl_parse_error`, `jsonl_schema_drift`, `discovery_ambiguous`,
   `permission_denied`, `io_error`) persisted atomically with
   `adapter_status = 'degraded'`. `hh list --json` and `hh inspect --json`
   now include `adapter_degrade_reason` on every session object. The column
-  is additive (nullable, default NULL) and the migration is idempotent
-  (DR-4): re-opening a v1.1.0 DB is a schema no-op.
-- **`AdapterError`** type (`hh_core::adapter::AdapterError`, BUG-1.4): all
+  is additive (nullable, default NULL) and the migration is idempotent:
+  re-opening a v1.1.0 DB is a schema no-op.
+- **`AdapterError`** type (`hh_core::adapter::AdapterError`): all
   adapter failures (Claude Code, Codex CLI, Gemini CLI) now route through
   this structured enum, carrying both a stable `code()` (persisted to the
   DB) and a human-readable `Display` message (printed to stderr after the
   child exits). The writer task persists the code atomically with the
   degraded status. `#[non_exhaustive]` + `Clone` so the recorder can carry
   it on `RunOutcome`.
-- **FTS5 trigger-based sync** (migration 0005, ENH-4 / CLAUDE.md v1.1.0
+- **FTS5 trigger-based sync** (migration 0005, CLAUDE.md v1.1.0
   addendum): the FTS5 search index is now kept in sync by SQLite triggers
   (`events_fts_ai`/`_ad`/`_au`) only — application code no longer writes to
   `events_fts`. The `hh_body_to_text` SQLite scalar function (registered
-  at connection open, DR-3) extracts indexable text from `body_json`
+  at connection open) extracts indexable text from `body_json`
   (message content, tool names/inputs/outputs, file paths) for the
   triggers. NULL/malformed input → NULL (never panics).
 - **`tests/fixtures/claude-code/current-format.jsonl`**: a sanitized
   fixture sampled from a real recent Claude Code session, exercising the
   new top-level fields (`mode`, `permissionMode`, `version`, `gitBranch`,
   `userType`, `entrypoint`, `fileHistorySnapshot`). Snapshot + end-to-end
-  tailer tests lock the parser's multi-generation tolerance (BUG-1.2).
-- **Property test** `hh-core/tests/migration_idempotency.rs` (DR-5):
+  tailer tests lock the parser's multi-generation tolerance.
+- **Property test** `hh-core/tests/migration_idempotency.rs`:
   re-opens a v1.1.0 DB N times, asserts no error and schema invariant.
 
 ### Changed — v1.1.0 Stage 2
 
-- **Claude Code adapter** discovery hardening (BUG-1.3):
+- **Claude Code adapter** discovery hardening:
   - Poll interval: 200 ms → 250 ms. The tailer still polls until the stop
     flag is set (no fixed window), so the 5 s "discovery window" is a lower
     bound on patience, not an upper bound.
@@ -430,13 +429,13 @@ flags, JSON fields, exit codes or schema changes. See
   Callers updated (`hh-record::runner::finalize`). The JSON output shape
   is additive (`adapter_degrade_reason` added; existing fields unchanged).
 
-### SRS deviations (flagged)
+### Specification deviations (flagged)
 
-- **Migration numbering**: the SRS calls this "migration 0002" but the
+- **Migration numbering**: the v1.1.0 specification calls this "migration 0002" but the
   codebase's sequential migration numbering puts it at 0005 (after 0001
   initial, 0002 heal index, 0003 imported_from, 0004 events_fts). The
-  content matches SRS §5.1; only the version number differs.
-- **FTS5 table type**: the SRS specifies `content=events,
+  content matches the specified schema; only the version number differs.
+- **FTS5 table type**: the specification asks for `content=events,
   content_rowid=id` (external-content). The `events` table has no
   `body_text` column (it has `body_json`), so external-content fails on
   any read (`snippet()`, `SELECT COUNT(*)`, `'delete'` lookups) with
@@ -472,7 +471,7 @@ reads correctly under 1.0 — proven by the permanent
   (their tailers used the Claude Code parser); see [Unreleased].
 - **Cross-session FTS5 search** (`hh search`): words, phrases, prefix `*`,
   AND/OR/NOT, with `--agent`/`--kind`/`--since`/`--path` filters and `--json`.
-- **Windows support** (build-only per SRS §2.2): CI builds on
+- **Windows support** (build-only): CI builds on
   `windows-latest` every push; PTY recording on Windows remains best-effort.
 - **Stability contract** (`STABILITY.md`): the 1.0 promise for CLI, `--json`
   (schema frozen at `2`), the on-disk DB (forward-only migrations),
@@ -489,13 +488,13 @@ reads correctly under 1.0 — proven by the permanent
 
 ### Added — 1.0 release-readiness
 - **`hh completions <shell>`**: prints a shell completion script (bash, zsh,
-  fish, powershell, elvish) via `clap_complete` (FR-6.2 ergonomics). New
+  fish, powershell, elvish) via `clap_complete` (help ergonomics). New
   `docs/completions.md` page; `--help` example per shell. The scripts and the
   `hh.1` man page are also generated at build time by the new `hh-dist`
   workspace crate (`just dist-assets`) and shipped in release archives.
 - **cargo-dist release pipeline**: tag-triggered (`v*`) releases now produce
   per-target binaries (mac/linux gnu+musl, windows msvc) with the git sha
-  embedded (`HH_BUILD_SHA`, NFR-8), SHA-256 checksums, a shell + powershell
+  embedded (`HH_BUILD_SHA`), SHA-256 checksums, a shell + powershell
   installer, keyless **GitHub artifact attestations** (verify with `gh
   attestation verify`), and an auto-pushed **Homebrew formula** to
   `halfhand-org/homebrew-tap`. Config lives in `dist-workspace.toml`; the
@@ -593,7 +592,7 @@ reads correctly under 1.0 — proven by the permanent
   existing discriminants don't shift); `cargo-semver-checks` CI excludes the
   one-time `enum_marked_non_exhaustive` lint for it.
 
-### Added — redaction pipeline (SRS §8, docs/redaction-design.md)
+### Added — redaction pipeline (docs/redaction-design.md)
 - **Secret detection engine** (`hh-core::redact`): compiled detectors for
   AWS access key ids, GitHub/GitLab/Slack tokens, PEM private-key blocks
   (including truncated fragments), JWTs, a conservative high-entropy
@@ -696,7 +695,7 @@ reads correctly under 1.0 — proven by the permanent
   pre-existing transcripts so it only matches one created *during* this
   session, and scans past cwd-less records to the first cwd-bearing one (and
   verifies it belongs to this session's cwd). Every degrade path now carries
-  an actionable `degrade_reason` printed after the child exits (FR-1.5), and
+  an actionable `degrade_reason` printed after the child exits, and
   the `hh run` epilogue warns when an adapter-active claude-code session
   records 0 steps over >60 s.
 - A `halfhand.toml` (or `hh.toml`) config file is no longer silently ignored.
@@ -763,18 +762,18 @@ reads correctly under 1.0 — proven by the permanent
   transitively via `ignore`.
 
 ### Performance
-- **Ingest throughput: `PRAGMA synchronous = NORMAL` (NFR-1 / NFR-3).** The store
+- **Ingest throughput: `PRAGMA synchronous = NORMAL`.** The store
   never set `synchronous`, so SQLite defaulted to `FULL`, fsyncing the WAL on
-  *every* event commit. That met NFR-3's durability ("fsync on session finalize")
+  *every* event commit. That met the durability requirement ("fsync on session finalize")
   and then some, but capped sustained ingest near ~300 events/s — far below
-  NFR-1's ≥5,000/s. `Store::open` and the writer thread now set
+  the ≥5,000/s ingest target. `Store::open` and the writer thread now set
   `synchronous = NORMAL`: in WAL mode this keeps ACID (no corruption on crash)
   but skips the per-commit fsync, fsyncing only at checkpoint. That matches the
-  durability design NFR-3 actually names — `finalize_session` runs
+  durability design the requirement actually names — `finalize_session` runs
   `wal_checkpoint(TRUNCATE)`, which fsyncs, so a session is durable at finalize;
   SQLite's default `wal_autocheckpoint` (≈4 MiB) bounds the mid-session
   power-loss window to the last autocheckpoint. Sustained ingest is now ~1.5k
-  events/s (≈5× over the per-event-fsync baseline); reaching NFR-1's 5k/s still
+  events/s (≈5× over the per-event-fsync baseline); reaching the 5k/s target still
   needs statement caching + a batched writer (tracked as follow-up; the
   regression gate below protects the gain). No CLI/JSON/schema/env change.
 - `hh inspect --json` now streams a session as NDJSON through
@@ -818,8 +817,8 @@ reads correctly under 1.0 — proven by the permanent
 - CI: `cargo-llvm-cov` gate (hh-core ≥ 80% lines, fail-under; workspace-wide
   report-only) and `cargo-semver-checks` against `main` for hh-core's public
   API (adapters implement its `Adapter` trait).
-- Criterion benches (`hh-core/benches/`) + a nightly regression gate (Area 1 /
-  NFR-1): four groups — `ingest` (`append_event` throughput), `replay_index`
+- Criterion benches (`hh-core/benches/`) + a nightly regression gate (Area 1):
+  four groups — `ingest` (`append_event` throughput), `replay_index`
   (10k/100k-event `list_event_index`), `blob_write`/`blob_read` (1 KiB/1 MiB),
   and `adapter_jsonl` (Claude JSONL conversion, gated on the `fuzzing` feature
   so it uses the dev-only parser entry point, off the semver-checked surface).
@@ -828,7 +827,7 @@ reads correctly under 1.0 — proven by the permanent
   (same runner class via an `actions/cache` rolling baseline — a committed
   baseline would false-positive across hardware). `just bench` /
   `just bench-compare` run the same locally. Dev-only: criterion is a
-  dev-dependency (default-features off) and pulls no HTTP client, so NFR-2's
+  dev-dependency (default-features off) and pulls no HTTP client, so the
   no-network-crate check stays green. See `docs/performance.md`.
 - `hh gc` (reclaim space, Area 3): prunes orphaned blob files and stale
   `blobs` rows — the crash-leftover cases `hh delete` does not reach (a blob
@@ -857,45 +856,45 @@ reads correctly under 1.0 — proven by the permanent
 First public beta. Local-first CLI flight recorder for AI agents: records an
 agent session (terminal output, file changes, structured adapter events, MCP
 traffic) into a local SQLite database and replays/inspects it later. Halfhand
-itself makes zero network calls (NFR-2); only the agent under record may use
+itself makes zero network calls; only the agent under record may use
 the network.
 
 ### Added
 - `hh run -- <command>`: records an agent inside a PTY. Captures terminal
   output (UTF-8 + binary chunks), file create/modify/delete with before/after
   BLAKE3 hashes and zstd-compressed blob round-trips, propagates the child
-  exit code, and prints a `✓ Recorded session …` epilogue (FR-1).
-- `--record-input` (off by default; keystrokes may contain secrets — NFR-4)
+  exit code, and prints a `✓ Recorded session …` epilogue.
+- `--record-input` (off by default; keystrokes may contain secrets)
   captures user keystrokes in addition to terminal output.
-- Claude Code adapter (FR-1.5): auto-detected when the wrapped command's
+- Claude Code adapter: auto-detected when the wrapped command's
   basename is `claude`. Tails `~/.claude/projects/<slug>/*.jsonl` and records
   structured `user_message` / `tool_call` / `tool_result` events, correlating
   each `tool_result` back to its `tool_call`. Persists `model` + `usage_json`
   on the session. Degrades gracefully (`adapter_status=degraded`) when no
   projects dir exists — the PTY session is still recorded.
-- `hh mcp-proxy -- <server>` (FR-2): stdio JSON-RPC middleman that forwards
+- `hh mcp-proxy -- <server>`: stdio JSON-RPC middleman that forwards
   every message verbatim in both directions while recording it. Correlates
   responses to requests by JSON-RPC `id` with measured `latency_ms`, records
   notifications on their own, spills payloads ≥256 KiB to the blob store, and
   attaches to a parent `hh run` session via `HH_SESSION_ID` when run as its
   child.
-- `hh replay <id|last>` (FR-3): interactive TUI that faithfully plays back a
+- `hh replay <id|last>`: interactive TUI that faithfully plays back a
   recorded session's timeline — assistant text, tool calls, tool results, file
   changes — with a step list, detail pane, unified diffs, and a bounded LRU
   body cache. Refuses non-TTY invocation with an actionable error.
-- `hh inspect <id|last>` (FR-4): non-interactive session detail. Summary view
+- `hh inspect <id|last>`: non-interactive session detail. Summary view
   (header + step table), `--step N` detail, `--json` NDJSON / step object
   (`schema:1`, see `docs/json.md`), `--diff` unified diff. `--json` and
   `--diff` are mutually exclusive with an actionable error.
-- `hh list` (FR-5): aligned plain table (non-TTY/`NO_COLOR`-safe) and
+- `hh list`: aligned plain table (non-TTY/`NO_COLOR`-safe) and
   `--json` array of session objects; `--limit` bounds the result set.
-- `hh delete <id|last> --yes` (FR-6.1): removes a session and
+- `hh delete <id|last> --yes`: removes a session and
   reference-counts its blobs, garbage-collecting blobs that reach zero.
   Refuses without `--yes` when stdin is not a TTY.
-- `--version` embeds the git sha (NFR-8): `hh 0.1.0-beta.1 (<sha>)`.
-- Build-time no-network tripwire (NFR-2): `hh-core/tests/no_network.rs` fails
+- `--version` embeds the git sha: `hh 0.1.0-beta.1 (<sha>)`.
+- Build-time no-network tripwire: `hh-core/tests/no_network.rs` fails
   the suite if any HTTP *client* crate appears in the resolved workspace graph.
-- `cargo-deny` config (NFR-5): advisory, license, bans, and source checks.
+- `cargo-deny` config: advisory, license, bans, and source checks.
 - Release CI (`.github/workflows/release.yml`): tag-triggered cross-build for
   x86_64/aarch64 on macOS and Linux (musl where feasible), SHA-256 checksums,
   and GitHub Release upload.
@@ -905,30 +904,30 @@ the network.
 
 ### Changed
 - `hh-core` storage: SQLite (WAL, `foreign_keys=ON`), embedded idempotent
-  migration `0001` (DR-1), content-addressed zstd blob store keyed by BLAKE3
-  with refcounted GC. DB and blob dirs `0700`, blob files `0600` (NFR-4).
-- `resolve_session` (FR-3.1): `last` → newest session; short-id prefix →
+  migration `0001`, content-addressed zstd blob store keyed by BLAKE3
+  with refcounted GC. DB and blob dirs `0700`, blob files `0600`.
+- `resolve_session`: `last` → newest session; short-id prefix →
   unique match; ambiguity → error listing candidates.
-- Config/path resolution (SRS §4.2): `HH_DATA_DIR` > `[storage] data_dir` >
+- Config/path resolution: `HH_DATA_DIR` > `[storage] data_dir` >
   platform default. Unknown keys warn, never fail.
 
 ### Removed
 - Unused `built` build-dependency from the `halfhand` bin crate. It pulled
   `git2` → `libgit2-sys` → `libz-sys` + `cc`/`pkg-config` into the build graph
   for no functionality (the build script embeds the git sha via raw `git`),
-  and blocked musl cross-compilation. The git-sha `--version` (NFR-8) is
+  and blocked musl cross-compilation. The git-sha `--version` is
   unchanged.
 
 ### Known limitations
-- **Windows PTY is best-effort** (SRS §2.2): CI builds on Windows but does
+- **Windows PTY is best-effort**: CI builds on Windows but does
   not run the test suite there; PTY recording on Windows is not validated.
 - **Single structured adapter**: only Claude Code is auto-detected. Other
   agents record as `generic` (PTY + file changes, no structured events).
-- **Schema is pre-1.0**: the on-disk SQLite schema (DR-2) and the JSON
+- **Schema is pre-1.0**: the on-disk SQLite schema and the JSON
   schema (`docs/json.md`, currently `schema:1`) are public but may change
   additively or breaking-ly within the `0.1.x-beta` series. Gate on the
   `schema` field; pin a beta version in CI rather than tracking `latest`.
-- **Replay is faithful playback, not deterministic re-execution** (SRS §1.4):
+- **Replay is faithful playback, not deterministic re-execution**:
   the agent is not re-invoked during replay; no network calls are made.
   Replay renders the captured timeline. A session whose recording was
   incomplete (e.g. `hh` was SIGKILLed) replays the partial timeline and is
@@ -939,8 +938,8 @@ the network.
   invocation's self-heal. No data is lost — only the display ordinal is
   deferred. See `docs/adr/0002-stored-step-ordinals.md`.
 
-### v0.2 pointers (SRS §8)
-Cloud/network features remain out of scope (SRS §8 excludes them); v0.2 work
+### v0.2 pointers
+Cloud/network features remain out of scope; v0.2 work
 is expected to focus on: additional structured adapters beyond Claude Code,
 hardened Windows PTY support, cross-process step-ordinal coordination, and
 revisiting the `std::thread` vs `tokio` boundary (ADR-0001) only if a

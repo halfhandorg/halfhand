@@ -175,7 +175,7 @@ detector would be a redaction hole. Full rule-writing guide:
 ## Why local-first
 
 - **Zero network calls.** `hh` links no HTTP client; nothing is uploaded. A CI
-  check enforces this (SRS NFR-2).
+  check enforces this.
 - **You own the data.** One SQLite file plus a content-addressed blob store, in
   a data dir you control (`HH_DATA_DIR`). `hh delete` and it's gone.
 - **Secrets are a first-class concern.** `hh scan` finds them; `hh redact`
@@ -188,7 +188,7 @@ detector would be a redaction hole. Full rule-writing guide:
 ## Platforms
 
 Linux and macOS are fully supported and CI-tested end-to-end. Windows builds
-and ships, but runtime support is best-effort / build-only (SRS §2.2) — the
+and ships, but runtime support is best-effort / build-only — the
 PTY layer is tuned for Unix.
 
 ## License

@@ -3,11 +3,11 @@
 Halfhand is a local-first flight recorder for AI agents. Its security
 posture rests on three properties:
 
-1. **No network** — `hh` makes zero outbound network calls (SRS NFR-2),
+1. **No network** — `hh` makes zero outbound network calls,
    enforced by a CI tripwire that fails the build if an HTTP client crate
    enters the dependency graph.
 2. **Local permissions** — the database and blob store are created
-   `0600`/`0700`; keystroke recording is off by default (NFR-4).
+   `0600`/`0700`; keystroke recording is off by default.
 3. **Redaction** — exports are redacted by default, `hh scan` detects
    recorded secrets, and `hh redact` removes them irreversibly. See
    [docs/redaction.md](docs/redaction.md) for the threat model and

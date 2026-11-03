@@ -2,7 +2,7 @@
 
 ## Does Halfhand upload anything?
 
-No. `hh` links no HTTP client crate and makes zero network calls (SRS NFR-2).
+No. `hh` links no HTTP client crate and makes zero network calls.
 A CI check enforces this. Everything stays in your local data dir.
 
 ## Where is my data?
@@ -26,8 +26,8 @@ confirmation. See [Redaction](./redaction.md).
 
 ## Is Windows supported?
 
-Windows builds and ships, but runtime support is best-effort / build-only per
-SRS §2.2 — the PTY layer is tuned for Unix. Linux and macOS are fully
+Windows builds and ships, but runtime support is best-effort / build-only —
+the PTY layer is tuned for Unix. Linux and macOS are fully
 supported and CI-tested end-to-end.
 
 ## What does "faithful playback" mean?

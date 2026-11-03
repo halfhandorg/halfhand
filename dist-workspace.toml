@@ -8,7 +8,7 @@
 #
 # What this config produces on a `v*` tag push:
 #   - per-target release binaries (mac/linux gnu+musl, windows msvc) with the
-#     git sha embedded via HH_BUILD_SHA (NFR-8; see .github/dist-build-setup.yml)
+#     git sha embedded via HH_BUILD_SHA (see .github/dist-build-setup.yml)
 #   - SHA-256 checksums + a unified installer (shell + powershell)
 #   - GitHub artifact attestations (keyless Sigstore provenance — no signing
 #     keys to manage; verify with `gh attestation verify`)
@@ -17,7 +17,7 @@
 #   - a Homebrew formula pushed to halfhand-org/homebrew-tap
 #
 # Windows targets are built and shipped, but Halfhand's runtime support on
-# Windows is best-effort / build-only per SRS §2.2; the release notes say so.
+# Windows is best-effort / build-only; the release notes say so.
 
 [workspace]
 # The cargo workspace lives at the repo root.
@@ -91,7 +91,7 @@ install-path = "~/.halfhand/bin"
 install-updater = false
 
 # Build setup: inject HH_BUILD_SHA=$GITHUB_SHA into every build job's env so
-# `hh/build.rs` embeds the exact released sha into `hh --version` (NFR-8),
+# `hh/build.rs` embeds the exact released sha into `hh --version`,
 # including cross-compiled targets where .git is not visible. cargo-dist
 # resolves this path relative to `.github/workflows/`, hence the `../`.
 github-build-setup = "../dist-build-setup.yml"

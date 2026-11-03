@@ -2,7 +2,7 @@
 # `dist build` step in every build job (configured via `github-build-setup`
 # in dist-workspace.toml).
 #
-# NFR-8: every release binary must embed the exact git sha it was built from
+# Every release binary must embed the exact git sha it was built from
 # in `hh --version`. `hh/build.rs` reads `HH_BUILD_SHA` and falls back to
 # `git rev-parse` when unset. Inside cargo-dist's build jobs (and especially
 # in cross-compile containers) `.git` may not be visible, so we set
@@ -13,6 +13,6 @@
 # This file is a YAML *list of steps* (the sequence that becomes the build
 # job's `steps:`), merged into the build job by cargo-dist's generated
 # workflow. The top level is the sequence itself — no enclosing `steps:` key.
-- name: Set HH_BUILD_SHA for sha-embedding (NFR-8)
+- name: Set HH_BUILD_SHA for sha-embedding
   shell: bash
   run: echo "HH_BUILD_SHA=${GITHUB_SHA}" >> "$GITHUB_ENV"
