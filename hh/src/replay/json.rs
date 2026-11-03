@@ -242,7 +242,7 @@ mod tests {
     #[test]
     fn round_trips_readable_text() {
         let v = serde_json::json!({"name": "Bash", "input": {"command": "ls -la"}});
-        let theme = Theme::resolve(true);
+        let theme = Theme::new(super::super::theme::Palette::Mono);
         let lines = pretty_lines(&v, theme);
         let text = plain(&lines);
         assert!(text.contains("\"name\""));
@@ -253,7 +253,7 @@ mod tests {
     #[test]
     fn strips_correlate_key() {
         let v = serde_json::json!({"name": "Bash", "correlate_key": "tu_1"});
-        let theme = Theme::resolve(true);
+        let theme = Theme::new(super::super::theme::Palette::Mono);
         let text = plain(&pretty_lines(&v, theme));
         assert!(!text.contains("correlate_key"));
         assert!(!text.contains("tu_1"));
@@ -262,7 +262,7 @@ mod tests {
     #[test]
     fn strips_correlate_key_in_nested_objects() {
         let v = serde_json::json!({"outer": {"correlate_key": "x", "keep": 1}});
-        let theme = Theme::resolve(true);
+        let theme = Theme::new(super::super::theme::Palette::Mono);
         let text = plain(&pretty_lines(&v, theme));
         assert!(!text.contains("correlate_key"));
         assert!(text.contains("keep"));
@@ -271,7 +271,7 @@ mod tests {
     #[test]
     fn multiline_string_values_do_not_break_tokenizer() {
         let v = serde_json::json!({"text": "line one\nline two"});
-        let theme = Theme::resolve(true);
+        let theme = Theme::new(super::super::theme::Palette::Mono);
         // Must not panic, and the escaped `\n` serde_json writes into the
         // pretty-printed JSON must come back as a real line break, not the
         // literal two-character sequence `\` `n`.
@@ -286,7 +286,7 @@ mod tests {
     #[test]
     fn decodes_newline_and_tab_escapes_in_string_values() {
         let v = serde_json::json!({"content": "col1\tcol2\nrow2col1\trow2col2"});
-        let theme = Theme::resolve(true);
+        let theme = Theme::new(super::super::theme::Palette::Mono);
         let lines = pretty_lines(&v, theme);
         let text = plain(&lines);
         assert!(!text.contains("\\n"), "escaped newline leaked: {text:?}");
@@ -311,7 +311,7 @@ mod tests {
         let v = serde_json::json!({
             "content": "\u{1b}[32m✓ ok\u{1b}[0m\nplain \u{1b}]8;;https://example.com\u{1b}\\link\u{1b}]8;;\u{1b}\\ text"
         });
-        let theme = Theme::resolve(true);
+        let theme = Theme::new(super::super::theme::Palette::Mono);
         let lines = pretty_lines(&v, theme);
         let text = plain(&lines);
         assert!(!text.contains('\u{1b}'), "raw ESC byte leaked: {text:?}");

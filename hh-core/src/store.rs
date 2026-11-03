@@ -27,6 +27,8 @@ use drops::DropTally;
 pub use drops::DroppedEvents;
 mod capture;
 pub use capture::SessionCapture;
+mod replay;
+pub use replay::FileChangeEntry;
 
 /// The on-disk store: SQLite DB + blob store.
 pub struct Store {

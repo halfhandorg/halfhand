@@ -9,6 +9,7 @@
 
 mod data;
 mod diff;
+mod insights;
 mod json;
 mod kind;
 mod state;
@@ -16,6 +17,7 @@ mod theme;
 mod ui;
 
 pub use data::ReplayData;
+use insights::Insights;
 pub use state::{AppEvent, AppState, KeyInput};
 pub use theme::Theme;
 
@@ -39,15 +41,23 @@ const POLL_INTERVAL: Duration = Duration::from_millis(100);
 /// Run the replay TUI for one session to completion (until `q` or Ctrl+C).
 ///
 /// `no_color` should reflect `NO_COLOR`/non-TTY (CLAUDE.md CLI/UX standard);
-/// the caller (`hh replay`) resolves that before calling in.
+/// the caller (`hh replay`) resolves that before calling in. `theme` is the
+/// configured `[replay] theme`.
+///
+/// Session-wide insights (files touched, failed tool calls, the largest
+/// diff, the cost estimate) are loaded once here, before the terminal is
+/// taken over: the work is bounded by the number of file changes, not
+/// events, so no progress indicator is needed.
 pub fn run(
     store: Store,
     session: SessionRow,
     index: Vec<EventIndexRow>,
     no_color: bool,
+    theme: hh_core::config::Theme,
 ) -> anyhow::Result<()> {
-    let theme = Theme::resolve(no_color);
-    let mut app = AppState::new(session, index);
+    let theme = Theme::resolve(no_color, theme);
+    let insights = Insights::load(&store, &session);
+    let mut app = AppState::with_insights(session, index, insights);
     let mut data = ReplayData::new(store);
 
     install_panic_hook();
