@@ -22,6 +22,10 @@ use std::sync::mpsc::{self, Receiver, Sender};
 use std::thread::JoinHandle;
 use std::time::Duration;
 
+mod drops;
+use drops::DropTally;
+pub use drops::DroppedEvents;
+
 /// The on-disk store: SQLite DB + blob store.
 pub struct Store {
     conn: Connection,
@@ -34,6 +38,8 @@ pub struct Store {
 pub struct EventWriter {
     tx: Sender<WriterReq>,
     handle: Option<JoinHandle<()>>,
+    /// Dropped-event tally shared with the writer thread (see [`drops`]).
+    drops: std::sync::Arc<DropTally>,
 }
 
 enum WriterReq {
@@ -521,6 +527,10 @@ impl Store {
         // because the `PRAGMA table_info` check is the idempotency mechanism
         // SQLite lacks in pure DDL.
         add_adapter_degrade_reason_column(&conn)?;
+        // `sessions.dropped_events` / `dropped_events_reason` (silent write
+        // loss fix), added behind the same `PRAGMA table_info` check. Not a
+        // numbered migration — see `drops::add_dropped_events_columns`.
+        drops::add_dropped_events_columns(&conn)?;
         // Migration 0006 (DR-4): `file_changes.before_source` and
         // `file_changes.renamed_from`, added behind a `PRAGMA table_info`
         // check for the same reason as `adapter_degrade_reason` above.
@@ -821,7 +831,8 @@ impl Store {
                        JOIN events e ON e.id = fc.event_id
                        WHERE e.session_id = s.id) AS files_changed,
                     s.imported_from,
-                    s.adapter_degrade_reason
+                    s.adapter_degrade_reason,
+                    s.dropped_events, s.dropped_events_reason
              FROM sessions s
              ORDER BY s.started_at DESC
              LIMIT ?1",
@@ -1618,6 +1629,11 @@ impl Store {
                 params![reason, created.id],
             )?;
         }
+        // A session that dropped events stays marked degraded after import.
+        self.add_session_dropped_events(
+            &created.id,
+            &drops::DroppedEvents::from_bundle_session(&bundle.session),
+        )?;
 
         Ok(created)
     }
@@ -1699,7 +1715,8 @@ impl Store {
                            JOIN events e ON e.id = fc.event_id
                            WHERE e.session_id = s.id) AS files_changed,
                         s.imported_from,
-                        s.adapter_degrade_reason
+                        s.adapter_degrade_reason,
+                        s.dropped_events, s.dropped_events_reason
                  FROM sessions s WHERE s.id = ?1",
                 params![id],
                 map_session_row,
@@ -2121,11 +2138,30 @@ impl Store {
         &self,
         redactor: Option<std::sync::Arc<crate::redact::Detectors>>,
     ) -> Result<EventWriter> {
+        self.spawn_event_writer(redactor, drops::stderr_sink())
+    }
+
+    /// Spawn the writer thread with an explicit sink for the one-time
+    /// dropped-event warning (stderr in production, a capture in tests).
+    pub(crate) fn spawn_event_writer(
+        &self,
+        redactor: Option<std::sync::Arc<crate::redact::Detectors>>,
+        warn: drops::WarnSink,
+    ) -> Result<EventWriter> {
         let (tx, rx) = mpsc::channel::<WriterReq>();
         let db_path_for_thread = self.db_path.clone();
+        let drops = std::sync::Arc::new(DropTally::new(warn));
+        let drops_for_thread = std::sync::Arc::clone(&drops);
         let handle = std::thread::Builder::new()
             .name("hh-writer".into())
-            .spawn(move || writer_run(&db_path_for_thread, rx, redactor.as_deref()))
+            .spawn(move || {
+                writer_run(
+                    &db_path_for_thread,
+                    rx,
+                    redactor.as_deref(),
+                    &drops_for_thread,
+                );
+            })
             .map_err(|e| StorageError::Open {
                 path: self.db_path.clone(),
                 source: e,
@@ -2133,6 +2169,7 @@ impl Store {
         Ok(EventWriter {
             tx,
             handle: Some(handle),
+            drops,
         })
     }
 }
@@ -2141,11 +2178,13 @@ impl EventWriter {
     /// Append an event via the single-writer task. Returns the new event row id.
     pub fn append_event(&self, event: Event) -> Result<i64> {
         let (rtx, rrx) = mpsc::channel();
-        self.tx
-            .send(WriterReq::Append(event, rtx))
-            .map_err(|_| StorageError::WriterClosed)?;
+        if self.tx.send(WriterReq::Append(event, rtx)).is_err() {
+            return Err(self.closed_drop());
+        }
+        // A request that reached the writer thread is counted there on
+        // failure; only a reply that never arrives is counted here.
         rrx.recv()
-            .map_err(|_| StorageError::WriterClosed)?
+            .map_err(|_| self.closed_drop())?
             .map_err(Error::from)
     }
 
@@ -2175,12 +2214,37 @@ impl EventWriter {
         provenance: FileChangeProvenance,
     ) -> Result<i64> {
         let (rtx, rrx) = mpsc::channel();
-        self.tx
+        if self
+            .tx
             .send(WriterReq::AppendFileChange(event, change, provenance, rtx))
-            .map_err(|_| StorageError::WriterClosed)?;
+            .is_err()
+        {
+            return Err(self.closed_drop());
+        }
         rrx.recv()
-            .map_err(|_| StorageError::WriterClosed)?
+            .map_err(|_| self.closed_drop())?
             .map_err(Error::from)
+    }
+
+    /// Count an event a recording source had to drop before it reached the
+    /// writer (e.g. its content blob could not be stored). Shares the tally —
+    /// and the one-time warning — with failed writes.
+    pub fn record_dropped(&self, cause: impl std::fmt::Display) {
+        self.drops.record(cause);
+    }
+
+    /// How many events this writer has failed to persist so far, and the
+    /// first cause. Read it after the last append (before or after
+    /// [`Self::close`]) to report a session's dropped-event count.
+    pub fn dropped(&self) -> DroppedEvents {
+        self.drops.snapshot()
+    }
+
+    /// Count an append that failed because the writer thread is gone.
+    fn closed_drop(&self) -> Error {
+        self.drops
+            .record("the event writer is closed (its thread exited or was shut down)");
+        StorageError::WriterClosed.into()
     }
 
     /// Flush the writer: ensure all queued events are durable on disk.
@@ -2242,16 +2306,26 @@ fn writer_run(
     db_path: &Path,
     rx: Receiver<WriterReq>,
     redactor: Option<&crate::redact::Detectors>,
+    drops: &DropTally,
 ) {
-    // Opening failed: just return. `rx` drops, which closes the channel; any
-    // in-flight caller's `send`/`recv` then fails with [`StorageError::WriterClosed`].
-    let Ok(mut conn) = Connection::open_with_flags(
+    // Opening failed: retain the cause (it becomes the first error of every
+    // event dropped afterwards) and return. `rx` drops, which closes the
+    // channel; any later caller's `send`/`recv` then fails with
+    // [`StorageError::WriterClosed`] and is counted on the sender side.
+    let mut conn = match Connection::open_with_flags(
         db_path,
         OpenFlags::SQLITE_OPEN_READ_WRITE
             | OpenFlags::SQLITE_OPEN_CREATE
             | OpenFlags::SQLITE_OPEN_NO_MUTEX,
-    ) else {
-        return;
+    ) {
+        Ok(conn) => conn,
+        Err(e) => {
+            drops.note_cause(format!(
+                "could not open the database {} for writing: {e}",
+                db_path.display()
+            ));
+            return;
+        }
     };
     if let Err(e) = conn.busy_timeout(Duration::from_secs(5)) {
         eprintln!("hh: warning: writer thread could not set busy_timeout: {e}");
@@ -2289,6 +2363,9 @@ fn writer_run(
                     redact_event_in_place(&mut event, d);
                 }
                 let res = insert_event(&conn, &event);
+                if let Err(e) = &res {
+                    drops.record(format!("insert {} event: {e}", event.kind));
+                }
                 let _ = reply.send(res);
             }
             WriterReq::AppendFileChange(mut event, change, provenance, reply) => {
@@ -2296,6 +2373,9 @@ fn writer_run(
                     redact_event_in_place(&mut event, d);
                 }
                 let res = insert_event_with_file_change(&mut conn, &event, &change, &provenance);
+                if let Err(e) = &res {
+                    drops.record(format!("insert file_change event for {}: {e}", change.path));
+                }
                 let _ = reply.send(res);
             }
             WriterReq::Flush(reply) => {
@@ -2707,6 +2787,8 @@ fn map_session_row(r: &rusqlite::Row<'_>) -> rusqlite::Result<SessionRow> {
         files_changed: r.get(11)?,
         imported_from: r.get(12)?,
         adapter_degrade_reason: r.get(13)?,
+        dropped_events: u64::try_from(r.get::<_, i64>(14)?).unwrap_or(0),
+        dropped_events_reason: r.get(15)?,
     })
 }
 

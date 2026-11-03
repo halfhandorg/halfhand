@@ -21,7 +21,7 @@ use std::time::{Duration, Instant};
 use hh_core::adapter::{Adapter, AdapterContext, AdapterHandle, AdapterOutcome};
 use hh_core::blob::BlobStore;
 use hh_core::event::{AdapterStatus, AgentKind, Event, EventKind, NewSession};
-use hh_core::store::{EventWriter, Store};
+use hh_core::store::{DroppedEvents, EventWriter, Store};
 use portable_pty::{native_pty_system, CommandBuilder, PtySize};
 use signal_hook::consts::{SIGINT, SIGTERM};
 // SIGWINCH is Unix-only; Windows console resizes are not delivered as a
@@ -103,6 +103,11 @@ pub struct RunOutcome {
     /// the terminal is restored (FR-1.5), instead of from the tailer thread
     /// mid-session where the agent's TUI would bury it.
     pub degrade_reason: Option<String>,
+    /// Events the recorder failed to write, with the first failure's cause.
+    /// A non-zero count means the timeline has gaps: the session is degraded
+    /// (never a clean `ok`), the binary reports the count in the epilogue,
+    /// and it is persisted to `sessions.dropped_events`.
+    pub dropped: DroppedEvents,
 }
 
 /// Lock the shared writer, recovering from poisoning instead of failing.
@@ -120,6 +125,17 @@ fn lock_writer(writer: &Mutex<EventWriter>) -> std::sync::MutexGuard<'_, EventWr
     writer
         .lock()
         .unwrap_or_else(std::sync::PoisonError::into_inner)
+}
+
+/// Append `event` through the shared writer and return its row id, or `None`
+/// if it could not be written.
+///
+/// A failure is *not* silently discarded: the [`EventWriter`] counts every
+/// failed append in its dropped-event tally (printing one warning line on the
+/// first), which `finalize` persists and the epilogue reports. Recording
+/// continues either way — one lost event must not end the session.
+fn append(writer: &Mutex<EventWriter>, event: Event) -> Option<i64> {
+    lock_writer(writer).append_event(event).ok()
 }
 
 /// A guard that disables raw mode on drop. Created only when stdin is a TTY.
@@ -412,7 +428,7 @@ pub fn run(store: &Store, opts: &RunOptions) -> crate::Result<RunOutcome> {
         (Some(code), "error")
     };
 
-    let (event_count, steps, files_changed) = finalize(
+    let (event_count, steps, files_changed, dropped) = finalize(
         store,
         &session_id,
         &writer,
@@ -437,6 +453,7 @@ pub fn run(store: &Store, opts: &RunOptions) -> crate::Result<RunOutcome> {
         degrade_reason: adapter_outcome
             .as_ref()
             .and_then(|o| o.degrade_reason.clone()),
+        dropped,
     })
 }
 
@@ -550,8 +567,7 @@ fn run_adapter_drain(events: std::sync::mpsc::Receiver<Event>, writer: Arc<Mutex
             EventKind::ToolCall => {
                 // Append first (the id is assigned by the writer), then register
                 // it under the call's correlate_key for later tool_results.
-                let w = lock_writer(&writer);
-                if let Ok(id) = w.append_event(ev) {
+                if let Some(id) = append(&writer, ev) {
                     if let Some(k) = key {
                         calls.insert(k, id);
                     }
@@ -567,7 +583,7 @@ fn run_adapter_drain(events: std::sync::mpsc::Receiver<Event>, writer: Arc<Mutex
             }
             _ => {}
         }
-        let _ = lock_writer(&writer).append_event(ev);
+        append(&writer, ev);
     }
 }
 
@@ -615,7 +631,7 @@ fn flush_terminal_chunk(
         blob_size,
         correlates: None,
     };
-    let _ = lock_writer(writer).append_event(event);
+    append(writer, event);
 }
 
 /// Emit a `terminal_output` event for a recorded input chunk (`--record-input`).
@@ -646,10 +662,11 @@ fn flush_input_chunk(
         blob_size: None,
         correlates: None,
     };
-    let _ = lock_writer(writer).append_event(event);
+    append(writer, event);
 }
 
-/// Finalize the session row and return `(event_count, steps, files_changed)`.
+/// Finalize the session row and return `(event_count, steps, files_changed,
+/// dropped)`.
 ///
 /// Order (FR-1.5 + FR-3.4): flush + close the writer (all events durable, the
 /// writer thread joined → no intra-process contention) → assign step ordinals
@@ -662,7 +679,7 @@ fn finalize(
     adapter_outcome: Option<&AdapterOutcome>,
     exit_code: Option<i32>,
     status: &str,
-) -> crate::Result<(i64, i64, i64)> {
+) -> crate::Result<(i64, i64, i64, DroppedEvents)> {
     let status_enum = match status {
         "ok" => hh_core::event::SessionStatus::Ok,
         "error" => hh_core::event::SessionStatus::Error,
@@ -673,7 +690,7 @@ fn finalize(
     // adapter-meta update run on the main connection with no contention.
     // Recovers from poisoning (see `lock_writer`) rather than failing finalize
     // outright — a panic in any recording source must not also abort finalize.
-    {
+    let dropped = {
         let mut w = lock_writer(writer);
         // FR-1.5: persist the adapter's degrade reason as an `error` event so a
         // degraded session self-documents in the DB (queryable as
@@ -704,12 +721,22 @@ fn finalize(
                     blob_size: None,
                     correlates: None,
                 };
+                // A failure is counted in the writer's dropped tally.
                 let _ = w.append_event(ev);
             }
         }
-        w.flush().map_err(crate::RecordError::from)?;
+        // A failed checkpoint loses nothing (committed events are in the WAL
+        // and SQLite checkpoints them later), so it must not abort finalize
+        // and leave the session stuck as `recording`; report it and go on.
+        if let Err(e) = w.flush() {
+            eprintln!(
+                "hh: warning: could not checkpoint the database at finalize: {e} \
+                 — recorded events are kept in the write-ahead log; run `hh doctor`"
+            );
+        }
         w.close().map_err(crate::RecordError::from)?;
-    }
+        w.dropped()
+    };
     // FR-3.4: assign 1-based step ordinals now that every event is durable.
     store.assign_steps(session_id)?;
     // FR-1.5 / BUG-1.1: persist the adapter's model/usage/final status
@@ -728,11 +755,15 @@ fn finalize(
             reason_code,
         )?;
     }
+    // Persist the dropped-event tally (sessions.dropped_events), following
+    // the adapter_degrade_reason pattern: a session with gaps self-documents
+    // in the DB and is never listed as a clean `ok`.
+    store.add_session_dropped_events(session_id, &dropped)?;
     let ended_at = now_unix_ms();
     store.finalize_session(session_id, ended_at, exit_code, status_enum)?;
     let (event_count, files_changed) = store.session_stats(session_id)?;
     let steps = store.session_step_count(session_id)?;
-    Ok((event_count, steps, files_changed))
+    Ok((event_count, steps, files_changed, dropped))
 }
 
 /// Query the current terminal size, falling back to 24×80 on non-TTY or

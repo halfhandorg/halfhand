@@ -1,0 +1,5 @@
+---
+source: hh/src/main.rs
+expression: "render_doctor_plain(&[c], false)"
+---
+✗ dropped events — 43 event(s) dropped across 2 of the last 3 session(s) (a1b2c3: 3, 0f9e8d: 40); first cause: insert terminal_output event: disk I/O error — check free disk space and permissions on the data dir

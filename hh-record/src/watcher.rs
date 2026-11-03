@@ -1081,7 +1081,7 @@ fn record_changes(
 
     for (from, to, present) in paired {
         let before = tracker.take_before(&from, sink);
-        if let Err(e) = write_change(
+        write_change(
             &to,
             ChangeKind::Modified,
             before,
@@ -1089,13 +1089,11 @@ fn record_changes(
             Some(&from),
             sink,
             tracker,
-        ) {
-            warn_capture(&to, &e);
-        }
+        );
     }
     for (path, present) in modifies {
         let before = tracker.take_before(&path, sink);
-        if let Err(e) = write_change(
+        write_change(
             &path,
             ChangeKind::Modified,
             before,
@@ -1103,13 +1101,11 @@ fn record_changes(
             None,
             sink,
             tracker,
-        ) {
-            warn_capture(&path, &e);
-        }
+        );
     }
     for (path, present) in plain_creates {
         // A created path has no before-side; nothing to consume.
-        if let Err(e) = write_change(
+        write_change(
             &path,
             ChangeKind::Created,
             Before::none(),
@@ -1117,13 +1113,11 @@ fn record_changes(
             None,
             sink,
             tracker,
-        ) {
-            warn_capture(&path, &e);
-        }
+        );
     }
     for path in deletes {
         let before = tracker.take_before(&path, sink);
-        if let Err(e) = write_change(
+        write_change(
             &path,
             ChangeKind::Deleted,
             before,
@@ -1131,9 +1125,7 @@ fn record_changes(
             None,
             sink,
             tracker,
-        ) {
-            warn_capture(&path, &e);
-        }
+        );
     }
 }
 
@@ -1382,6 +1374,11 @@ fn merge_kind(prior: ChangeKind, new: ChangeKind) -> (ChangeKind, bool) {
 /// binary and `record_binary` is off), update the tracker, and append the
 /// `file_change` event + `file_changes` row with its before-side provenance
 /// (migration 0006). `renamed_from` is the old absolute path of a rename.
+///
+/// A change that cannot be stored is a dropped event, not a per-file warning:
+/// it is counted in the writer's dropped-event tally, which prints one warning
+/// line for the first drop only (a disk-full condition must not print one line
+/// per file) and marks the session degraded at finalize. Recording continues.
 #[allow(clippy::too_many_arguments)] // one change's full description; a struct would just rename the args
 fn write_change(
     path: &Path,
@@ -1391,11 +1388,11 @@ fn write_change(
     renamed_from: Option<&Path>,
     sink: &Sink<'_>,
     tracker: &mut Tracker,
-) -> std::result::Result<(), String> {
+) {
     let opts = sink.opts;
     // Defensive: re-strip in case a path outside cwd slipped through.
     let Ok(rel) = path.strip_prefix(&opts.cwd) else {
-        return Ok(());
+        return;
     };
     let rel_str = rel.to_string_lossy().to_string();
     let from_str = renamed_from
@@ -1418,11 +1415,16 @@ fn write_change(
             let (stored_hash, stored_size) = if binary && !opts.record_binary {
                 (None, Some(size))
             } else {
-                let outcome = sink
-                    .blobs
-                    .put(&content)
-                    .map_err(|e| format!("blob put {}: {e}", path.display()))?;
-                (Some(outcome.hash), Some(outcome.size))
+                match sink.blobs.put(&content) {
+                    Ok(outcome) => (Some(outcome.hash), Some(outcome.size)),
+                    Err(e) => {
+                        // The event never reaches the writer, so count it
+                        // here (the writer counts its own failures).
+                        lock_sink_writer(sink)
+                            .record_dropped(format!("store content of {}: {e}", path.display()));
+                        return;
+                    }
+                }
             };
             // The before/after chain must point at fetchable blobs, so it
             // tracks the stored hash when content was stored, and falls back
@@ -1480,14 +1482,21 @@ fn write_change(
     // capture: the writer `Mutex` is shared with the PTY reader and adapter
     // drain threads, and a panic in one of them must not silently blind the
     // others for the rest of the session (see `runner::lock_writer`).
-    let writer = sink
-        .writer
+    // A failed append is counted in the writer's dropped tally (and warned
+    // about once) by the writer itself; nothing more to do here.
+    let _ =
+        lock_sink_writer(sink).append_file_change_with_provenance(event, file_change, provenance);
+}
+
+/// Lock the sink's shared writer, recovering from poisoning rather than
+/// failing this (and every subsequent) capture: the writer `Mutex` is shared
+/// with the PTY reader and adapter drain threads, and a panic in one of them
+/// must not silently blind the others for the rest of the session (see
+/// `runner::lock_writer`).
+fn lock_sink_writer<'a>(sink: &'a Sink<'_>) -> std::sync::MutexGuard<'a, EventWriter> {
+    sink.writer
         .lock()
-        .unwrap_or_else(std::sync::PoisonError::into_inner);
-    writer
-        .append_file_change_with_provenance(event, file_change, provenance)
-        .map_err(|e| format!("append file_change: {e}"))?;
-    Ok(())
+        .unwrap_or_else(std::sync::PoisonError::into_inner)
 }
 
 /// Binary heuristic (FR-1.4): a NUL byte in the first 8 KiB.

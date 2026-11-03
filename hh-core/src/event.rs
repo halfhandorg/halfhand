@@ -358,6 +358,14 @@ pub struct SessionRow {
     /// (no structured error — a `hh doctor` diagnostic, not a stale code).
     /// See SRS BUG-1.1 for the code table.
     pub adapter_degrade_reason: Option<String>,
+    /// Number of events the recorder failed to write to the database
+    /// (`sessions.dropped_events`). Non-zero marks the session degraded: its
+    /// timeline has gaps, so it is never shown as a clean `ok`. `0` for a
+    /// clean session and for sessions recorded before the column existed.
+    pub dropped_events: u64,
+    /// The first write failure's cause (what failed and why) when
+    /// [`Self::dropped_events`] is non-zero; `None` otherwise.
+    pub dropped_events_reason: Option<String>,
 }
 
 impl Default for SessionRow {
@@ -383,6 +391,8 @@ impl Default for SessionRow {
             files_changed: 0,
             imported_from: None,
             adapter_degrade_reason: None,
+            dropped_events: 0,
+            dropped_events_reason: None,
         }
     }
 }
