@@ -51,7 +51,9 @@ never as `0` (see [the dash convention](./context.md#the-dash-convention)).
 
 **Capture gaps are stated, not hidden.** When a session has no structured
 transcript events (PTY and file-system capture only), the header says
-`⚠ no transcript — terminal and file capture only`. A degraded adapter
+`⚠ no transcript — terminal and file capture only`; a
+[`hh watch`](./watch.md) session says
+`⚠ watched directory — file changes only, no terminal or transcript`. A degraded adapter
 (`⚠ transcript adapter degraded (<reason>)`) and events the recorder could not
 write (`⚠ 12 events not recorded`) are shown the same way.
 

@@ -44,8 +44,9 @@ pub use error::{BlobError, BundleError, ConfigError, Error, ResolveError, Result
 pub use event::{
     truncate_summary, AdapterStatus, AgentKind, BeforeSource, ChangeKind, Event, EventDetail,
     EventIndexRow, EventKind, EventRow, FileChange, FileChangeProvenance, NewSession, RawEventRow,
-    SessionRow, SessionStatus, JSON_SCHEMA_VERSION,
+    SessionRow, SessionStatus, CAPTURE_TIER_EFFECTS, JSON_SCHEMA_VERSION,
 };
+pub use liveness::{current_process_identity, recorder_is_gone};
 pub use redact::{Detectors, Finding, SecretKind};
 // `Uuid` is part of the public surface already (`now_v7` returns it,
 // `NewSession::id` holds it); re-exporting it lets downstream crates name the

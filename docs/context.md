@@ -54,7 +54,7 @@ and prints plain text when stdout is not a terminal.
 | created, last activity | Session start, and the timestamp of its last recorded event. |
 | duration | **Wall** is start to end. **Active** is the first to the last agent event (any event except terminal output and lifecycle markers), so idle time before the first prompt and after the last answer is excluded. |
 | est. cost | Every response priced with the model that wrote it, at the table's list price. |
-| capture | `transcript` when an adapter tailed the agent's transcript, `terminal` for PTY and file-system capture only, `mcp` for MCP proxy traffic; then the adapter that ran. |
+| capture | `transcript` when an adapter tailed the agent's transcript, `terminal` for PTY and file-system capture only, `mcp` for MCP proxy traffic, `effects` for file changes only (`hh watch`); then the adapter that ran. |
 
 ## Two token families, never blended
 

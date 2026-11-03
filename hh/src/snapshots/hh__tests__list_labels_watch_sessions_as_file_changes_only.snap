@@ -1,0 +1,8 @@
+---
+source: hh/src/main.rs
+expression: "format_session_table(&[w, ran], false, 1_782_053_400_000)"
+---
+ID     STATUS AGENT       STARTED DURATION STEPS FILES COMMAND
+------ ------ ----------- ------- -------- ----- ----- --------------------------
+e1f2a3 ✓ ok   generic     10m ago 5m20s    2     7     (watch: file changes only)
+a1b2c3 ✓ ok   claude-code 10m ago 5m20s    42    7     claude

@@ -7,6 +7,7 @@
 - [Quickstart](./quickstart.md)
 - [Setup (`hh init`)](./init.md)
 - [Recording](./recording.md)
+- [Watching a directory (`hh watch`)](./watch.md)
 - [Effect capture & capture health](./capture.md)
 - [Replay & Inspect](./replay-inspect.md)
 - [Session context](./context.md)

@@ -72,7 +72,7 @@ One object per recorded session, newest-first.
 | `duration_ms` | integer \| null | yes | `ended_at - started_at`, clamped non-negative. `null` when `ended_at` is `null`. |
 | `steps` | integer | yes | Count of distinct stored step ordinals (semantic events). `terminal_output` events are not steps. |
 | `files_changed` | integer | yes | Count of distinct file paths in the session's `file_changes` rows. |
-| `command` | array of strings | yes | The recorded command line as an argv vector. |
+| `command` | array of strings | yes | The recorded command line as an argv vector. Empty (`[]`) for a [`hh watch`](./watch.md) session, which wraps no command. |
 | `cwd` | string | yes | The session's working directory. |
 | `imported_from` | string \| null | yes | The original session id, if this session was created by `hh import` (see [`docs/export-import.md`](export-import.md)). `null` for a locally-recorded session. Added additively — older clients that don't read it are unaffected. |
 | `name` | string \| null | yes | The session's name (`hh run --name`, `hh rename`), or `null`. Added additively (migration 0007). |
@@ -80,7 +80,7 @@ One object per recorded session, newest-first.
 | `model_display` | string \| null | yes | Display name of `model_id` from Halfhand's compiled-in model table; `null` when the model is not in the table. Added additively. |
 | `provider` | string \| null | yes | Provider of `model_id` from the table, or `null`. Added additively. |
 | `context_limit` | integer \| null | yes | Context window of `model_id` in tokens, from the table, or `null`. Added additively. |
-| `capture_tier` | string \| null | yes | `transcript` (a structured adapter tailed the transcript), `terminal` (PTY and file system only) or `mcp` (MCP proxy). `null` until finalized. Added additively. |
+| `capture_tier` | string \| null | yes | `transcript` (a structured adapter tailed the transcript), `terminal` (PTY and file system only), `mcp` (MCP proxy) or `effects` (file changes only: a [`hh watch`](./watch.md) session, set when it starts). Otherwise `null` until finalized. Added additively. |
 | `adapter_id` | string \| null | yes | The adapter that ran (`claude-code`, `claude-desktop`, …), or `null`. Added additively. |
 | `usage` | object | yes | Self-reported token usage, accumulated over the session: `{ "source": "self_reported", "input_tokens", "output_tokens", "cache_read_tokens", "cache_write_tokens", "reasoning_tokens", "total_tokens" }`. Each count is an integer or `null` — `null` means not reported, never 0. `total_tokens` is derived (input + output + cache read + cache write; reasoning is a breakdown of output) and never stored. Size-based estimates are never in this object; see [Session context](./context.md). Added additively. |
 | `duration` | string \| null | yes | `duration_ms` as an ISO-8601 duration (`PT1H49M40S`). Added additively. |

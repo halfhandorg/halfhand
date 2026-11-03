@@ -1,0 +1,8 @@
+---
+source: hh/src/watch.rs
+expression: "format_status(&status_rows(), false, 1_700_000_000_000)"
+---
+PATH               SESSION PID  MODE       STARTED FILES
+------------------ ------- ---- ---------- ------- -----
+/home/me/code/site a1b2c3  4242 background 5m ago  3
+/srv/notes         —       77   foreground 2h ago  —

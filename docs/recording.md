@@ -10,6 +10,10 @@ hh run -- codex               # any other agent: terminal output + file changes
 
 Everything after `--` is the command to record.
 
+To record an agent you can't launch through `hh` — a GUI app, or a session
+that is already running — use [`hh watch`](./watch.md), which records the
+file changes in a directory without wrapping a command.
+
 ## What gets captured
 
 - **Terminal output** — ANSI/UTF-8 bytes (and binary chunks) from the PTY.

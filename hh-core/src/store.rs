@@ -873,6 +873,23 @@ impl Store {
         Ok(())
     }
 
+    /// Record how a session is being captured (`sessions.capture_tier`,
+    /// migration 0007) before it finalizes. `finalize_session` only fills the
+    /// tier when it is still NULL, so a value set here is kept. Used by
+    /// `hh watch` to mark its sessions [`crate::event::CAPTURE_TIER_EFFECTS`]
+    /// from the start. Errors with [`StorageError::NotFound`] when no session
+    /// has `id`.
+    pub fn set_session_capture_tier(&self, id: &str, tier: &str) -> Result<()> {
+        let n = self.conn.execute(
+            "UPDATE sessions SET capture_tier = ?1 WHERE id = ?2",
+            params![tier, id],
+        )?;
+        if n == 0 {
+            return Err(StorageError::NotFound(id.to_string()).into());
+        }
+        Ok(())
+    }
+
     /// Derive a session's read-time context from its events (migration
     /// 0007): every self-reported model with its step range, message
     /// counts, the latest turn's context occupancy, a size-based token
@@ -3593,6 +3610,30 @@ mod tests {
         store.set_session_name(&sid, None).unwrap();
         assert_eq!(store.get_session(&sid).unwrap().name, None);
         assert!(store.set_session_name("nope", Some("x")).is_err());
+    }
+
+    #[test]
+    fn capture_tier_set_at_start_survives_finalize() {
+        let tmp = TempDir::new().unwrap();
+        let store = Store::open(&tmp.path().join("hh.db"), &tmp.path().join("b")).unwrap();
+        let sid = store.create_session(&new_session()).unwrap().id;
+        store
+            .set_session_capture_tier(&sid, crate::event::CAPTURE_TIER_EFFECTS)
+            .unwrap();
+        assert_eq!(
+            store.get_session(&sid).unwrap().capture_tier.as_deref(),
+            Some("effects"),
+            "visible while still recording"
+        );
+        store
+            .finalize_session(&sid, 1_700_000_100_000, None, SessionStatus::Ok)
+            .unwrap();
+        assert_eq!(
+            store.get_session(&sid).unwrap().capture_tier.as_deref(),
+            Some("effects"),
+            "finalize must not overwrite an explicit tier"
+        );
+        assert!(store.set_session_capture_tier("nope", "effects").is_err());
     }
 
     #[test]

@@ -672,7 +672,7 @@ fn flush_input_chunk(
 /// writer thread joined → no intra-process contention) → assign step ordinals
 /// → persist the adapter's model/usage/status → finalize the session row →
 /// counts. `adapter_outcome` is `None` for PTY-only sessions.
-fn finalize(
+pub(crate) fn finalize(
     store: &Store,
     session_id: &str,
     writer: &Arc<Mutex<EventWriter>>,
@@ -781,7 +781,7 @@ fn current_pty_size() -> PtySize {
 }
 
 /// Current unix-ms UTC timestamp.
-fn now_unix_ms() -> i64 {
+pub(crate) fn now_unix_ms() -> i64 {
     std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)
         .map_or(0, |d| i64::try_from(d.as_millis()).unwrap_or(i64::MAX))
@@ -789,7 +789,7 @@ fn now_unix_ms() -> i64 {
 
 /// Best-effort hostname. Shells out to `hostname` so we don't add a
 /// hostname crate dependency; returns `None` if unavailable.
-fn hostname() -> Option<String> {
+pub(crate) fn hostname() -> Option<String> {
     Command::new("hostname")
         .output()
         .ok()

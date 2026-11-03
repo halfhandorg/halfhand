@@ -25,6 +25,12 @@ use uuid::Uuid;
 /// `gemini-cli`) and the `lifecycle` event's `redaction_audit` body shape.
 pub const JSON_SCHEMA_VERSION: u64 = 2;
 
+/// `sessions.capture_tier` value for an effects-only session: one recorded by
+/// `hh watch`, which wraps no command, so it holds file changes and nothing
+/// else (no terminal output, no transcript). Set when the session is created,
+/// so it is visible while the session is still recording.
+pub const CAPTURE_TIER_EFFECTS: &str = "effects";
+
 /// Session status (`sessions.status`).
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum SessionStatus {
@@ -383,8 +389,10 @@ pub struct SessionRow {
     /// them separately (a breakdown of output, not added to the total).
     pub reasoning_tokens: Option<i64>,
     /// How the session was captured: `transcript` (a structured adapter tailed
-    /// the agent's transcript), `terminal` (PTY and file system only) or `mcp`
-    /// (MCP proxy traffic). `None` for a session not yet finalized.
+    /// the agent's transcript), `terminal` (PTY and file system only), `mcp`
+    /// (MCP proxy traffic) or `effects` (file changes only, recorded by
+    /// `hh watch` with no wrapped command; see [`CAPTURE_TIER_EFFECTS`]).
+    /// `None` for a session not yet finalized.
     pub capture_tier: Option<String>,
     /// The adapter that ran (`claude-code`, …), or `None` for none.
     pub adapter_id: Option<String>,

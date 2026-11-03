@@ -14,6 +14,7 @@ Usage: hh <COMMAND>
 Commands:
   init         Set up Halfhand: create the data directory and a starter config
   run          Record an agent session inside a PTY
+  watch        Record what an agent does to a directory, without launching it
   replay       Faithfully play back a recorded session in an interactive TUI
   inspect      Print non-interactive detail about a session
   list         List recorded sessions, newest first

@@ -5,7 +5,8 @@
 //! feeds both into the single-writer SQLite store via `hh-core`, and — when a
 //! structured-event adapter applies (Claude Code today) — drains its
 //! parsed events into the same store with `tool_call`→`tool_result` correlation.
-//! The MCP stdio proxy lives in `mcp_proxy`.
+//! The MCP stdio proxy lives in `mcp_proxy`; effects-only recording of a
+//! directory with no wrapped command (`hh watch`) lives in `watch`.
 //!
 //! The threads-vs-tokio decision is recorded in
 //! `docs/adr/0001-threads-vs-tokio.md`.
@@ -41,6 +42,7 @@ mod error;
 mod git;
 mod mcp_proxy;
 mod runner;
+mod watch;
 mod watcher;
 
 pub use agent::detect_agent;
@@ -48,6 +50,11 @@ pub use error::{RecordError, Result};
 pub use git::GitMeta;
 pub use mcp_proxy::{run_mcp_proxy, McpProxyOptions, McpProxyOutcome};
 pub use runner::{run, RunOptions, RunOutcome};
+#[cfg(unix)] // SIGHUP has no Windows equivalent; detaching is Unix-only.
+pub use watch::ignore_hangup;
+pub use watch::{
+    register_stop_signals, watch, WatchOutcome, WatchSessionOptions, WatchStarted, WatchStop,
+};
 pub use watcher::{spawn_watcher, watcher_smoke_test, WatchOptions, WatcherHandle};
 
 /// Fuzz-only entry points into the MCP JSON-RPC line classifier; see

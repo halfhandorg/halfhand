@@ -1,0 +1,41 @@
+---
+source: hh/tests/cli_conformance.rs
+expression: "String::from_utf8_lossy(&out.stdout)"
+---
+Record what an agent does to a directory, without launching it.
+
+Starts an effects-only session for the directory (default: the current one): every file created, edited, renamed or deleted there is recorded, by whatever process makes the change — a GUI agent, an IDE, or an agent session that is already running. There is no wrapped command, so there is no terminal output or transcript. Runs until Ctrl-C, `hh watch --stop`, or --idle-timeout. One watcher per directory: a second `hh watch` on the same directory reports the running session instead of starting another. Refuses your home directory and filesystem roots.
+
+Usage: hh watch [OPTIONS] [PATH]
+
+Arguments:
+  [PATH]
+          Directory to record. Defaults to the current directory
+
+Options:
+      --daemon
+          Detach and keep watching in the background (writes a PID file under the data dir). Stop it with `hh watch --stop`. Not available on Windows yet
+
+      --status
+          Show running watchers and their sessions (only the one for PATH, if given)
+
+      --stop
+          Stop the watcher for the directory and finalize its session. Not available on Windows yet
+
+      --idle-timeout <DURATION>
+          Finish the session after this long with no file activity, e.g. `90s`, `15m`, `2h` (a bare number is seconds). Off by default
+
+      --name <NAME>
+          Name the recorded session (shown by `hh inspect`; change it later with `hh rename`)
+
+  -h, --help
+          Print help (see a summary with '-h')
+
+Examples:
+  hh watch                       record changes to the current directory until Ctrl-C
+  hh watch ~/code/site --daemon  watch in the background
+  hh watch --status              list running watchers
+  hh watch ~/code/site --stop    stop it and finalize the session
+  hh watch --idle-timeout 15m    finish after 15 minutes without changes
+
+Docs: https://halfhand.org/docs/watch/

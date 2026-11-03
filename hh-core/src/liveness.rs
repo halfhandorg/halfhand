@@ -87,6 +87,27 @@ fn classify(probe: Probe, recorded_start: Option<i64>) -> Liveness {
     }
 }
 
+/// Public, fail-safe liveness answer for a recorder identified by
+/// `(pid, start_time)`: `true` only when the process is provably gone (no
+/// process holds the pid, it is a zombie, or the pid now belongs to a process
+/// with a different start time). An undeterminable answer is `false`
+/// ("possibly alive"), matching the contract `mark_stale_interrupted` uses.
+///
+/// Other recorder bookkeeping (for example `hh watch`'s per-directory lock
+/// file) uses this so a second mechanism for "is that recorder still
+/// running?" is never invented.
+pub fn recorder_is_gone(pid: u32, start_time: Option<i64>) -> bool {
+    check(pid, start_time) == Liveness::Gone
+}
+
+/// The calling process's identity as `(pid, start_time)`, in the same form
+/// `Store::create_session` records it. `start_time` is `None` when this
+/// platform's start-time token could not be read.
+pub fn current_process_identity() -> (u32, Option<i64>) {
+    let me = ProcessIdentity::current();
+    (me.pid, me.start_time)
+}
+
 #[cfg(target_os = "linux")]
 fn probe(pid: u32) -> Probe {
     use std::io::ErrorKind;
@@ -301,6 +322,16 @@ mod tests {
         let me = ProcessIdentity::current();
         assert!(me.start_time.is_some(), "own start time must be readable");
         assert_eq!(check(me.pid, me.start_time), Liveness::Alive);
+    }
+
+    #[cfg(any(target_os = "linux", target_os = "macos", windows))]
+    #[test]
+    fn public_helpers_agree_with_check() {
+        let (pid, start) = current_process_identity();
+        assert_eq!(pid, std::process::id());
+        assert!(!recorder_is_gone(pid, start), "the caller is running");
+        let start = start.expect("own start time");
+        assert!(recorder_is_gone(pid, Some(start + 1)), "pid reuse is gone");
     }
 
     #[cfg(any(target_os = "linux", target_os = "macos", windows))]
