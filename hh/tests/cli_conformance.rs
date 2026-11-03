@@ -23,6 +23,7 @@ const SUBCOMMANDS: &[&str] = &[
     "replay",
     "inspect",
     "list",
+    "rename",
     "delete",
     "mcp-proxy",
     "doctor",
@@ -236,6 +237,10 @@ fn success_exits_0() {
     assert_exit(&temp, &["scan", "last"], 0);
     assert_exit(&temp, &["scan", "--all", "--json"], 0);
     assert_exit(&temp, &["export", "last"], 0);
+    assert_exit(&temp, &["inspect", "last", "--context"], 0);
+    assert_exit(&temp, &["inspect", "last", "--context", "--json"], 0);
+    assert_exit(&temp, &["rename", "last", "smoke test"], 0);
+    assert_exit(&temp, &["rename", "last", "--clear"], 0);
     assert_exit(&temp, &["delete", "last", "--yes"], 0);
 }
 
@@ -260,12 +265,17 @@ fn generic_error_exits_1() {
 fn every_usage_error_exits_2() {
     let temp = Temp::new();
     for args in [
-        &["list", "--limit", "many"][..],  // wrong value type
-        &["delete"],                       // missing required argument
-        &["export", "--html", "--bundle"], // conflicting flags
-        &["scan", "last", "--all"],        // session conflicts with --all
-        &["completions", "no-such-shell"], // invalid enum value
-        &[],                               // no subcommand at all
+        &["list", "--limit", "many"][..],                 // wrong value type
+        &["delete"],                                      // missing required argument
+        &["export", "--html", "--bundle"],                // conflicting flags
+        &["scan", "last", "--all"],                       // session conflicts with --all
+        &["completions", "no-such-shell"],                // invalid enum value
+        &[],                                              // no subcommand at all
+        &["rename", "last"],                              // neither a name nor --clear
+        &["rename", "last", "   "],                       // a blank name
+        &["rename", "last", "x", "--clear"],              // name conflicts with --clear
+        &["inspect", "last", "--context", "--step", "1"], // conflicting views
+        &["run", "--name", "", "--", "true"],             // empty --name, before recording
     ] {
         assert_exit(&temp, args, 2);
     }
@@ -284,6 +294,8 @@ fn every_session_taking_command_exits_3_when_not_found() {
             vec!["delete", session, "--yes"],
             vec!["scan", session],
             vec!["redact", session, "--yes"],
+            vec!["rename", session, "some name"],
+            vec!["inspect", session, "--context"],
         ] {
             assert_exit(&temp, &args, 3);
         }

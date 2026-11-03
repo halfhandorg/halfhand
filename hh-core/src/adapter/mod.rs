@@ -2500,7 +2500,37 @@ pub(crate) fn parse_record(
         }
         _ => {} // content is null/number/etc: skip
     }
+    if is_assistant {
+        attach_response_meta(message, &mut out.events);
+    }
     out
+}
+
+/// Attach the response's self-reported `model`, `usage` and `id` to the body
+/// of the first event it produced (migration 0007; see [`crate::usage`]).
+/// The writer task folds them into the session row; `hh inspect` reads them
+/// back for per-model step ranges. Only the first event carries them, so a
+/// response that yields text + tool calls is counted once. A spilled body's
+/// overflow envelope carries the keys too, so the writer still sees them.
+/// Missing or non-string/non-object values are skipped, never invented.
+fn attach_response_meta(message: &serde_json::Value, events: &mut [Event]) {
+    use crate::usage::{BODY_MESSAGE_ID_KEY, BODY_MODEL_KEY, BODY_USAGE_KEY};
+    let Some(body) = events
+        .first_mut()
+        .and_then(|e| e.body_json.as_mut())
+        .and_then(serde_json::Value::as_object_mut)
+    else {
+        return;
+    };
+    if let Some(m) = message.get("model").and_then(|v| v.as_str()) {
+        body.insert(BODY_MODEL_KEY.to_string(), serde_json::Value::from(m));
+    }
+    if let Some(id) = message.get("id").and_then(|v| v.as_str()) {
+        body.insert(BODY_MESSAGE_ID_KEY.to_string(), serde_json::Value::from(id));
+    }
+    if let Some(u) = message.get("usage").filter(|u| u.is_object()) {
+        body.insert(BODY_USAGE_KEY.to_string(), u.clone());
+    }
 }
 
 /// Parse one content block into events appended to `events`.

@@ -11,7 +11,7 @@
 //! STABILITY.md's policy instead.
 
 /// The highest migration version applied by a fresh [`crate::store::Store::open`].
-pub const LATEST_VERSION: i64 = 6;
+pub const LATEST_VERSION: i64 = 7;
 
 /// The ordered migration set: `(version, DDL)`. Applied in ascending order;
 /// each is run only when the DB's recorded `schema_migrations.version` is below
@@ -30,6 +30,10 @@ pub const LATEST_VERSION: i64 = 6;
 /// `PRAGMA table_info` check after the migration runner has applied the DDL
 /// (an `IF NOT EXISTS` index on `before_hash`, which does not reference the
 /// new columns).
+///
+/// Migration 0007 is all Rust: `Store::open` adds the
+/// [`SESSION_CONTEXT_COLUMNS`] behind `PRAGMA table_info` checks; its SQL file
+/// only documents them.
 pub const MIGRATIONS: &[(i64, &str)] = &[
     (1, include_str!("migrations/0001_initial.sql")),
     (2, include_str!("migrations/0002_events_heal_index.sql")),
@@ -43,6 +47,26 @@ pub const MIGRATIONS: &[(i64, &str)] = &[
         6,
         include_str!("migrations/0006_file_change_before_source.sql"),
     ),
+    (7, include_str!("migrations/0007_session_context.sql")),
+];
+
+/// Migration 0007's `sessions` columns, as `(name, SQLite type)`, in the
+/// order `Store::open` adds them. Each is added behind a `PRAGMA table_info`
+/// check, so re-running is a no-op and a partially-applied 0007 (some
+/// columns present) completes cleanly. All are nullable; NULL means unknown.
+pub const SESSION_CONTEXT_COLUMNS: &[(&str, &str)] = &[
+    ("name", "TEXT"),
+    ("model_id", "TEXT"),
+    ("model_display", "TEXT"),
+    ("provider", "TEXT"),
+    ("context_limit", "INTEGER"),
+    ("input_tokens", "INTEGER"),
+    ("output_tokens", "INTEGER"),
+    ("cache_read_tokens", "INTEGER"),
+    ("cache_write_tokens", "INTEGER"),
+    ("reasoning_tokens", "INTEGER"),
+    ("capture_tier", "TEXT"),
+    ("adapter_id", "TEXT"),
 ];
 
 /// Migration 0001: the v0.1.0-beta.1 schema, verbatim from SRS §4.1.

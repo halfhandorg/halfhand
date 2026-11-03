@@ -12,9 +12,11 @@ Arguments:
 Options:
       --record-input       Record user keystrokes (off by default; keystrokes may contain secrets)
       --adapter <ADAPTER>  Force an adapter rather than auto-detecting (`claude-code`, `claude-desktop`, `codex-cli`, `gemini-cli`)
+      --name <NAME>        Name the recorded session (shown by `hh inspect`; change it later with `hh rename`)
   -h, --help               Print help
 
 Examples:
   hh run -- claude                              record a Claude Code session
   hh run --record-input -- python3 my_agent.py  also record your keystrokes
+  hh run --name "auth refactor" -- claude       record and name the session
   hh run --adapter claude-desktop -- $SHELL     record the Claude Desktop session open in this dir; exit to finish

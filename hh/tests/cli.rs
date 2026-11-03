@@ -3232,3 +3232,93 @@ fn claude_desktop_adapter_degrades_with_code_when_no_session_exists() {
     assert_eq!(session["adapter_status"], "degraded");
     assert_eq!(session["adapter_degrade_reason"], "jsonl_not_found");
 }
+
+/// Migration 0007 end to end: `hh run --name` names the session, `hh rename`
+/// changes it, and the additive JSON fields are present — with `null` (not
+/// 0) for every token count a generic PTY session never self-reported.
+#[test]
+fn run_name_rename_and_context_json() {
+    let temp = Temp::new();
+    let run = hh()
+        .args([
+            "run",
+            "--name",
+            "  first try  ",
+            "--",
+            "sh",
+            "-c",
+            "echo hi",
+        ])
+        .env("HH_DATA_DIR", temp.data.path())
+        .current_dir(temp.work.path())
+        .stdin(Stdio::null())
+        .output()
+        .expect("hh run should execute");
+    assert!(
+        run.status.success(),
+        "{}",
+        String::from_utf8_lossy(&run.stderr)
+    );
+
+    let s = list_single_session(&temp);
+    assert_eq!(s["name"], "first try", "the name is trimmed");
+    assert_eq!(s["capture_tier"], "terminal");
+    assert!(s["adapter_id"].is_null());
+    assert!(s["model_id"].is_null());
+    for k in [
+        "input_tokens",
+        "output_tokens",
+        "cache_read_tokens",
+        "cache_write_tokens",
+        "reasoning_tokens",
+        "total_tokens",
+    ] {
+        assert!(s["usage"][k].is_null(), "{k} must be null, never 0: {s}");
+    }
+    assert_eq!(s["usage"]["source"], "self_reported");
+    assert!(
+        s["duration"].as_str().is_some_and(|d| d.starts_with("PT")),
+        "{s}"
+    );
+    assert!(
+        s.get("total_tokens").is_none(),
+        "total is derived inside usage only"
+    );
+
+    let rename = hh()
+        .args(["rename", "last", "second try"])
+        .env("HH_DATA_DIR", temp.data.path())
+        .env("NO_COLOR", "1")
+        .output()
+        .unwrap();
+    assert!(rename.status.success());
+    assert!(String::from_utf8_lossy(&rename.stdout).contains("→ second try"));
+
+    let panel = hh()
+        .args(["inspect", "last", "--context"])
+        .env("HH_DATA_DIR", temp.data.path())
+        .output()
+        .unwrap();
+    let panel = String::from_utf8_lossy(&panel.stdout);
+    assert!(
+        !panel.contains('\u{1b}'),
+        "non-TTY output is plain: {panel:?}"
+    );
+    assert!(panel.contains("second try"), "{panel}");
+    assert!(
+        panel.contains("est. cost       —"),
+        "unknown cost is a dash: {panel}"
+    );
+
+    let json = hh()
+        .args(["inspect", "last", "--context", "--json"])
+        .env("HH_DATA_DIR", temp.data.path())
+        .output()
+        .unwrap();
+    let json: serde_json::Value = serde_json::from_slice(&json.stdout).expect("valid JSON");
+    assert_eq!(json["schema"], 2);
+    assert_eq!(json["name"], "second try");
+    assert!(json["estimated_cost_usd"].is_null());
+    assert_eq!(json["estimated"]["source"], "size_based");
+    assert_eq!(json["usage"]["source"], "self_reported");
+}

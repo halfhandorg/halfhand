@@ -8,7 +8,12 @@ expression: snap(&pr)
       "blob_hash": null,
       "blob_size": null,
       "body_json": {
-        "text": "I'll list files then read Cargo.toml."
+        "model": "glm-5.2",
+        "text": "I'll list files then read Cargo.toml.",
+        "usage": {
+          "input_tokens": 1200,
+          "output_tokens": 80
+        }
       },
       "correlates": null,
       "kind": "thinking",

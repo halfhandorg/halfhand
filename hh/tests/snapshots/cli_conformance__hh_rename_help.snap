@@ -1,0 +1,28 @@
+---
+source: hh/tests/cli_conformance.rs
+expression: "String::from_utf8_lossy(&out.stdout)"
+---
+Name or rename a recorded session.
+
+The name shows in `hh inspect` and in `--json` output. Names are trimmed, must not be empty, and are at most 100 characters.
+
+Usage: hh rename [OPTIONS] <SESSION> [NAME]
+
+Arguments:
+  <SESSION>
+          Session short id, full id, or `last`
+
+  [NAME]
+          The new name
+
+Options:
+      --clear
+          Remove the session's name instead of setting one
+
+  -h, --help
+          Print help (see a summary with '-h')
+
+Examples:
+  hh rename last "auth refactor"      name the most recent session
+  hh rename a1b2c3 "retry with opus"  rename a session by short id
+  hh rename a1b2c3 --clear            remove a session's name

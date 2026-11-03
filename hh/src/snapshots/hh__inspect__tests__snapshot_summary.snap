@@ -5,10 +5,10 @@ expression: out
  a1b2c3 ✓ ok · claude-code · 3s · 5 steps · 1 files changed
  claude --chat
 
- STEP  KIND  SUMMARY                                  TIME
- ----- ----- ---------------------------------------- --------
- 1     USER  list the files                           00:00:00
- 2     TOOL  tool_call: Bash                          00:00:01
- 3     FILE  created.txt created                      00:00:02
- 4     AGENT done listing                             00:00:02
- 5     ERR   boom                                     00:00:03
+ STEP  KIND  SUMMARY                                  TIME     ELAPSED
+ ----- ----- ---------------------------------------- -------- -------
+ 1     USER  list the files                           00:00:00 1s
+ 2     TOOL  tool_call: Bash                          00:00:01 1s
+ 3     FILE  created.txt created                      00:00:02 500ms
+ 4     AGENT done listing                             00:00:02 500ms
+ 5     ERR   boom                                     00:00:03 0ms

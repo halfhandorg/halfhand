@@ -1,0 +1,23 @@
+-- Migration 0007: session context — name, model identity, self-reported
+-- token usage, capture tier and adapter id.
+--
+-- Adds twelve nullable columns to `sessions` (see
+-- `migrations::SESSION_CONTEXT_COLUMNS` for the list and types):
+--
+--   name, model_id, model_display, provider, context_limit,
+--   input_tokens, output_tokens, cache_read_tokens, cache_write_tokens,
+--   reasoning_tokens, capture_tier, adapter_id
+--
+-- NULL always means "unknown / not reported", never zero. There is
+-- deliberately no total_tokens column: the total is derived at read time
+-- (`SessionRow::total_tokens`) so it can never drift from its parts.
+--
+-- The columns are added by Rust code in `Store::open`
+-- (`add_session_context_columns`), each behind a `PRAGMA table_info` check,
+-- because SQLite has no `ALTER TABLE ADD COLUMN IF NOT EXISTS`; that check is
+-- what makes the migration idempotent (DR-4). Like 0005 and 0006, the Rust
+-- half runs after the migration runner, because `sessions` is created by
+-- migration 0001 on a fresh DB. Nothing is dropped, renamed or retyped.
+--
+-- This SQL half has no statements; it exists so `schema_migrations` records
+-- version 7 and the runner's MAX(version) ordering stays append-only.

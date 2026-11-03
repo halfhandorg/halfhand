@@ -288,7 +288,7 @@ pub fn hh_body_to_text(body_json: Option<&serde_json::Value>) -> Option<String> 
 /// or empty.
 fn hh_body_to_text_core(value: &serde_json::Value) -> String {
     let mut out = String::new();
-    walk_body(value, &mut out);
+    walk_body(value, &mut out, true);
     out.trim().to_string()
 }
 
@@ -296,7 +296,7 @@ fn hh_body_to_text_core(value: &serde_json::Value) -> String {
 /// Halfhand body shapes (text events, tool calls, tool results, file
 /// changes, error events, overflow envelopes) plus a generic fallback that
 /// stringifies any string leaf — so unknown future body shapes still index.
-fn walk_body(value: &serde_json::Value, out: &mut String) {
+fn walk_body(value: &serde_json::Value, out: &mut String, top: bool) {
     match value {
         serde_json::Value::Object(obj) => {
             // Overflow envelopes: the real payload is in the blob, not inline;
@@ -368,12 +368,22 @@ fn walk_body(value: &serde_json::Value, out: &mut String) {
                 ) {
                     continue;
                 }
-                walk_body(v, out);
+                // Migration 0007 bookkeeping on a top-level body (response id,
+                // token counts) is not prose; `model` stays searchable.
+                if top
+                    && matches!(
+                        k.as_str(),
+                        crate::usage::BODY_USAGE_KEY | crate::usage::BODY_MESSAGE_ID_KEY
+                    )
+                {
+                    continue;
+                }
+                walk_body(v, out, false);
             }
         }
         serde_json::Value::Array(arr) => {
             for v in arr {
-                walk_body(v, out);
+                walk_body(v, out, false);
             }
         }
         serde_json::Value::String(s) if !s.is_empty() => {
@@ -525,6 +535,9 @@ impl Store {
         // `file_changes.renamed_from`, added behind a `PRAGMA table_info`
         // check for the same reason as `adapter_degrade_reason` above.
         add_file_change_provenance_columns(&conn)?;
+        // Migration 0007 (DR-4): the session-context columns, each behind a
+        // `PRAGMA table_info` check.
+        add_session_context_columns(&conn)?;
         let store = Self {
             conn,
             blobs: BlobStore::new(blobs_dir.to_path_buf()),
@@ -729,8 +742,18 @@ impl Store {
         exit_code: Option<i32>,
         status: SessionStatus,
     ) -> Result<()> {
+        // Migration 0007: record how the session was captured and which
+        // adapter ran, once, from the final adapter status the recorder wrote
+        // just before finalizing. `COALESCE` keeps an explicit earlier value.
         self.conn.execute(
-            "UPDATE sessions SET ended_at = ?1, exit_code = ?2, status = ?3 WHERE id = ?4",
+            "UPDATE sessions SET ended_at = ?1, exit_code = ?2, status = ?3,
+                capture_tier = COALESCE(capture_tier, CASE
+                    WHEN agent_kind = 'mcp-only' THEN 'mcp'
+                    WHEN adapter_status = 'active' THEN 'transcript'
+                    ELSE 'terminal' END),
+                adapter_id = COALESCE(adapter_id, CASE
+                    WHEN adapter_status != 'none' THEN agent_kind END)
+             WHERE id = ?4",
             params![ended_at, exit_code, status.to_string(), id],
         )?;
         // Best-effort WAL checkpoint to make the finalize durable on disk.
@@ -810,22 +833,129 @@ impl Store {
         Ok(())
     }
 
+    /// Set (or, with `None`, clear) a session's name (`hh run --name`,
+    /// `hh rename`; migration 0007). The caller validates the text; this
+    /// stores it verbatim. Errors with [`StorageError::NotFound`] when no
+    /// session has `id`.
+    pub fn set_session_name(&self, id: &str, name: Option<&str>) -> Result<()> {
+        let n = self.conn.execute(
+            "UPDATE sessions SET name = ?1 WHERE id = ?2",
+            params![name, id],
+        )?;
+        if n == 0 {
+            return Err(StorageError::NotFound(id.to_string()).into());
+        }
+        Ok(())
+    }
+
+    /// Derive a session's read-time context from its events (migration
+    /// 0007): every self-reported model with its step range, message
+    /// counts, the latest turn's context occupancy, a size-based token
+    /// estimate, and a list-price cost. See [`crate::usage`] for the rules
+    /// that keep self-reported and estimated numbers apart.
+    pub fn session_context(&self, id: &str) -> Result<crate::usage::SessionContext> {
+        use crate::usage::{ModelSpan, SessionContext, TokenSample, ESTIMATE_BYTES_PER_TOKEN};
+        let (user_messages, agent_messages, tool_calls, payload_bytes): (i64, i64, i64, i64) =
+            self.conn.query_row(
+                "SELECT COALESCE(SUM(e.kind = 'user_message'), 0),
+                        COALESCE(SUM(e.kind = 'agent_message'), 0),
+                        COALESCE(SUM(e.kind = 'tool_call'), 0),
+                        COALESCE(SUM(CASE
+                            WHEN e.kind IN ('terminal_output', 'lifecycle', 'file_change')
+                              THEN 0
+                            ELSE COALESCE(b.size, length(e.body_json), 0) END), 0)
+                 FROM events e LEFT JOIN blobs b ON b.hash = e.blob_hash
+                 WHERE e.session_id = ?1",
+                params![id],
+                |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?, r.get(3)?)),
+            )?;
+        let mut ctx = SessionContext {
+            user_messages,
+            agent_messages,
+            tool_calls,
+            estimated_tokens: u64::try_from(payload_bytes).unwrap_or(0) / ESTIMATE_BYTES_PER_TOKEN,
+            ..SessionContext::default()
+        };
+
+        // Usage-bearing events, in insertion order. `json_valid` guards
+        // `json_extract`, which errors on malformed text (an imported or
+        // hand-edited DB must not make `hh inspect` fail).
+        let mut stmt = self.conn.prepare(
+            "SELECT step, m, mid, u FROM (
+               SELECT id, step,
+                      CASE WHEN json_valid(body_json)
+                        THEN json_extract(body_json, '$.model') END AS m,
+                      CASE WHEN json_valid(body_json)
+                        THEN json_extract(body_json, '$.message_id') END AS mid,
+                      CASE WHEN json_valid(body_json)
+                        THEN json_extract(body_json, '$.usage') END AS u
+               FROM events WHERE session_id = ?1 AND body_json IS NOT NULL)
+             WHERE m IS NOT NULL OR u IS NOT NULL
+             ORDER BY id",
+        )?;
+        let rows = stmt.query_map(params![id], |r| {
+            Ok((
+                r.get::<_, Option<i64>>(0)?,
+                r.get::<_, Option<rusqlite::types::Value>>(1)?,
+                r.get::<_, Option<rusqlite::types::Value>>(2)?,
+                r.get::<_, Option<String>>(3).ok().flatten(),
+            ))
+        })?;
+        // One entry per response: (model in effect, usage), with repeated
+        // usage for one message id replacing the earlier copy.
+        let mut responses: Vec<(Option<String>, TokenSample)> = Vec::new();
+        let mut last_msg: Option<String> = None;
+        let mut current_model: Option<String> = None;
+        for row in rows {
+            let (step, model, msg_id, usage) = row?;
+            let as_text = |v: Option<rusqlite::types::Value>| match v {
+                Some(rusqlite::types::Value::Text(t)) if !t.is_empty() => Some(t),
+                _ => None,
+            };
+            if let Some(m) = as_text(model) {
+                match ctx.models.last_mut() {
+                    Some(span) if span.model_id == m => {
+                        if step.is_some() {
+                            span.last_step = step;
+                            span.first_step = span.first_step.or(step);
+                        }
+                    }
+                    _ => ctx.models.push(ModelSpan {
+                        model_id: m.clone(),
+                        first_step: step,
+                        last_step: step,
+                    }),
+                }
+                current_model = Some(m);
+            }
+            let sample = usage
+                .and_then(|u| serde_json::from_str::<serde_json::Value>(&u).ok())
+                .map(|u| TokenSample::from_usage(&u))
+                .unwrap_or_default();
+            if sample.is_empty() {
+                continue;
+            }
+            let msg_id = as_text(msg_id);
+            let repeat = msg_id.is_some() && msg_id == last_msg;
+            last_msg = msg_id;
+            if repeat {
+                if let Some(last) = responses.last_mut() {
+                    *last = (current_model.clone(), sample);
+                    continue;
+                }
+            }
+            responses.push((current_model.clone(), sample));
+        }
+        ctx.last_turn_context_tokens = responses.iter().rev().find_map(|(_, s)| s.context_tokens());
+        ctx.cost_nano_usd = price_responses(&responses);
+        Ok(ctx)
+    }
+
     /// List sessions newest-first (FR-5.1).
     pub fn list_sessions(&self, limit: u32) -> Result<Vec<SessionRow>> {
-        let mut stmt = self.conn.prepare(
-            "SELECT s.id, s.short_id, s.started_at, s.ended_at, s.exit_code, s.status,
-                    s.agent_kind, s.adapter_status, s.command, s.cwd,
-                    (SELECT COUNT(DISTINCT e.step) FROM events e
-                       WHERE e.session_id = s.id AND e.step IS NOT NULL) AS step_count,
-                    (SELECT COUNT(DISTINCT fc.path) FROM file_changes fc
-                       JOIN events e ON e.id = fc.event_id
-                       WHERE e.session_id = s.id) AS files_changed,
-                    s.imported_from,
-                    s.adapter_degrade_reason
-             FROM sessions s
-             ORDER BY s.started_at DESC
-             LIMIT ?1",
-        )?;
+        let mut stmt = self.conn.prepare(&format!(
+            "{SESSION_SELECT} ORDER BY s.started_at DESC LIMIT ?1"
+        ))?;
         let rows = stmt.query_map(params![i64::from(limit)], map_session_row)?;
         let mut out = Vec::new();
         for row in rows {
@@ -1575,6 +1705,7 @@ impl Store {
             }
         }
         tx.commit()?;
+        restore_session_context(&self.conn, &created.id, &bundle.session)?;
 
         let status: SessionStatus = bundle
             .session
@@ -1691,16 +1822,7 @@ impl Store {
     pub fn get_session(&self, id: &str) -> Result<SessionRow> {
         self.conn
             .query_row(
-                "SELECT s.id, s.short_id, s.started_at, s.ended_at, s.exit_code, s.status,
-                        s.agent_kind, s.adapter_status, s.command, s.cwd,
-                        (SELECT COUNT(DISTINCT e.step) FROM events e
-                           WHERE e.session_id = s.id AND e.step IS NOT NULL) AS step_count,
-                        (SELECT COUNT(DISTINCT fc.path) FROM file_changes fc
-                           JOIN events e ON e.id = fc.event_id
-                           WHERE e.session_id = s.id) AS files_changed,
-                        s.imported_from,
-                        s.adapter_degrade_reason
-                 FROM sessions s WHERE s.id = ?1",
+                &format!("{SESSION_SELECT} WHERE s.id = ?1"),
                 params![id],
                 map_session_row,
             )
@@ -2282,6 +2404,7 @@ fn writer_run(
     if let Err(e) = register_hh_body_to_text(&conn) {
         eprintln!("hh: warning: writer thread could not register hh_body_to_text: {e}");
     }
+    let mut usage = UsageAccumulator::default();
     for req in rx {
         match req {
             WriterReq::Append(mut event, reply) => {
@@ -2289,6 +2412,15 @@ fn writer_run(
                     redact_event_in_place(&mut event, d);
                 }
                 let res = insert_event(&conn, &event);
+                // Migration 0007: fold self-reported model/usage into the
+                // session row. Only after a successful insert, so a failed
+                // event never counts. Never fails the append: usage is
+                // metadata, the event is the record.
+                if res.is_ok() {
+                    if let Err(e) = usage.observe(&conn, &event) {
+                        eprintln!("hh: warning: could not record token usage: {e}");
+                    }
+                }
                 let _ = reply.send(res);
             }
             WriterReq::AppendFileChange(mut event, change, provenance, reply) => {
@@ -2309,6 +2441,107 @@ fn writer_run(
                 break;
             }
         }
+    }
+}
+
+/// The writer task's running token-usage state (migration 0007).
+///
+/// Transcripts repeat one response's usage on every content block of that
+/// response, sometimes growing (streamed output). The accumulator remembers
+/// the last response id and the sample it already applied, and applies only
+/// the difference, so a repeat replaces rather than adds.
+///
+/// Hot path: for an event without model/usage keys, [`Self::observe`] is two
+/// map lookups and returns — no allocation. The two `String`s are reused
+/// (`clear` + `push_str`), so steady state allocates nothing either.
+#[derive(Default)]
+struct UsageAccumulator {
+    last_session: String,
+    last_message: String,
+    last_sample: crate::usage::TokenSample,
+    has_last: bool,
+}
+
+impl UsageAccumulator {
+    fn observe(
+        &mut self,
+        conn: &Connection,
+        event: &Event,
+    ) -> std::result::Result<(), StorageError> {
+        use crate::usage::{
+            sample_delta, TokenSample, BODY_MESSAGE_ID_KEY, BODY_MODEL_KEY, BODY_USAGE_KEY,
+        };
+        let Some(body) = event
+            .body_json
+            .as_ref()
+            .and_then(serde_json::Value::as_object)
+        else {
+            return Ok(());
+        };
+        let usage = body.get(BODY_USAGE_KEY);
+        let model = body
+            .get(BODY_MODEL_KEY)
+            .and_then(serde_json::Value::as_str)
+            .filter(|m| !m.is_empty());
+        if usage.is_none() && model.is_none() {
+            return Ok(());
+        }
+        let sample = usage.map(TokenSample::from_usage).unwrap_or_default();
+        let message = body
+            .get(BODY_MESSAGE_ID_KEY)
+            .and_then(serde_json::Value::as_str)
+            .filter(|m| !m.is_empty());
+        let repeat = self.has_last
+            && message == Some(self.last_message.as_str())
+            && self.last_session == event.session_id;
+        let delta = if repeat {
+            sample_delta(&sample, &self.last_sample)
+        } else {
+            sample_delta(&sample, &TokenSample::default())
+        };
+        match message {
+            Some(m) => {
+                self.last_message.clear();
+                self.last_message.push_str(m);
+                self.last_session.clear();
+                self.last_session.push_str(&event.session_id);
+                self.last_sample = sample;
+                self.has_last = true;
+            }
+            None => self.has_last = false,
+        }
+        let known = model.and_then(crate::models::lookup);
+        let mut stmt = conn.prepare_cached(
+            "UPDATE sessions SET
+                input_tokens = CASE WHEN ?1 IS NULL THEN input_tokens
+                                    ELSE COALESCE(input_tokens, 0) + ?1 END,
+                output_tokens = CASE WHEN ?2 IS NULL THEN output_tokens
+                                     ELSE COALESCE(output_tokens, 0) + ?2 END,
+                cache_read_tokens = CASE WHEN ?3 IS NULL THEN cache_read_tokens
+                                         ELSE COALESCE(cache_read_tokens, 0) + ?3 END,
+                cache_write_tokens = CASE WHEN ?4 IS NULL THEN cache_write_tokens
+                                          ELSE COALESCE(cache_write_tokens, 0) + ?4 END,
+                reasoning_tokens = CASE WHEN ?5 IS NULL THEN reasoning_tokens
+                                        ELSE COALESCE(reasoning_tokens, 0) + ?5 END,
+                model_id = COALESCE(?6, model_id),
+                model_display = CASE WHEN ?6 IS NULL THEN model_display ELSE ?7 END,
+                provider = CASE WHEN ?6 IS NULL THEN provider ELSE ?8 END,
+                context_limit = CASE WHEN ?6 IS NULL THEN context_limit ELSE ?9 END
+             WHERE id = ?10",
+        )?;
+        stmt.execute(params![
+            delta[0],
+            delta[1],
+            delta[2],
+            delta[3],
+            delta[4],
+            model,
+            known.map(|m| m.display),
+            known.map(|m| m.provider),
+            known.and_then(|m| i64::try_from(m.context_limit).ok()),
+            event.session_id,
+        ])?;
+        Ok(())
     }
 }
 
@@ -2507,6 +2740,76 @@ fn add_file_change_provenance_columns(conn: &Connection) -> Result<()> {
     Ok(())
 }
 
+/// Idempotently add migration 0007's session-context columns
+/// ([`crate::migrations::SESSION_CONTEXT_COLUMNS`]) to `sessions`. Each is
+/// guarded by a `PRAGMA table_info` check, so this is a no-op on a migrated
+/// DB and completes a partially-applied one; safe on every `Store::open`
+/// (DR-4). Only ever adds nullable columns.
+fn add_session_context_columns(conn: &Connection) -> Result<()> {
+    let names: Vec<String> = {
+        let mut stmt = conn.prepare("PRAGMA table_info(sessions)")?;
+        let rows = stmt.query_map([], |r| r.get::<_, String>(1))?;
+        rows.collect::<std::result::Result<_, _>>()?
+    };
+    for &(column, ty) in crate::migrations::SESSION_CONTEXT_COLUMNS {
+        if !names.iter().any(|n| n == column) {
+            conn.execute_batch(&format!("ALTER TABLE sessions ADD COLUMN {column} {ty}"))?;
+            if column == "model_id" {
+                // A pre-0007 session's adapter stored its last self-reported
+                // model in the legacy `model` column; carry it over so the
+                // upgrade loses nothing. Runs only when the column is first
+                // added, so it never overwrites a value 0007 itself wrote.
+                // Token counts are not backfilled: the legacy `usage_json`
+                // holds one response's usage, not a session total, and
+                // presenting it as one would be wrong.
+                conn.execute_batch("UPDATE sessions SET model_id = model WHERE model IS NOT NULL")?;
+            }
+        }
+    }
+    Ok(())
+}
+
+/// Write a bundle's migration-0007 session fields onto the imported row.
+/// Absent or mistyped values stay NULL (unknown); a bundle from before 0007
+/// carries none of them and imports exactly as it did. Runs before
+/// `finalize_session`, whose `COALESCE` then keeps the restored
+/// `capture_tier` / `adapter_id`.
+fn restore_session_context(conn: &Connection, id: &str, session: &serde_json::Value) -> Result<()> {
+    let text = |k: &str| session.get(k).and_then(serde_json::Value::as_str);
+    let int = |k: &str| session.get(k).and_then(serde_json::Value::as_i64);
+    // Token counts live under `usage`, as in `hh list --json`; the derived
+    // `total_tokens` there is ignored (it is recomputed on read).
+    let tokens = |k: &str| {
+        session
+            .get("usage")
+            .and_then(|u| u.get(k))
+            .and_then(serde_json::Value::as_i64)
+    };
+    conn.execute(
+        "UPDATE sessions SET name = ?1, model_id = ?2, model_display = ?3, provider = ?4,
+            context_limit = ?5, input_tokens = ?6, output_tokens = ?7,
+            cache_read_tokens = ?8, cache_write_tokens = ?9, reasoning_tokens = ?10,
+            capture_tier = ?11, adapter_id = ?12
+         WHERE id = ?13",
+        params![
+            text("name"),
+            text("model_id"),
+            text("model_display"),
+            text("provider"),
+            int("context_limit"),
+            tokens("input_tokens"),
+            tokens("output_tokens"),
+            tokens("cache_read_tokens"),
+            tokens("cache_write_tokens"),
+            tokens("reasoning_tokens"),
+            text("capture_tier"),
+            text("adapter_id"),
+            id,
+        ],
+    )?;
+    Ok(())
+}
+
 /// Build the [`NewSession`] for [`Store::import`] from a bundle's `session`
 /// block. Fields the bundle format does not carry (`hostname`/`model`/
 /// `git_*`) are `None` — [`SessionRow`], which `bundle::export` reads from,
@@ -2679,6 +2982,56 @@ fn push_grouped(
     }
 }
 
+/// List-price cost of a session's responses, each priced with the model in
+/// effect when it was written. `None` when there are no responses, or when
+/// any response's model is absent from [`crate::models`]: a partial sum
+/// would understate the cost, so the total is unknown rather than wrong.
+fn price_responses(responses: &[(Option<String>, crate::usage::TokenSample)]) -> Option<u128> {
+    if responses.is_empty() {
+        return None;
+    }
+    let mut total: u128 = 0;
+    for (model, s) in responses {
+        let info = model.as_deref().and_then(crate::models::lookup)?;
+        total += crate::models::cost_nano_usd(
+            info,
+            crate::models::PricedTokens::new(
+                s.input.unwrap_or(0),
+                s.output.unwrap_or(0),
+                s.cache_read.unwrap_or(0),
+                s.cache_write.unwrap_or(0),
+            ),
+        );
+    }
+    Some(total)
+}
+
+/// The `SELECT … FROM sessions s` shared by [`Store::list_sessions`] and
+/// [`Store::get_session`]; column order is what [`map_session_row`] reads.
+/// The agent-event bounds use `ORDER BY ts_ms LIMIT 1` so SQLite walks the
+/// `(session_id, ts_ms)` index from either end and stops at the first agent
+/// event instead of scanning every terminal chunk.
+const SESSION_SELECT: &str = "SELECT s.id, s.short_id, s.started_at, s.ended_at, s.exit_code,
+        s.status, s.agent_kind, s.adapter_status, s.command, s.cwd,
+        (SELECT COUNT(DISTINCT e.step) FROM events e
+           WHERE e.session_id = s.id AND e.step IS NOT NULL) AS step_count,
+        (SELECT COUNT(DISTINCT fc.path) FROM file_changes fc
+           JOIN events e ON e.id = fc.event_id
+           WHERE e.session_id = s.id) AS files_changed,
+        s.imported_from,
+        s.adapter_degrade_reason,
+        s.name, s.model_id, s.model_display, s.provider, s.context_limit,
+        s.input_tokens, s.output_tokens, s.cache_read_tokens, s.cache_write_tokens,
+        s.reasoning_tokens, s.capture_tier, s.adapter_id,
+        (SELECT e.ts_ms FROM events e
+           WHERE e.session_id = s.id AND e.kind NOT IN ('terminal_output', 'lifecycle')
+           ORDER BY e.ts_ms ASC LIMIT 1) AS first_agent_ts,
+        (SELECT e.ts_ms FROM events e
+           WHERE e.session_id = s.id AND e.kind NOT IN ('terminal_output', 'lifecycle')
+           ORDER BY e.ts_ms DESC LIMIT 1) AS last_agent_ts,
+        (SELECT MAX(e.ts_ms) FROM events e WHERE e.session_id = s.id) AS last_event_ts
+     FROM sessions s";
+
 fn map_session_row(r: &rusqlite::Row<'_>) -> rusqlite::Result<SessionRow> {
     let status_str: String = r.get(5)?;
     let agent_str: String = r.get(6)?;
@@ -2692,6 +3045,8 @@ fn map_session_row(r: &rusqlite::Row<'_>) -> rusqlite::Result<SessionRow> {
         "degraded" => AdapterStatus::Degraded,
         _ => AdapterStatus::None,
     };
+    let model_id: Option<String> = r.get(15)?;
+    let known = model_id.as_deref().and_then(crate::models::lookup);
     Ok(SessionRow {
         id: r.get(0)?,
         short_id: r.get(1)?,
@@ -2707,6 +3062,29 @@ fn map_session_row(r: &rusqlite::Row<'_>) -> rusqlite::Result<SessionRow> {
         files_changed: r.get(11)?,
         imported_from: r.get(12)?,
         adapter_degrade_reason: r.get(13)?,
+        name: r.get(14)?,
+        model_id: model_id.clone(),
+        // A row recorded before the model table knew this model reads the
+        // table now; a model the table still lacks stays `None` (a dash).
+        model_display: r
+            .get::<_, Option<String>>(16)?
+            .or_else(|| known.map(|m| m.display.to_string())),
+        provider: r
+            .get::<_, Option<String>>(17)?
+            .or_else(|| known.map(|m| m.provider.to_string())),
+        context_limit: r
+            .get::<_, Option<i64>>(18)?
+            .or_else(|| known.and_then(|m| i64::try_from(m.context_limit).ok())),
+        input_tokens: r.get(19)?,
+        output_tokens: r.get(20)?,
+        cache_read_tokens: r.get(21)?,
+        cache_write_tokens: r.get(22)?,
+        reasoning_tokens: r.get(23)?,
+        capture_tier: r.get(24)?,
+        adapter_id: r.get(25)?,
+        first_agent_ts_ms: r.get(26)?,
+        last_agent_ts_ms: r.get(27)?,
+        last_event_ts_ms: r.get(28)?,
     })
 }
 
@@ -2903,6 +3281,206 @@ mod tests {
         (sid, b.hash)
     }
 
+    /// An agent event carrying migration 0007's response metadata.
+    fn usage_event(
+        sid: &str,
+        ts: i64,
+        model: Option<&str>,
+        msg: &str,
+        usage: &serde_json::Value,
+    ) -> Event {
+        let mut body =
+            serde_json::json!({ "text": "hi", "message_id": msg, "usage": usage.clone() });
+        if let Some(m) = model {
+            body["model"] = serde_json::Value::from(m);
+        }
+        Event {
+            kind: EventKind::AgentMessage,
+            body_json: Some(body),
+            ..event(sid, ts, None)
+        }
+    }
+
+    #[test]
+    fn writer_accumulates_usage_and_dedupes_repeated_messages() {
+        let tmp = TempDir::new().unwrap();
+        let store = Store::open(&tmp.path().join("hh.db"), &tmp.path().join("b")).unwrap();
+        let sid = store.create_session(&new_session()).unwrap().id;
+        let w = store.event_writer().unwrap();
+        let u = |i: u64, o: u64| {
+            serde_json::json!({ "input_tokens": i, "output_tokens": o,
+            "cache_read_input_tokens": 100, "cache_creation_input_tokens": 10 })
+        };
+        // msg_1 is written twice (one line per content block), the second
+        // time with grown output: it must count once, at its final value.
+        w.append_event(usage_event(
+            &sid,
+            1,
+            Some("claude-opus-4-8"),
+            "msg_1",
+            &u(5, 2),
+        ))
+        .unwrap();
+        w.append_event(usage_event(
+            &sid,
+            2,
+            Some("claude-opus-4-8"),
+            "msg_1",
+            &u(5, 7),
+        ))
+        .unwrap();
+        w.append_event(usage_event(
+            &sid,
+            3,
+            Some("claude-opus-4-8"),
+            "msg_2",
+            &u(3, 1),
+        ))
+        .unwrap();
+        // An event with no metadata changes nothing.
+        w.append_event(event(&sid, 4, None)).unwrap();
+        w.finish().unwrap();
+        let row = store.get_session(&sid).unwrap();
+        assert_eq!(row.input_tokens, Some(8));
+        assert_eq!(row.output_tokens, Some(8));
+        assert_eq!(row.cache_read_tokens, Some(200));
+        assert_eq!(row.cache_write_tokens, Some(20));
+        assert_eq!(
+            row.reasoning_tokens, None,
+            "never reported → unknown, not 0"
+        );
+        assert_eq!(row.total_tokens(), Some(236));
+        assert_eq!(row.model_id.as_deref(), Some("claude-opus-4-8"));
+        assert_eq!(row.model_display.as_deref(), Some("Claude Opus 4.8"));
+        assert_eq!(row.provider.as_deref(), Some("Anthropic"));
+        assert_eq!(row.context_limit, Some(1_000_000));
+    }
+
+    #[test]
+    fn unknown_model_has_no_table_fields_or_cost() {
+        let tmp = TempDir::new().unwrap();
+        let store = Store::open(&tmp.path().join("hh.db"), &tmp.path().join("b")).unwrap();
+        let sid = store.create_session(&new_session()).unwrap().id;
+        let w = store.event_writer().unwrap();
+        w.append_event(usage_event(
+            &sid,
+            1,
+            Some("glm-5.2"),
+            "m",
+            &serde_json::json!({"input_tokens": 9}),
+        ))
+        .unwrap();
+        w.finish().unwrap();
+        let row = store.get_session(&sid).unwrap();
+        assert_eq!(row.model_id.as_deref(), Some("glm-5.2"));
+        assert_eq!(row.model_display, None);
+        assert_eq!(row.provider, None);
+        assert_eq!(row.context_limit, None);
+        assert_eq!(row.input_tokens, Some(9));
+        let ctx = store.session_context(&sid).unwrap();
+        assert_eq!(
+            ctx.cost_nano_usd, None,
+            "unknown model → unknown cost, not $0"
+        );
+    }
+
+    #[test]
+    fn mid_session_model_change_records_last_and_lists_every_span() {
+        let tmp = TempDir::new().unwrap();
+        let store = Store::open(&tmp.path().join("hh.db"), &tmp.path().join("b")).unwrap();
+        let sid = store.create_session(&new_session()).unwrap().id;
+        let w = store.event_writer().unwrap();
+        let u = serde_json::json!({ "input_tokens": 1_000_000, "output_tokens": 0 });
+        w.append_event(usage_event(&sid, 1, Some("claude-sonnet-4-6"), "a", &u))
+            .unwrap();
+        w.append_event(usage_event(&sid, 2, Some("claude-sonnet-4-6"), "b", &u))
+            .unwrap();
+        w.append_event(usage_event(&sid, 3, Some("claude-opus-4-8"), "c", &u))
+            .unwrap();
+        w.finish().unwrap();
+        store.assign_steps(&sid).unwrap();
+        let row = store.get_session(&sid).unwrap();
+        assert_eq!(
+            row.model_id.as_deref(),
+            Some("claude-opus-4-8"),
+            "last one seen wins"
+        );
+        let ctx = store.session_context(&sid).unwrap();
+        let spans: Vec<_> = ctx
+            .models
+            .iter()
+            .map(|m| (m.model_id.as_str(), m.first_step, m.last_step))
+            .collect();
+        assert_eq!(
+            spans,
+            vec![
+                ("claude-sonnet-4-6", Some(1), Some(2)),
+                ("claude-opus-4-8", Some(3), Some(3)),
+            ]
+        );
+        // Priced per response with its own model: 2 × $3 + 1 × $5 = $11.
+        assert_eq!(ctx.cost_nano_usd, Some(11_000_000_000));
+        assert_eq!(ctx.agent_messages, 3);
+        assert_eq!(ctx.last_turn_context_tokens, Some(1_000_000));
+    }
+
+    #[test]
+    fn rename_sets_and_clears_and_reports_missing() {
+        let tmp = TempDir::new().unwrap();
+        let store = Store::open(&tmp.path().join("hh.db"), &tmp.path().join("b")).unwrap();
+        let sid = store.create_session(&new_session()).unwrap().id;
+        store.set_session_name(&sid, Some("auth refactor")).unwrap();
+        assert_eq!(
+            store.get_session(&sid).unwrap().name.as_deref(),
+            Some("auth refactor")
+        );
+        store.set_session_name(&sid, None).unwrap();
+        assert_eq!(store.get_session(&sid).unwrap().name, None);
+        assert!(store.set_session_name("nope", Some("x")).is_err());
+    }
+
+    #[test]
+    fn finalize_records_capture_tier_and_active_duration() {
+        let tmp = TempDir::new().unwrap();
+        let store = Store::open(&tmp.path().join("hh.db"), &tmp.path().join("b")).unwrap();
+        let sid = store.create_session(&new_session()).unwrap().id;
+        let w = store.event_writer().unwrap();
+        w.append_event(Event {
+            kind: EventKind::TerminalOutput,
+            ..event(&sid, 0, None)
+        })
+        .unwrap();
+        w.append_event(event(&sid, 1_000, None)).unwrap();
+        w.append_event(event(&sid, 61_000, None)).unwrap();
+        w.append_event(Event {
+            kind: EventKind::TerminalOutput,
+            ..event(&sid, 90_000, None)
+        })
+        .unwrap();
+        w.finish().unwrap();
+        store
+            .finalize_session(&sid, 1_700_000_100_000, Some(0), SessionStatus::Ok)
+            .unwrap();
+        let row = store.get_session(&sid).unwrap();
+        assert_eq!(row.capture_tier.as_deref(), Some("terminal"));
+        assert_eq!(row.adapter_id, None);
+        assert_eq!(row.duration_ms(), Some(100_000));
+        assert_eq!(row.active_duration_ms(), Some(60_000));
+        assert_eq!(row.last_event_ts_ms, Some(90_000));
+    }
+
+    #[test]
+    fn usage_keys_are_not_indexed_but_model_is() {
+        let body = serde_json::json!({
+            "text": "hello", "model": "claude-opus-4-8", "message_id": "msg_secretish",
+            "usage": { "service_tier": "standard" }
+        });
+        let text = hh_body_to_text(Some(&body)).unwrap();
+        assert!(text.contains("claude-opus-4-8"));
+        assert!(!text.contains("msg_secretish"));
+        assert!(!text.contains("standard"));
+    }
+
     /// Migration 0006 on a database written before it: the two columns are
     /// added (PRAGMA-guarded), legacy rows read back with no provenance, and
     /// re-opening again changes nothing — the schema equals a fresh DB's.
@@ -2927,8 +3505,9 @@ mod tests {
         let (db, blobs) = (tmp.path().join("hh.db"), tmp.path().join("blobs"));
         let sid;
         {
-            // Roll a freshly-migrated DB back to its pre-0006 shape, then
-            // write a legacy row into it.
+            // Roll a freshly-migrated DB back to its pre-0006 shape (which is
+            // also pre-0007: the runner skips by MAX(version)), then write a
+            // legacy row into it.
             let store = Store::open(&db, &blobs).unwrap();
             store
                 .conn
@@ -2936,9 +3515,15 @@ mod tests {
                     "DROP INDEX idx_file_changes_before_hash;
                      ALTER TABLE file_changes DROP COLUMN before_source;
                      ALTER TABLE file_changes DROP COLUMN renamed_from;
-                     DELETE FROM schema_migrations WHERE version = 6;",
+                     DELETE FROM schema_migrations WHERE version >= 6;",
                 )
                 .unwrap();
+            for (column, _) in crate::migrations::SESSION_CONTEXT_COLUMNS {
+                store
+                    .conn
+                    .execute_batch(&format!("ALTER TABLE sessions DROP COLUMN {column}"))
+                    .unwrap();
+            }
             sid = store.create_session(&new_session()).unwrap().id;
             store
                 .conn
@@ -4394,6 +4979,93 @@ mod tests {
                 prop_assert!(store.blobs().iter_hashes().unwrap().is_empty(), "gc reclaims every blob");
                 let rows: i64 = store.conn.query_row("SELECT COUNT(*) FROM blobs", [], |r| r.get(0)).unwrap();
                 prop_assert_eq!(rows, 0);
+            }
+        }
+    }
+
+    /// Migration 0007 property test (DR-4): from a pre-0007 database holding
+    /// *any* subset of the 0007 columns (a partially-applied migration), any
+    /// number of reopens ends with every 0007 column present exactly once,
+    /// `schema_migrations` at the latest version, and no existing data lost —
+    /// including values already written to the columns that survived.
+    mod migration_0007_prop {
+        use crate::migrations::SESSION_CONTEXT_COLUMNS;
+        use proptest::prelude::*;
+        use rusqlite::params;
+        use tempfile::TempDir;
+
+        fn session_columns(conn: &rusqlite::Connection) -> Vec<String> {
+            let mut stmt = conn.prepare("PRAGMA table_info(sessions)").unwrap();
+            stmt.query_map([], |r| r.get::<_, String>(1))
+                .unwrap()
+                .collect::<std::result::Result<_, _>>()
+                .unwrap()
+        }
+
+        proptest! {
+            #![proptest_config(ProptestConfig { cases: 48, ..ProptestConfig::default() })]
+
+            #[test]
+            fn any_partial_0007_converges_without_data_loss(
+                keep_mask in 0u16..(1 << 12),
+                extra_opens in 1usize..5,
+                tokens in 0i64..1_000_000,
+            ) {
+                let tmp = TempDir::new().unwrap();
+                let db = tmp.path().join("hh.db");
+                let blobs = tmp.path().join("blobs");
+                let sid;
+                let expected_columns;
+                {
+                    let store = crate::store::Store::open(&db, &blobs).unwrap();
+                    expected_columns = {
+                        let mut c = session_columns(&store.conn);
+                        c.sort();
+                        c
+                    };
+                    sid = store.create_session(&super::new_session()).unwrap().id;
+                    store
+                        .conn
+                        .execute(
+                            "UPDATE sessions SET name = 'n', input_tokens = ?1 WHERE id = ?2",
+                            params![tokens, sid],
+                        )
+                        .unwrap();
+                    // Roll back to a partial 0007: drop the columns not in the mask.
+                    for (i, (column, _)) in SESSION_CONTEXT_COLUMNS.iter().enumerate() {
+                        if keep_mask & (1 << i) == 0 {
+                            store
+                                .conn
+                                .execute_batch(&format!("ALTER TABLE sessions DROP COLUMN {column}"))
+                                .unwrap();
+                        }
+                    }
+                    store
+                        .conn
+                        .execute_batch("DELETE FROM schema_migrations WHERE version >= 7")
+                        .unwrap();
+                }
+                for _ in 0..extra_opens {
+                    let store = crate::store::Store::open(&db, &blobs).unwrap();
+                    let mut cols = session_columns(&store.conn);
+                    cols.sort();
+                    prop_assert_eq!(&cols, &expected_columns, "every column exactly once");
+                    let v: i64 = store
+                        .conn
+                        .query_row("SELECT MAX(version) FROM schema_migrations", [], |r| r.get(0))
+                        .unwrap();
+                    prop_assert_eq!(v, crate::migrations::LATEST_VERSION);
+                    let row = store.get_session(&sid).unwrap();
+                    prop_assert_eq!(&row.command, &vec!["claude".to_string()]);
+                    prop_assert_eq!(row.started_at, 1_700_000_000_000);
+                    // A surviving column keeps its value; a re-added one is NULL
+                    // (unknown), never zero.
+                    let expect_name = (keep_mask & 1 != 0).then(|| "n".to_string());
+                    let expect_tokens = (keep_mask & (1 << 5) != 0).then_some(tokens);
+                    prop_assert_eq!(row.name.clone(), expect_name);
+                    prop_assert_eq!(row.input_tokens, expect_tokens);
+                    prop_assert_eq!(row.total_tokens(), expect_tokens);
+                }
             }
         }
     }

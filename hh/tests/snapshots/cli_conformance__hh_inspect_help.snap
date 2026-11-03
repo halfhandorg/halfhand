@@ -7,17 +7,34 @@ Print non-interactive detail about a session
 Usage: hh inspect [OPTIONS] [SESSION]
 
 Arguments:
-  [SESSION]  Session short id, full id, or `last`
+  [SESSION]
+          Session short id, full id, or `last`
 
 Options:
-      --step <STEP>  Print the full detail of step N
-      --json         Emit stable, documented JSON (single object with --step, NDJSON stream otherwise)
-      --diff         Print the concatenated unified diff of file changes
-      --failed       Jump to the first error/failed step
-  -h, --help         Print help
+      --step <STEP>
+          Print the full detail of step N
+
+      --json
+          Emit stable, documented JSON (single object with --step, NDJSON stream otherwise)
+
+      --diff
+          Print the concatenated unified diff of file changes
+
+      --failed
+          Jump to the first error/failed step
+
+      --context
+          Show the context panel: model, tokens, durations, estimated cost.
+          
+          Name, model, provider, context limit and usage, self-reported token counts (and a separate size-based estimate), message counts, created and last-activity times, wall and active duration, and estimated cost. Unknown values print as `—`. With --json, one JSON object.
+
+  -h, --help
+          Print help (see a summary with '-h')
 
 Examples:
-  hh inspect last              summarize the most recent session
-  hh inspect a1b2c3 --step 7   show the full detail of step 7
-  hh inspect last --json | jq  stream the session as JSON
-  hh inspect last --diff       print the file changes as a unified diff
+  hh inspect last                   summarize the most recent session
+  hh inspect a1b2c3 --step 7        show the full detail of step 7
+  hh inspect last --json | jq       stream the session as JSON
+  hh inspect last --diff            print the file changes as a unified diff
+  hh inspect last --context         model, provider, token usage, cost, durations
+  hh inspect last --context --json  the same panel as one JSON object

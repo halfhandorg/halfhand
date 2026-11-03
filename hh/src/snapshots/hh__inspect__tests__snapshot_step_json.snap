@@ -3,6 +3,8 @@ source: hh/src/inspect.rs
 expression: pretty
 ---
 {
+  "elapsed": "PT1S",
+  "elapsed_ms": 1000,
   "events": [
     {
       "body": {

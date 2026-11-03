@@ -95,6 +95,100 @@ pub(crate) fn humanize_ms(ms: i64) -> String {
     }
 }
 
+/// An ISO-8601 duration for `--json` (`PT1H49M40S`, `PT0.35S`, `PT0S`).
+/// Zero components are omitted; milliseconds become a fractional second
+/// with trailing zeros trimmed. Negative input is clamped to zero.
+pub(crate) fn iso8601_duration(ms: i64) -> String {
+    use std::fmt::Write as _;
+    let ms = ms.max(0);
+    let total_secs = ms / 1000;
+    let frac = ms % 1000;
+    let hours = total_secs / 3600;
+    let minutes = (total_secs % 3600) / 60;
+    let secs = total_secs % 60;
+    let mut out = String::from("PT");
+    if hours > 0 {
+        let _ = write!(out, "{hours}H");
+    }
+    if minutes > 0 {
+        let _ = write!(out, "{minutes}M");
+    }
+    if secs > 0 || frac > 0 || (hours == 0 && minutes == 0) {
+        if frac > 0 {
+            let f = format!("{frac:03}");
+            let _ = write!(out, "{secs}.{}S", f.trim_end_matches('0'));
+        } else {
+            let _ = write!(out, "{secs}S");
+        }
+    }
+    out
+}
+
+/// Group an integer's digits in threes (`1,234,567`).
+pub(crate) fn thousands(n: i64) -> String {
+    let digits = n.unsigned_abs().to_string();
+    let mut out = String::with_capacity(digits.len() + digits.len() / 3 + 1);
+    if n < 0 {
+        out.push('-');
+    }
+    for (i, c) in digits.chars().enumerate() {
+        if i > 0 && (digits.len() - i).is_multiple_of(3) {
+            out.push(',');
+        }
+        out.push(c);
+    }
+    out
+}
+
+/// A unix-ms timestamp as `YYYY-MM-DD HH:MM:SS UTC`.
+pub(crate) fn format_utc(unix_ms: i64) -> String {
+    let secs = unix_ms.div_euclid(1000);
+    let day_secs = secs.rem_euclid(86_400);
+    format!(
+        "{} {:02}:{:02}:{:02} UTC",
+        format_date_from_unix_days(secs.div_euclid(86_400)),
+        day_secs / 3600,
+        (day_secs % 3600) / 60,
+        day_secs % 60
+    )
+}
+
+/// A unix-ms timestamp as RFC 3339 UTC (`2026-11-02T10:14:03.250Z`) for JSON.
+pub(crate) fn rfc3339_utc(unix_ms: i64) -> String {
+    let secs = unix_ms.div_euclid(1000);
+    let day_secs = secs.rem_euclid(86_400);
+    format!(
+        "{}T{:02}:{:02}:{:02}.{:03}Z",
+        format_date_from_unix_days(secs.div_euclid(86_400)),
+        day_secs / 3600,
+        (day_secs % 3600) / 60,
+        day_secs % 60,
+        unix_ms.rem_euclid(1000)
+    )
+}
+
+/// A nano-USD amount as dollars: `$12.34` at a cent or more, four decimals
+/// below a cent (`$0.0042`) so a cheap session does not read as free.
+/// Integer arithmetic only; rounds half up.
+pub(crate) fn format_usd(nano: u128) -> String {
+    const CENT: u128 = 10_000_000; // nano-USD in one cent
+    if nano >= CENT {
+        let cents = (nano + CENT / 2) / CENT;
+        format!("${}.{:02}", cents / 100, cents % 100)
+    } else {
+        let tenth_mills = (nano + 50_000) / 100_000; // units of $0.0001
+        format!("$0.{tenth_mills:04}")
+    }
+}
+
+/// A nano-USD amount as a decimal USD string for JSON (`"12.345678"`, six
+/// decimals, rounded half up). A string, not a float, so no precision is
+/// lost or invented.
+pub(crate) fn usd_decimal(nano: u128) -> String {
+    let micro = (nano + 500) / 1000;
+    format!("{}.{:06}", micro / 1_000_000, micro % 1_000_000)
+}
+
 /// Humanize a byte count as `1.4 KiB` / `980 B` / `3.2 MiB` using binary
 /// units (1024-based), one decimal place for KiB and above and plain bytes
 /// below. Used by `hh gc` and `hh stats` (NFR-7 / Area 3). Computed with
@@ -233,4 +327,45 @@ pub(crate) fn visible_width(s: &str) -> usize {
         }
     }
     count
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn iso8601_durations() {
+        assert_eq!(iso8601_duration(0), "PT0S");
+        assert_eq!(iso8601_duration(350), "PT0.35S");
+        assert_eq!(iso8601_duration(6_580_000), "PT1H49M40S");
+        assert_eq!(iso8601_duration(3_600_000), "PT1H");
+        assert_eq!(iso8601_duration(61_005), "PT1M1.005S");
+        assert_eq!(iso8601_duration(-5), "PT0S");
+        assert_eq!(humanize_ms(6_580_000), "1h49m40s");
+    }
+
+    #[test]
+    fn thousands_grouping() {
+        assert_eq!(thousands(0), "0");
+        assert_eq!(thousands(999), "999");
+        assert_eq!(thousands(1_000), "1,000");
+        assert_eq!(thousands(1_234_567), "1,234,567");
+        assert_eq!(thousands(-12_345), "-12,345");
+    }
+
+    #[test]
+    fn usd_formatting() {
+        assert_eq!(format_usd(0), "$0.0000");
+        assert_eq!(format_usd(4_200_000), "$0.0042");
+        assert_eq!(format_usd(11_000_000_000), "$11.00");
+        assert_eq!(format_usd(1_234_999_999), "$1.23");
+        assert_eq!(usd_decimal(11_000_000_000), "11.000000");
+        assert_eq!(usd_decimal(4_200_000), "0.004200");
+    }
+
+    #[test]
+    fn utc_timestamps() {
+        assert_eq!(format_utc(1_700_000_000_000), "2023-11-14 22:13:20 UTC");
+        assert_eq!(rfc3339_utc(1_700_000_000_250), "2023-11-14T22:13:20.250Z");
+    }
 }

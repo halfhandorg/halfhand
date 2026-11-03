@@ -7,6 +7,7 @@
 - [Quickstart](./quickstart.md)
 - [Recording](./recording.md)
 - [Replay & Inspect](./replay-inspect.md)
+- [Session context](./context.md)
 - [Search](./search.md)
 
 # Security

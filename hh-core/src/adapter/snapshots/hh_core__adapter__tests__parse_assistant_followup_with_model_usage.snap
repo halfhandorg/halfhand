@@ -8,7 +8,13 @@ expression: snap(&pr)
       "blob_hash": null,
       "blob_size": null,
       "body_json": {
-        "text": "The repo is empty and Cargo.toml is missing."
+        "model": "glm-5.2",
+        "text": "The repo is empty and Cargo.toml is missing.",
+        "usage": {
+          "cache_read_input_tokens": 300,
+          "input_tokens": 1500,
+          "output_tokens": 40
+        }
       },
       "correlates": null,
       "kind": "agent_message",

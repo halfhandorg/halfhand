@@ -11,6 +11,49 @@ in CI rather than tracking `latest` until 1.0.
 
 ## [Unreleased]
 
+### Added — session context: model, provider, duration and token cost
+
+- **`hh inspect --context`** prints a panel with the session's name, model,
+  provider, context limit and how much of it the latest turn used, token
+  counts, message counts, created and last-activity times, wall and active
+  duration, and an estimated list-price cost. `--context --json` prints the
+  same data as one object. See `docs/context.md`.
+- **Model identity comes from the transcript's own `model` field.** If the
+  model changes mid-session, the session records the last one, and
+  `hh inspect` lists every model with its step range.
+- **Token usage is accumulated as the session records.** Self-reported
+  counts (input, output, cache read, cache write, reasoning) are summed by
+  the writer task, with repeated usage for one response counted once. The
+  total is derived when read, never stored. A size-based estimate is shown
+  separately and labelled as one. The two are never blended.
+- **Unknown is a dash, never 0.** Provider, context limit and prices come
+  from a table compiled into `hh` (no network calls). A model the table
+  lacks shows `—` for those values and for cost, and so does any count
+  the transcript did not report.
+- **`hh run --name <name>`** and **`hh rename <session> <name>`**
+  (`--clear` removes a name). An empty, over-long (more than 100 characters)
+  or control-character name is a usage error (exit 2). A session that does
+  not exist exits 3.
+- **Durations.** `hh inspect`'s step table gains an ELAPSED column, and the
+  `--json --step N` object gains `elapsed_ms` / `elapsed`. `hh list --json`
+  session objects gain `duration`, `active_duration_ms` and
+  `active_duration`. JSON durations are ISO 8601 (`PT1H49M40S`); the
+  terminal uses `1h49m40s`.
+- **JSON (additive, `schema` stays `2`).** Session objects gain `name`,
+  `model_id`, `model_display`, `provider`, `context_limit`, `capture_tier`,
+  `adapter_id` and a `usage` object. The first event of each model response
+  gains `model`, `message_id` and `usage` keys in `body`. Export bundles
+  carry the new session fields, and `hh import` restores them.
+- **Database: migration 0007** adds twelve nullable `sessions` columns
+  (`name`, `model_id`, `model_display`, `provider`, `context_limit`,
+  `input_tokens`, `output_tokens`, `cache_read_tokens`,
+  `cache_write_tokens`, `reasoning_tokens`, `capture_tier`, `adapter_id`).
+  Each column is added only if it is missing, so the migration is idempotent
+  and completes a partly applied run. Nothing is dropped, renamed or
+  retyped. On upgrade, a session's legacy `model` is copied to `model_id`.
+  Its token counts stay unknown: the old `usage_json` held one response,
+  not a session total.
+
 ### Fixed — HTML replay pages had no terminal output
 
 - **`hh export --html` and `hh replay --web` now include terminal output.**

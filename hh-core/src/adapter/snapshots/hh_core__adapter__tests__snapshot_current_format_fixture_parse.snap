@@ -21,7 +21,14 @@ expression: "serde_json::to_string_pretty(&serde_json::json!({\n    \"events\": 
       "blob_hash": null,
       "blob_size": null,
       "body_json": {
-        "text": "The user has a borrow checker error. Let me read the file first."
+        "model": "claude-sonnet-4-5",
+        "text": "The user has a borrow checker error. Let me read the file first.",
+        "usage": {
+          "cache_creation_input_tokens": 0,
+          "cache_read_input_tokens": 0,
+          "input_tokens": 1250,
+          "output_tokens": 95
+        }
       },
       "correlates": null,
       "kind": "thinking",
@@ -67,7 +74,15 @@ expression: "serde_json::to_string_pretty(&serde_json::json!({\n    \"events\": 
       "blob_hash": null,
       "blob_size": null,
       "body_json": {
-        "text": "The issue is that `user` is moved into `check_permissions`, so it can't be returned on the next line. Fix: borrow with `&user` in the call."
+        "model": "claude-sonnet-4-5",
+        "text": "The issue is that `user` is moved into `check_permissions`, so it can't be returned on the next line. Fix: borrow with `&user` in the call.",
+        "usage": {
+          "cache_creation_input_tokens": 0,
+          "cache_read_input_tokens": 200,
+          "input_tokens": 1600,
+          "output_tokens": 45,
+          "service_tier": "standard"
+        }
       },
       "correlates": null,
       "kind": "agent_message",

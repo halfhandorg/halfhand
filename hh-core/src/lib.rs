@@ -17,10 +17,12 @@ pub mod deprecation;
 pub mod error;
 pub mod event;
 pub mod migrations;
+pub mod models;
 pub mod redact;
 pub mod step;
 pub mod store;
 pub mod timeline;
+pub mod usage;
 
 // Re-export the most commonly used types at the crate root for ergonomics.
 pub use adapter::{
@@ -52,4 +54,5 @@ pub use store::{
     ScanFinding, SearchFilters, SearchResult, SecretSummary, Store, StoreStats,
 };
 pub use timeline::{build_timeline, StepEntry, TerminalSegment, TimelineRow};
+pub use usage::{ModelSpan, SessionContext, TokenSample};
 pub use uuid::Uuid;
