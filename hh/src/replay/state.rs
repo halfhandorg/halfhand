@@ -1352,7 +1352,7 @@ mod tests {
         update(&mut s, AppEvent::Key(KeyInput::Enter));
         assert_eq!(s.visible_rows().len(), 1);
         update(&mut s, AppEvent::Key(KeyInput::Char('n')));
-        assert!(s.filter_input.is_empty());
+        assert_eq!(s.filter_input, "");
         assert_eq!(s.selected_row().unwrap().label(), "tool_call: Bash");
     }
 
@@ -1372,7 +1372,7 @@ mod tests {
     fn no_moments_says_so() {
         let mut s = sample_state();
         let empty = AppState::new(session(), Vec::new());
-        assert!(empty.moments.is_empty());
+        assert_eq!(empty.moments, Vec::<Moment>::new());
         s.moments.clear();
         update(&mut s, AppEvent::Key(KeyInput::Char('n')));
         assert!(s
@@ -1468,7 +1468,10 @@ mod tests {
         );
         let mut r = session();
         r.capture_tier = Some("transcript".into());
-        assert!(AppState::new(r, Vec::new()).capture_gaps().is_empty());
+        assert_eq!(
+            AppState::new(r, Vec::new()).capture_gaps(),
+            Vec::<String>::new()
+        );
     }
 
     #[test]
