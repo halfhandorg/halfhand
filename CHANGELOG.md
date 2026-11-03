@@ -779,9 +779,9 @@ reads correctly under 1.0 — proven by the permanent
 - `hh inspect --json` now streams a session as NDJSON through
   `Store::for_each_event_detail` (one `EventDetail` at a time) instead of
   collecting the whole session into RAM — constant memory for any session size
-  (Area 2). A 100k-event session streams without materializing 100k rows.
+ . A 100k-event session streams without materializing 100k rows.
 - The replay body cache (`ReplayData`) is verified bounded at its 50-entry
-  capacity across unbounded scrolling (Area 2): a regression to an unbounded
+  capacity across unbounded scrolling: a regression to an unbounded
   cache would fail `get_evicts_lru_to_stay_bounded_at_capacity`.
 
 ### Added
@@ -817,7 +817,7 @@ reads correctly under 1.0 — proven by the permanent
 - CI: `cargo-llvm-cov` gate (hh-core ≥ 80% lines, fail-under; workspace-wide
   report-only) and `cargo-semver-checks` against `main` for hh-core's public
   API (adapters implement its `Adapter` trait).
-- Criterion benches (`hh-core/benches/`) + a nightly regression gate (Area 1):
+- Criterion benches (`hh-core/benches/`) + a nightly regression gate:
   four groups — `ingest` (`append_event` throughput), `replay_index`
   (10k/100k-event `list_event_index`), `blob_write`/`blob_read` (1 KiB/1 MiB),
   and `adapter_jsonl` (Claude JSONL conversion, gated on the `fuzzing` feature
@@ -829,7 +829,7 @@ reads correctly under 1.0 — proven by the permanent
   `just bench-compare` run the same locally. Dev-only: criterion is a
   dev-dependency (default-features off) and pulls no HTTP client, so the
   no-network-crate check stays green. See `docs/performance.md`.
-- `hh gc` (reclaim space, Area 3): prunes orphaned blob files and stale
+- `hh gc` (reclaim space): prunes orphaned blob files and stale
   `blobs` rows — the crash-leftover cases `hh delete` does not reach (a blob
   written to disk between `BlobStore::put` and the referencing event's commit,
   or a `blobs` row whose backing file was deleted out of band) — and `VACUUM`s
@@ -838,7 +838,7 @@ reads correctly under 1.0 — proven by the permanent
   a stable `schema:1` object (`orphan_files_removed` / `orphan_bytes_reclaimed`
   / `orphan_rows_removed` / `vacuumed`). Docs: see `docs/gc.md`; `--help`
   carries an example.
-- `hh stats` (read-only store inventory, Area 3): session/event/blob counts,
+- `hh stats` (read-only store inventory): session/event/blob counts,
   on-disk footprint (`hh.db` + WAL/SHM sidecars + compressed blob directory),
   and the largest sessions by event count (`--top N`, default 5). `--json`
   emits a stable `schema:1` object with `blobs` / `disk` / `largest_sessions`

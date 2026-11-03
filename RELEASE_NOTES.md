@@ -63,13 +63,13 @@ Limitations):
 
 ### Acceptance criteria
 
-AC-2 through AC-5 are covered by automated tests in `hh/tests/cli.rs` (generic
-agent recording, MCP proxy, crash-safety, JSON-schema-via-`jq`). AC-1 (a real
-`claude` run) and AC-6 (fresh-machine experience) can't run in CI — they're
+Generic agent recording, the MCP proxy, crash-safety and the JSON schema
+(checked through `jq`) are covered by automated tests in `hh/tests/cli.rs`. A
+real `claude` run and the fresh-machine experience can't run in CI — they're
 documented as checklists in [`docs/manual-qa.md`](docs/manual-qa.md), and
-every automatable part of AC-1 (adapter parsing, `hh run -- claude` e2e with a
+every automatable part of the real `claude` run (adapter parsing, `hh run -- claude` e2e with a
 shim, degraded mode, read-side on a structured session) is automated. This
-release fixed a contract bug found while building AC-1's test: `hh list --json`
+release fixed a contract bug found while building that test: `hh list --json`
 session objects now emit the documented `schema:1` field (`docs/json.md`).
 
 ## Known limitations

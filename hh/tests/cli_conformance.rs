@@ -15,7 +15,7 @@ use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
 use std::sync::OnceLock;
 
-/// Every subcommand `hh --help` lists today (SRS FR-6.2 / STABILITY.md (a)).
+/// Every subcommand `hh --help` lists today (STABILITY.md (a)).
 /// A subcommand leaving this list is a CLI-stability break — removing one
 /// requires the STABILITY.md (a) deprecation cycle, not a silent drop here.
 const SUBCOMMANDS: &[&str] = &[

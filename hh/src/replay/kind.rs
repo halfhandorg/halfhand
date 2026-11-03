@@ -1,5 +1,5 @@
-//! Kind → badge label / color mapping shared by filtering and rendering
-//! (FR-3.2): six step categories — AGENT, USER, TOOL, MCP, FILE, ERR — plus
+//! Kind → badge label / color mapping shared by filtering and rendering:
+//! six step categories — AGENT, USER, TOOL, MCP, FILE, ERR — plus
 //! two quieter categories for terminal output and lifecycle markers, which
 //! are not "steps". Styling lives in [`super::theme::Theme::badge_style`].
 

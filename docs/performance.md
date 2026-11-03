@@ -19,7 +19,7 @@ Four groups, one per perf-critical path:
 | Group | What it measures | Target |
 | --- | --- | --- |
 | `ingest` | `EventWriter::append_event` throughput — one durable round-trip through the single-writer channel per event (channel send → writer-thread INSERT → reply). | ingest ≥5,000 events/s |
-| `replay_index` | `Store::list_event_index` for 10k and 100k-event sessions — the `hh replay` open hot path. | replay open <300 ms for 10k; Area 2 (<1 s for 100k) |
+| `replay_index` | `Store::list_event_index` for 10k and 100k-event sessions — the `hh replay` open hot path. | replay open <300 ms for 10k; <1 s for 100k |
 | `blob_write` | `BlobStore::put` (BLAKE3 + zstd + atomic write) for 1 KiB / 1 MiB. | file-change blob round-trips |
 | `blob_read` | `BlobStore::get` (read + zstd decompress + BLAKE3 verify) for 1 KiB / 1 MiB. | replay / inspect body fetch |
 | `adapter_jsonl` | Claude JSONL line → event conversion via the dev-only `adapter::fuzzing` parser entry. | Claude Code adapter tail |
@@ -54,7 +54,7 @@ machine, bounded settings). These are reference points, not pass/fail:
 | --- | --- | --- |
 | `ingest/append_event` | 18.9 ms / 128 events | ~6.8k events/s (storage layer) |
 | `replay_index/10000` | 5.0 ms | replay open <300 ms ✓ |
-| `replay_index/100000` | 49 ms | Area 2 <1 s ✓ |
+| `replay_index/100000` | 49 ms | <1 s ✓ |
 | `blob_write/1KiB` | 6.1 ms | — |
 | `blob_write/1MiB` | 11.6 ms | ~86 MiB/s |
 | `blob_read/1KiB` | 6.7 µs | — |
@@ -76,7 +76,7 @@ closing the remaining gap to 5k/s end-to-end needs statement caching + a batched
 writer, tracked as follow-up. The regression gate below protects the storage-
 layer gain from slipping back.
 
-### Big sessions (Area 2)
+### Big sessions
 
 `hh replay` opens by loading the event index (`list_event_index`), then fetches
 bodies lazily through a bounded 50-entry LRU cache (`ReplayData`). At 100k
@@ -134,7 +134,7 @@ just bench-compare ./bench-baseline         # same script the nightly gate uses
 (criterion writes this on every run — no special flag) and reads each median
 point estimate in nanoseconds, criterion's native unit for `estimates.json`.
 
-## `hh list` cold start (Area 4)
+## `hh list` cold start
 
 **Target:** `hh list` cold start <50 ms on a warm cache. This is a manual check,
 not CI-gated — wall-clock timing is too noisy across CI runners to gate on, and

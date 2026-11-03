@@ -1,4 +1,4 @@
-//! Agent kind detection (FR-1.2: `claude-code` | `codex-cli` | `gemini-cli` |
+//! Agent kind detection (`claude-code` | `codex-cli` | `gemini-cli` |
 //! `generic`).
 //!
 //! Detection is intentionally simple and string-based. We match on the basename
@@ -10,7 +10,7 @@
 use hh_core::AgentKind;
 use std::path::Path;
 
-/// Detect the agent kind from the command argv (FR-1.2).
+/// Detect the agent kind from the command argv.
 ///
 /// Rules:
 /// - If `command` is empty, this is a caller bug → `Generic`.

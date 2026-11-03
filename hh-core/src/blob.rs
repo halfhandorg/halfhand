@@ -255,7 +255,7 @@ impl BlobStore {
     /// by walking `blobs/<2-char shard>/<64-hex>.zst`. Used by
     /// [`crate::store::Store::prune_orphan_blobs`] and
     /// [`crate::store::Store::store_stats`] for orphan detection and footprint
-    /// accounting (Area 3). Returns hashes in arbitrary directory order;
+    /// accounting. Returns hashes in arbitrary directory order;
     /// defensively skips entries whose names are not a well-formed
     /// `<hash>.zst`, so a stray file in the blobs dir never panics.
     pub fn iter_hashes(&self) -> Result<Vec<String>> {

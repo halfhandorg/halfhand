@@ -1,4 +1,4 @@
-//! MCP stdio proxy (FR-2): a newline-delimited JSON-RPC middleman between an
+//! MCP stdio proxy: a newline-delimited JSON-RPC middleman between an
 //! MCP client (the host on `hh`'s stdin/stdout) and an MCP server (the child
 //! process). It forwards every line **verbatim** (wire correctness preserved),
 //! and as a side effect records each message as an Halfhand event:
@@ -13,7 +13,7 @@
 //!   one [`EventKind::McpNotification`] (v0.1 simplification: no per-element
 //!   correlation, flagged in the plan).
 //!
-//! Sessions (FR-2.3): if `HH_SESSION_ID` is set, the proxy **attaches** to that
+//! Sessions: if `HH_SESSION_ID` is set, the proxy **attaches** to that
 //! session — it records events into it but leaves its lifecycle (`status`,
 //! `ended_at`) untouched, because the parent `hh run` owns finalize. A missing
 //! id is an actionable error (no orphan session). With no env var, the proxy
@@ -53,7 +53,7 @@ pub struct McpProxyOptions {
     /// Human-readable hint stored as the session `command` label for a
     /// standalone `mcp-only` session (unused when attaching).
     pub session_hint: Option<String>,
-    /// `hh` version string (FR-1.2).
+    /// `hh` version string.
     pub hh_version: String,
     /// Record-time redactor (`[redaction] at_record`, docs/redaction-design.md):
     /// when set, event summaries/bodies are redacted by the writer task and
@@ -61,7 +61,7 @@ pub struct McpProxyOptions {
     pub redactor: Option<Arc<hh_core::redact::Detectors>>,
 }
 
-/// The outcome of a finished proxy run (FR-2).
+/// The outcome of a finished proxy run.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct McpProxyOutcome {
     /// Full session UUID string (the attached parent's, or the new standalone
@@ -76,7 +76,7 @@ pub struct McpProxyOutcome {
     pub exit_code: Option<i32>,
 }
 
-/// Run the MCP stdio proxy (FR-2). See the module docs for the session model
+/// Run the MCP stdio proxy. See the module docs for the session model
 /// and the forwarding/recording contract.
 ///
 /// # Errors
@@ -88,7 +88,7 @@ pub struct McpProxyOutcome {
 pub fn run_mcp_proxy(store: &Store, opts: &McpProxyOptions) -> crate::Result<McpProxyOutcome> {
     let now = now_unix_ms();
 
-    // --- Session (FR-2.3) ------------------------------------------------
+    // --- Session ---------------------------------------------------------
     // Attached: HH_SESSION_ID present → resolve + read the parent's started_at
     // so MCP events share the parent's timeline. Standalone: create an mcp-only
     // session we own and finalize at the end.
@@ -145,7 +145,7 @@ pub fn run_mcp_proxy(store: &Store, opts: &McpProxyOptions) -> crate::Result<Mcp
     let pending: Arc<Mutex<HashMap<String, (i64, i64)>>> = Arc::new(Mutex::new(HashMap::new()));
     let stop = Arc::new(AtomicBool::new(false));
 
-    // --- Spawn the server (FR-2.1) --------------------------------------
+    // --- Spawn the server -----------------------------------------------
     let mut cmd = Command::new(&opts.command[0]);
     cmd.args(&opts.command[1..])
         .current_dir(&opts.cwd)
@@ -271,7 +271,7 @@ struct ProxyCtx {
     session_id: String,
     /// `started_at` of the session whose timeline these events share. Event
     /// `ts_ms` is `now_unix_ms() - base_started_at` so attached MCP events
-    /// interleave correctly on the parent's clock (FR-2.3).
+    /// interleave correctly on the parent's clock.
     base_started_at: i64,
 }
 
@@ -551,7 +551,7 @@ fn id_key(v: &serde_json::Value) -> Option<String> {
 
 /// If `body` serializes to ≥ [`SPILL_BYTES`], store it as a blob and return an
 /// overflow envelope; otherwise return the body inline. Mirrors the adapter's
-/// `maybe_spill` (FR-1.5 / FR-2 spillover contract).
+/// `maybe_spill` (same spillover contract).
 fn maybe_spill(
     body: serde_json::Value,
     blobs: &BlobStore,
@@ -571,7 +571,7 @@ fn maybe_spill(
     (Some(body), None, None)
 }
 
-/// Truncate a summary to the SRS §4.1 limit of 120 chars (matches the runner).
+/// Truncate a summary to the 120-char event summary limit (matches the runner).
 fn truncate_summary(s: &str) -> String {
     const LIMIT: usize = 120;
     if s.chars().count() <= LIMIT {
@@ -588,7 +588,7 @@ fn now_unix_ms() -> i64 {
         .map_or(0, |d| i64::try_from(d.as_millis()).unwrap_or(i64::MAX))
 }
 
-/// Best-effort hostname (FR-1.2). Shells out to `hostname` (no extra dep).
+/// Best-effort hostname. Shells out to `hostname` (no extra dep).
 fn hostname() -> Option<String> {
     std::process::Command::new("hostname")
         .output()

@@ -1,4 +1,4 @@
-//! Shared output-formatting helpers for the `hh` binary (NFR-7).
+//! Shared output-formatting helpers for the `hh` binary.
 //!
 //! Glyph/color/time formatting used by more than one subcommand lives here so
 //! the CLI speaks one visual language: consistent glyphs (`✓ ✗ ●`), one
@@ -72,13 +72,13 @@ pub(crate) fn render_status_marked(status: SessionStatus, degraded: bool, color:
 }
 
 /// A session is degraded — shown with `⚠`, never as a clean `ok` — when its
-/// adapter ended `Degraded` (FR-1.5) or the recorder dropped events it could
+/// adapter ended `Degraded` or the recorder dropped events it could
 /// not write (`dropped_events > 0`, so the timeline has gaps).
 pub(crate) fn session_is_degraded(row: &hh_core::SessionRow) -> bool {
     row.adapter_status == AdapterStatus::Degraded || row.dropped_events > 0
 }
 
-/// Humanize a millisecond duration as `4m32s` / `12s` / `350ms` (NFR-7).
+/// Humanize a millisecond duration as `4m32s` / `12s` / `350ms`.
 pub(crate) fn humanize_ms(ms: i64) -> String {
     if ms < 0 {
         return "0ms".to_string();
@@ -195,8 +195,8 @@ pub(crate) fn usd_decimal(nano: u128) -> String {
 
 /// Humanize a byte count as `1.4 KiB` / `980 B` / `3.2 MiB` using binary
 /// units (1024-based), one decimal place for KiB and above and plain bytes
-/// below. Used by `hh gc` and `hh stats` (NFR-7 / Area 3). Computed with
-/// integer math (no `f64` cast) so it never loses precision and never trips
+/// below. Used by `hh gc` and `hh stats`. Computed with integer math (no
+/// `f64` cast) so it never loses precision and never trips
 /// `clippy::cast_precision_loss`.
 pub(crate) fn humanize_bytes(bytes: u64) -> String {
     const UNITS: &[(&str, u64)] = &[
@@ -228,7 +228,7 @@ pub(crate) fn format_hms(ms: i64) -> String {
     format!("{h:02}:{m:02}:{s:02}")
 }
 
-/// Humanize a `started_at` (unix-ms) relative to `now` (FR-5.1). Recent
+/// Humanize a `started_at` (unix-ms) relative to `now`. Recent
 /// sessions show "just now"/"5m ago"; older than a week show an absolute
 /// `YYYY-MM-DD`.
 pub(crate) fn humanize_relative(started_at: i64, now: i64) -> String {

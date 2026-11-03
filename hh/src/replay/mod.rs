@@ -1,4 +1,4 @@
-//! The `hh replay` interactive TUI (SRS FR-3).
+//! The `hh replay` interactive TUI.
 //!
 //! [`run`] owns the terminal for the session: raw mode + alternate screen on
 //! entry, restored on exit *and* on panic (a panic mid-render must not leave

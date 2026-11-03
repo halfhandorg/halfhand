@@ -1,5 +1,5 @@
 #!/bin/sh
-# Fixture fake agent for `hh run` integration tests (SRS acceptance #2).
+# Fixture fake agent for `hh run` integration tests.
 # Prints to stdout, writes a file to its cwd, and exits nonzero — enough to
 # exercise terminal-output capture, file-change capture, and the error
 # status path. POSIX sh so the test does not depend on python3.

@@ -7,9 +7,9 @@ when you need the original intent behind a behaviour, but do not cite their
 section or requirement numbers. If a task conflicts with the documented
 behaviour or the standards below, say so before writing code.
 
-Do not put requirement or ticket IDs (SRS, FR-, NFR-, DR-, BUG-, ENH-) in
-code, comments, tests, help text or docs. Describe the behaviour in plain
-words instead.
+Do not put requirement or ticket IDs (SRS, FR-, NFR-, DR-, BUG-, ENH-, AC-,
+"Area n") in code, comments, tests, help text or docs. Describe the behaviour
+in plain words instead. hh-core/tests/no_requirement_ids.rs enforces this.
 
 ## Rust standards (non-negotiable)
 - Edition 2021, MSRV 1.88 (`rust-version` in the workspace Cargo.toml,

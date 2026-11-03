@@ -69,7 +69,7 @@ pub struct CreatedSession {
 
 /// Reclaim report from [`Store::prune_orphan_blobs`]: how many orphan blob
 /// files and stale `blobs` rows were removed, and how much on-disk space was
-/// freed. Used by `hh gc` (Area 3).
+/// freed. Used by `hh gc`.
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct PruneStats {
     /// Number of on-disk blob files removed: files with no `blobs` row, or a
@@ -89,7 +89,7 @@ pub struct PruneStats {
 /// Whole-store inventory reported by [`Store::store_stats`]: counts and disk
 /// footprint broken down by the DB file (plus its WAL/SHM sidecars) and the
 /// blob directory, plus the largest sessions by event count. Used by
-/// `hh stats` (Area 3).
+/// `hh stats`.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct StoreStats {
     /// Number of recorded sessions.
@@ -585,7 +585,7 @@ impl Store {
         Ok(row)
     }
 
-    /// Reclaim free pages and shrink `hh.db` on disk (Area 3 / `hh gc`).
+    /// Reclaim free pages and shrink `hh.db` on disk (`hh gc`).
     /// `VACUUM` rebuilds the database file, so it must run with no other
     /// connection open and outside a transaction — `hh gc` is the only caller
     /// and owns the store's sole connection, with the single-writer task not
@@ -596,7 +596,7 @@ impl Store {
         Ok(())
     }
 
-    /// Remove orphaned blob files and stale `blobs` rows (Area 3 / `hh gc`).
+    /// Remove orphaned blob files and stale `blobs` rows (`hh gc`).
     /// Two passes:
     /// 1. For every blob file on disk, if no live `blobs` row references it
     ///    (no row, or refcount ≤ 0), remove the file (and the stale row, if
@@ -662,7 +662,7 @@ impl Store {
 
     /// Whole-store inventory: counts, per-file disk footprint (the `hh.db`
     /// file plus its `-wal`/`-shm` sidecars and the compressed blob directory),
-    /// and the `largest` sessions by event count (Area 3 / `hh stats`).
+    /// and the `largest` sessions by event count (`hh stats`).
     pub fn store_stats(&self, largest: u32) -> Result<StoreStats> {
         let sessions: i64 = self
             .conn
@@ -1976,7 +1976,7 @@ impl Store {
     /// session is never collected into RAM — unlike [`Self::list_event_index`]
     /// followed by per-row [`Self::get_event_detail`], which is the right path
     /// for the interactive timeline but not for streaming a 100k-event session
-    /// to NDJSON (Area 2).
+    /// to NDJSON.
     ///
     /// Each [`EventDetail`] is built, emitted, and dropped before the next
     /// row is fetched, so peak memory is O(1) regardless of session size. If
@@ -3824,7 +3824,7 @@ mod tests {
     }
 
     /// Migration 0002 installs the partial index that makes `heal_steps` an
-    /// O(needs-heal) probe rather than an O(all-events) scan (Area 4). A fresh
+    /// O(needs-heal) probe rather than an O(all-events) scan. A fresh
     /// store must carry it, and reopening must not duplicate it.
     #[test]
     fn heal_partial_index_exists_after_migration_0002() {
@@ -4134,7 +4134,7 @@ mod tests {
         assert!(!blob_path.exists());
     }
 
-    /// Durability / Area 3: `finalize_session` runs `PRAGMA wal_checkpoint(TRUNCATE)`,
+    /// Durability: `finalize_session` runs `PRAGMA wal_checkpoint(TRUNCATE)`,
     /// so the main `hh.db` file holds every committed page at rest. Copying
     /// *only* `hh.db` (no `-wal`/`-shm`) into a fresh data dir and reopening
     /// must yield the finalized session intact — i.e. `hh.db` is copy-safe.
@@ -4174,7 +4174,7 @@ mod tests {
         assert_eq!(row.exit_code, Some(0));
     }
 
-    /// `prune_orphan_blobs` (Area 3 / `hh gc`) removes an orphan file (on
+    /// `prune_orphan_blobs` (`hh gc`) removes an orphan file (on
     /// disk, no `blobs` row), removes a dangling row (refcount > 0, file
     /// missing), and leaves a live referenced blob untouched.
     #[test]
@@ -4254,7 +4254,7 @@ mod tests {
         assert!(dangling_rc.is_none(), "dangling row removed");
     }
 
-    /// `store_stats` (Area 3 / `hh stats`) reports session/event/blob counts,
+    /// `store_stats` (`hh stats`) reports session/event/blob counts,
     /// a non-empty DB footprint, and the largest sessions in descending order.
     #[test]
     fn store_stats_reports_counts_and_largest() {
@@ -4298,7 +4298,7 @@ mod tests {
         assert_eq!(stats.largest_sessions[1].event_count, 1);
     }
 
-    /// `for_each_event_detail` (Area 2) streams a session's events in
+    /// `for_each_event_detail` streams a session's events in
     /// `(ts_ms, id)` order, resolves a blob-overflow body inline, and attaches
     /// the `file_changes` row — the constant-memory primitive behind
     /// `hh inspect --json`.
@@ -4369,7 +4369,7 @@ mod tests {
         assert_eq!(fc.event_id, id_fc);
     }
 
-    /// Area 2 big-session hardening: a synthetic 100k-event session must
+    /// Big-session hardening: a synthetic 100k-event session must
     /// stream through `for_each_event_detail` (the `hh inspect --json` path)
     /// and load its event index (the `hh replay` open path) at this scale
     /// without collecting every row in RAM. `#[ignore]`d because 100k rows are

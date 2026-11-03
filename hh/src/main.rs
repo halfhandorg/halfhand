@@ -1,7 +1,7 @@
-//! `hh` — the Halfhand binary entry point (SRS §1.2, FR-6.2).
+//! `hh` — the Halfhand binary entry point.
 //!
 //! Wires the CLI surface (clap derive) to the data layer (`hh_core`) and the
-//! recorder (`hh_record`). `hh run` is fully implemented (FR-1); the other
+//! recorder (`hh_record`). `hh run` is fully implemented; the other
 //! subcommands return a structured "not implemented" error for now.
 
 include!(concat!(env!("OUT_DIR"), "/hh_version.rs"));
@@ -94,19 +94,19 @@ fn run(cli: Cli) -> anyhow::Result<ExitCode> {
     }
 }
 
-/// Load config + open the store, applying FR-1.7 (mark stale `recording`
-/// sessions `interrupted`) on every open. Returns the store, resolved paths,
-/// and loaded config for the subcommand.
+/// Load config + open the store, applying stale-session reconciliation (mark
+/// stale `recording` sessions `interrupted`) on every open. Returns the store,
+/// resolved paths, and loaded config for the subcommand.
 ///
-/// Config precedence (SRS §2.3): `HH_DATA_DIR` env > `[storage] data_dir`
+/// Config precedence: `HH_DATA_DIR` env > `[storage] data_dir`
 /// file > platform default. We resolve once with defaults to find the config
 /// file's platform path, load it, then resolve again so `[storage] data_dir`
 /// is honored.
 fn open_store() -> anyhow::Result<(Store, Paths, Config)> {
     let paths0 = Paths::resolve(&Config::default())
         .map_err(|e| anyhow::anyhow!("could not resolve data directory\n  why: {e}\n  hint: set HH_DATA_DIR to a writable directory"))?;
-    // Best-effort config load: unknown keys warn on stderr, never fail
-    // (SRS §4.2). If the config file is unreadable for another reason, fall
+    // Best-effort config load: unknown keys warn on stderr, never fail.
+    // If the config file is unreadable for another reason, fall
     // back to defaults rather than blocking the run.
     let (config, source) = Config::load_with_source(&paths0.config_path).unwrap_or_else(|e| {
         eprintln!(
@@ -125,7 +125,7 @@ fn open_store() -> anyhow::Result<(Store, Paths, Config)> {
     let paths = Paths::resolve(&config).map_err(|e| {
         anyhow::anyhow!("could not resolve data directory\n  why: {e}\n  hint: set HH_DATA_DIR to a writable directory")
     })?;
-    // BUG-2.2: one-time legacy-config hint. The data dir the marker lives
+    // One-time legacy-config hint. The data dir the marker lives
     // under is the *resolved* one (after env > config > platform precedence),
     // so the marker tracks "this user has been told" per data dir, not per
     // invocation. Printed only when stderr is a TTY and HH_NO_CONFIG_HINT is
@@ -137,7 +137,7 @@ fn open_store() -> anyhow::Result<(Store, Paths, Config)> {
             paths.db_path.display()
         )
     })?;
-    // FR-1.7: mark sessions left `recording` by a crashed `hh run` as
+    // Mark sessions left `recording` by a crashed `hh run` as
     // `interrupted`. Best-effort; a failure here does not block the run.
     if let Err(e) = store.mark_stale_interrupted() {
         eprintln!("hh: warning: could not reconcile stale sessions: {e}");
@@ -202,7 +202,7 @@ fn warn_if_deprecated_adapter(adapter: Option<&str>) -> bool {
     )
 }
 
-/// `hh run` (FR-1): record an agent session.
+/// `hh run`: record an agent session.
 fn run_command(args: cli::RunArgs) -> anyhow::Result<ExitCode> {
     warn_if_deprecated_adapter(args.adapter.as_deref());
     let (store, paths, config) = open_store()?;
@@ -249,7 +249,7 @@ fn run_command(args: cli::RunArgs) -> anyhow::Result<ExitCode> {
     Ok(child_exit_code(outcome.exit_code))
 }
 
-/// `hh replay` (FR-3): open the interactive TUI on a recorded session, or
+/// `hh replay`: open the interactive TUI on a recorded session, or
 /// (`--web`) export a self-contained HTML replay page to a temp file and
 /// print its path.
 ///
@@ -321,7 +321,7 @@ fn replay_web_command(args: &cli::ReplayArgs) -> anyhow::Result<ExitCode> {
     Ok(ExitCode::SUCCESS)
 }
 
-/// `hh mcp-proxy` (FR-2): stdio JSON-RPC middleman. Forwards verbatim and
+/// `hh mcp-proxy`: stdio JSON-RPC middleman. Forwards verbatim and
 /// records each message as an event, attaching to `HH_SESSION_ID` if present or
 /// creating a standalone `mcp-only` session.
 fn mcp_proxy_command(args: cli::McpProxyArgs) -> anyhow::Result<ExitCode> {
@@ -341,7 +341,7 @@ fn mcp_proxy_command(args: cli::McpProxyArgs) -> anyhow::Result<ExitCode> {
     Ok(child_exit_code(outcome.exit_code))
 }
 
-/// Print the one-line MCP proxy epilogue (FR-2): the session it recorded into
+/// Print the one-line MCP proxy epilogue: the session it recorded into
 /// and the server's exit outcome. Attached mode notes the parent session.
 fn print_mcp_epilogue(outcome: &hh_record::McpProxyOutcome) {
     let color = render::use_color();
@@ -712,7 +712,7 @@ fn check_watcher_smoke() -> DoctorCheck {
     }
 }
 
-/// `hh gc` (Area 3): reclaim space. Prunes orphaned blob files and stale
+/// `hh gc`: reclaim space. Prunes orphaned blob files and stale
 /// `blobs` rows (files leaked by a crash between `BlobStore::put` and the
 /// referencing event's commit, or `blobs` rows whose backing file was deleted
 /// out of band), then `VACUUM`s `hh.db` to shrink it on disk (skippable with
@@ -748,7 +748,7 @@ fn gc_command(args: &cli::GcArgs) -> anyhow::Result<ExitCode> {
     Ok(ExitCode::SUCCESS)
 }
 
-/// Render the `hh gc` outcome as plain lines (Area 3). Factored out so a
+/// Render the `hh gc` outcome as plain lines. Factored out so a
 /// snapshot test can lock the human-readable output without a TTY or real data
 /// dir. `color=false` keeps the snapshot deterministic.
 fn render_gc_plain(prune: &hh_core::PruneStats, vacuumed: bool, color: bool) -> String {
@@ -785,7 +785,7 @@ fn render_gc_plain(prune: &hh_core::PruneStats, vacuumed: bool, color: bool) -> 
     out
 }
 
-/// `hh stats` (Area 3): a read-only store inventory — session/event/blob
+/// `hh stats`: a read-only store inventory — session/event/blob
 /// counts, disk usage (the `hh.db` file plus its `-wal`/`-shm` sidecars and the
 /// compressed blob directory), and the largest sessions by event count.
 fn stats_command(args: &cli::StatsArgs) -> anyhow::Result<ExitCode> {
@@ -833,7 +833,7 @@ fn stats_command(args: &cli::StatsArgs) -> anyhow::Result<ExitCode> {
     Ok(ExitCode::SUCCESS)
 }
 
-/// Render the `hh stats` inventory as a plain key/value summary (Area 3).
+/// Render the `hh stats` inventory as a plain key/value summary.
 /// Factored out for a snapshot test. Only the data-dir path and the
 /// largest-sessions short ids (fixed 6-char width) carry the accent, matching
 /// `hh list`'s "color the id, not the numbers" convention so column alignment
@@ -902,11 +902,11 @@ fn render_stats_plain(
     out
 }
 
-/// Print the one-line epilogue (FR-1.6):
+/// Print the one-line epilogue:
 /// `✓ Recorded session a1b2c3 · 4m32s · 42 steps · 7 files changed · hh replay a1b2c3`
 ///
 /// Then, on stderr (so it never corrupts the agent's captured stdout), surface
-/// adapter degradation (FR-1.5): the recorder carries a `degrade_reason` from the
+/// adapter degradation: the recorder carries a `degrade_reason` from the
 /// tailer and prints it here — *after* the child exits and the terminal is
 /// restored — rather than from the tailer thread mid-session, where the agent's
 /// alternate-screen TUI would bury it. Also warns when an adapter-active
@@ -922,7 +922,7 @@ fn print_epilogue(outcome: &hh_record::RunOutcome) {
         eprintln!("{warning}");
     }
 
-    // Adapter degradation: surface the carried reason on stderr (FR-1.5).
+    // Adapter degradation: surface the carried reason on stderr.
     if outcome.adapter_status == AdapterStatus::Degraded {
         if let Some(reason) = outcome.degrade_reason.as_deref() {
             eprintln!("hh: warning: adapter degraded: {reason}");
@@ -956,7 +956,7 @@ fn print_epilogue(outcome: &hh_record::RunOutcome) {
     }
 }
 
-/// The epilogue's stdout line (FR-1.6). A session that dropped events is never
+/// The epilogue's stdout line. A session that dropped events is never
 /// reported clean: the glyph becomes a yellow `⚠` and the line carries the
 /// dropped count. Pure (no I/O) so a snapshot can lock it.
 fn format_epilogue_line(outcome: &hh_record::RunOutcome, color: bool) -> String {
@@ -1003,7 +1003,7 @@ fn dropped_events_warning(outcome: &hh_record::RunOutcome) -> Option<String> {
     ))
 }
 
-/// `hh list` (FR-5.1): list recorded sessions newest-first as an aligned table
+/// `hh list`: list recorded sessions newest-first as an aligned table
 /// (default) or a JSON array (`--json`), bounded by `--limit`.
 fn list_command(args: &cli::ListArgs) -> anyhow::Result<ExitCode> {
     let (store, _paths, _config) = open_store()?;
@@ -1011,7 +1011,7 @@ fn list_command(args: &cli::ListArgs) -> anyhow::Result<ExitCode> {
         .list_sessions(args.limit)
         .map_err(|e| anyhow::anyhow!("could not list sessions\n  why: {e}"))?;
     if args.json {
-        // Stable, documented JSON shape (FR-5.1): an array of one object per
+        // Stable, documented JSON shape: an array of one object per
         // session. Timestamps are unix-ms integers (no timezone ambiguity);
         // `duration_ms` is `null` while a session is still recording or was
         // interrupted before finalizing.
@@ -1061,10 +1061,10 @@ fn render_rename(short_id: &str, name: Option<&str>, color: bool) -> String {
     }
 }
 
-/// `hh delete` (FR-6.1): delete a session and garbage-collect its blobs.
+/// `hh delete`: delete a session and garbage-collect its blobs.
 /// Prompts for confirmation unless `--yes`; refuses non-interactively (piped
 /// stdin) without `--yes` so a stray `hh delete last` in a script never
-/// silently destroys data (NFR-4 / actionable errors).
+/// silently destroys data.
 fn delete_command(args: &cli::DeleteArgs) -> anyhow::Result<ExitCode> {
     let (store, _paths, _config) = open_store()?;
     let id = resolve_session_arg(&store, &args.session)?;
@@ -1135,7 +1135,7 @@ fn confirm_delete(session: &hh_core::SessionRow) -> anyhow::Result<()> {
     Ok(())
 }
 
-/// Render the session list as an aligned plain-text table (FR-5.1). Respects
+/// Render the session list as an aligned plain-text table. Respects
 /// `NO_COLOR` and non-TTY output (plain, pipe-safe per CLAUDE.md): one accent
 /// color (green) on the id; the STATUS column carries a colored glyph per
 /// state (ok=green ✓, error=red ✗, interrupted=yellow ●, recording=cyan ●) plus
@@ -1282,7 +1282,7 @@ fn pad_into(out: &mut String, s: &str, width: usize) {
     out.push(' ');
 }
 
-/// Build the JSON object for one session row (`hh list --json`, FR-5.1).
+/// Build the JSON object for one session row (`hh list --json`).
 fn session_to_json(r: &hh_core::SessionRow) -> serde_json::Value {
     let duration_ms = r.ended_at.map(|end| (end - r.started_at).max(0));
     serde_json::json!({
@@ -1482,7 +1482,7 @@ mod tests {
     }
 
     /// `hh list --json` includes `adapter_degrade_reason` on every session
-    /// object (SRS BUG-1 acceptance, ENH-2.3). A degraded session with a
+    /// object. A degraded session with a
     /// reason code must surface it in the JSON; an active session must
     /// report `null`. Locks the field's presence and value for both states.
     #[test]

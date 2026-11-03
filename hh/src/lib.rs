@@ -18,7 +18,7 @@
 //!
 //! # Version
 //! `cli::Cli` derives `#[command(version = HH_VERSION)]`. In the binary that
-//! const is the git-sha-embedded string from `build.rs` (NFR-8). Here — used
+//! const is the git-sha-embedded string from `build.rs`. Here — used
 //! only to generate static docs/completions — the plain package version is
 //! correct and sufficient, so we define `HH_VERSION` from `CARGO_PKG_VERSION`.
 

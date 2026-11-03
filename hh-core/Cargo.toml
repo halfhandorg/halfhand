@@ -101,7 +101,7 @@ criterion = { version = "0.5", default-features = false, features = ["cargo_benc
 # `[dev-dependencies]` + the crate's public API to external bench crates).
 rusqlite = { version = "0.31", features = ["bundled", "functions"] }
 
-# Area 1 performance regression-gated benches. `harness = false` because criterion
+# Performance regression-gated benches. `harness = false` because criterion
 # supplies its own `main` via `criterion_main!`. `adapter_jsonl` requires the
 # `fuzzing` feature (it calls `hh_core::adapter::fuzzing::fuzz_parse_line`, the
 # existing dev-only entry point into the otherwise-private Claude JSONL parser

@@ -1,5 +1,5 @@
 #!/bin/sh
-# Interactive PTY transparency fixture (FR-1.1).
+# Interactive PTY transparency fixture.
 #
 # Proves the wrapped program is indistinguishable from running it directly in a
 # terminal: `tput cols` only succeeds on a real tty, so it printing a nonzero

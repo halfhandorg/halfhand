@@ -1,4 +1,4 @@
-//! Lazy body loader for the replay TUI (FR-3.5).
+//! Lazy body loader for the replay TUI.
 //!
 //! The timeline index ([`hh_core::EventIndexRow`]) is loaded eagerly once at
 //! startup (see [`super::AppState::new`]); the full `body_json`/blob payload
@@ -13,7 +13,7 @@ use lru::LruCache;
 use ratatui::text::Line;
 use std::num::NonZeroUsize;
 
-/// How many event bodies to keep cached (FR-3.5).
+/// How many event bodies to keep cached.
 const CACHE_CAPACITY: NonZeroUsize = match NonZeroUsize::new(50) {
     Some(n) => n,
     None => panic!("CACHE_CAPACITY must be non-zero"),
@@ -95,7 +95,7 @@ impl ReplayData {
         ids.iter().map(|&id| self.get(id)).collect()
     }
 
-    /// Fetch the event correlated with `id` (FR-3.2 MCP/tool pairing): the
+    /// Fetch the event correlated with `id` (MCP/tool pairing): the
     /// other side of a call/result or request/response pair, if any.
     pub fn get_correlated(
         &mut self,
@@ -218,7 +218,7 @@ mod tests {
         assert_eq!(from_result.id, call_id);
     }
 
-    /// Area 2 big-session hardening: the body cache must stay bounded at
+    /// Big-session hardening: the body cache must stay bounded at
     /// [`CACHE_CAPACITY`] (50) regardless of how many distinct events are
     /// viewed — scrolling a 100k-event session must not grow memory unbounded.
     /// This is the structural guard that the LRU from beta still holds; a

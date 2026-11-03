@@ -45,7 +45,7 @@ On a machine with no prior Halfhand state, for each OS:
 
 ---
 
-## 1. Real Claude Code run (AC-1)
+## 1. Real Claude Code run 
 
 Needs the real `claude` CLI on PATH, `ANTHROPIC_API_KEY` exported, a throwaway
 work dir, and `HH_DATA_DIR` at a temp path. Halfhand itself makes zero network
@@ -106,7 +106,7 @@ blocker).
 
 ---
 
-## 3. MCP proxy (AC-3)
+## 3. MCP proxy 
 
 Needs an MCP server you can spawn. The stdio proxy records correlated
 JSON-RPC, spills large payloads to the blob store, and round-trips latency.
@@ -168,7 +168,7 @@ HH_DATA_DIR=/tmp/hh-qa/imported hh import /tmp/hh-qa/sess.hh
 
 ---
 
-## 5. Crash-safety spot check (AC-4)
+## 5. Crash-safety spot check 
 
 Not OS-specific; run once on Linux.
 

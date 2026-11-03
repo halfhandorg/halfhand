@@ -6,7 +6,7 @@
 -- kind != 'terminal_output'`. Without an index that is an O(all-events) table
 -- scan on *every* `hh` invocation — including read-only `hh list`, which made
 -- cold start scale with total recorded history instead of with what actually
--- needs healing. On a 100k+ event DB that scan dominated startup (Area 4).
+-- needs healing. On a 100k+ event DB that scan dominated startup.
 --
 -- This partial index stores exactly the rows the probe looks for, so the
 -- planner scans O(rows-needing-heal) instead of O(all events): ~0 in steady

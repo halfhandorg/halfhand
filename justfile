@@ -85,7 +85,7 @@ dist-generate:
 dist-plan tag="v1.0.0":
     cargo dist plan --tag {{tag}}
 
-# `hh list` cold-start manual check (Area 4: <50 ms on a warm cache). NOT
+# `hh list` cold-start manual check (target: <50 ms on a warm cache). NOT
 # CI-gated — wall clock is too noisy across CI runners; this is a developer-
 # experience target, not a correctness contract. Requires `hyperfine`
 # (`cargo install hyperfine`), which is NOT a build dependency. Builds a release

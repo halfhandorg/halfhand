@@ -2,9 +2,9 @@
 //! run `hh` against the real binary, never the real data dir — set
 //! `HH_DATA_DIR`).
 //!
-//! These cover `--version`/`--help` (FR-6.2), the "not implemented" path for
+//! These cover `--version`/`--help`, the "not implemented" path for
 //! subcommands still on the roadmap, and a full `hh run` end-to-end against a
-//! fixture script (SRS acceptance #2).
+//! fixture script.
 //!
 //! Isolation also extends to the *config* directory, not just the data dir:
 //! `Paths::resolve` reads `config.toml` from the platform config dir
@@ -71,7 +71,7 @@ fn version_prints_pkg_version() {
         stdout.contains("1.1.0"),
         "expected package version in: {stdout}"
     );
-    // NFR-8: git sha is embedded in parentheses.
+    // Git sha is embedded in parentheses.
     assert!(stdout.contains('('), "expected git sha in: {stdout}");
 }
 
@@ -135,7 +135,7 @@ fn every_subcommand_help_has_an_example() {
 }
 
 /// `hh completions <shell>` emits a real, shell-specific completion script and
-/// exits 0 (FR-6.2). Output is plain text — pipe-safe, no TTY needed.
+/// exits 0. Output is plain text — pipe-safe, no TTY needed.
 #[test]
 fn completions_emit_shell_scripts() {
     // bash: defines the `_hh` completion function.
@@ -193,7 +193,7 @@ fn completions_reject_unknown_shell() {
 }
 
 /// `hh inspect last` with no sessions recorded gives an actionable error with
-/// a hint (FR-4 / NFR-7). Uses a temp data dir — never the real one (CLAUDE.md).
+/// a hint. Uses a temp data dir — never the real one (CLAUDE.md).
 #[test]
 fn inspect_with_no_sessions_gives_an_actionable_error() {
     let temp = Temp::new();
@@ -212,14 +212,14 @@ fn inspect_with_no_sessions_gives_an_actionable_error() {
         stderr.contains("no sessions") || stderr.contains("could not resolve"),
         "expected a no-sessions error in stderr: {stderr}"
     );
-    // NFR-7: error includes a hint (suggested next step).
+    // Error includes a hint (suggested next step).
     assert!(
         stderr.contains("hint:"),
         "missing actionable hint: {stderr}"
     );
 }
 
-/// `hh replay` (FR-3): needs a real terminal (raw mode), so it must refuse
+/// `hh replay`: needs a real terminal (raw mode), so it must refuse
 /// clearly under test harnesses/pipes rather than failing deep inside
 /// crossterm — CLAUDE.md "actionable errors".
 #[test]
@@ -237,7 +237,7 @@ fn replay_without_a_tty_gives_an_actionable_error() {
     );
 }
 
-/// Open the `hh.db` at `data_dir` for assertions (DR-2: the schema is a public
+/// Open the `hh.db` at `data_dir` for assertions (the schema is a public
 /// interface; we query it directly rather than through hh-core's Store).
 fn open_db(data_dir: &Path) -> Connection {
     Connection::open(data_dir.join("hh.db")).expect("hh.db should exist after a recording")
@@ -278,7 +278,7 @@ fn run_records_generic_session_with_terminal_and_file_changes() {
     let fx = fixture("fixture_agent.sh").to_string_lossy().to_string();
     let out = run_fixture(&temp, &["sh", &fx]);
 
-    // The fixture exits 3; hh propagates the child exit code (FR-1.6).
+    // The fixture exits 3; hh propagates the child exit code.
     assert_eq!(
         out.status.code(),
         Some(3),
@@ -286,7 +286,7 @@ fn run_records_generic_session_with_terminal_and_file_changes() {
         String::from_utf8_lossy(&out.stderr)
     );
 
-    // Epilogue on stdout (FR-1.6): "✓ Recorded session <id> · ... · hh replay <id>".
+    // Epilogue on stdout: "✓ Recorded session <id> · ... · hh replay <id>".
     let stdout = String::from_utf8_lossy(&out.stdout);
     assert!(
         stdout.contains("✓ Recorded session"),
@@ -325,7 +325,7 @@ fn run_records_generic_session_with_terminal_and_file_changes() {
         "cwd mismatch: recorded {recorded_cwd_path:?} vs expected {expected_cwd_path:?}",
     );
 
-    // Terminal output was captured (FR-1.3): at least one terminal_output
+    // Terminal output was captured: at least one terminal_output
     // event whose body includes the fixture's banner.
     let terminal_count: i64 = conn
         .query_row(
@@ -336,7 +336,7 @@ fn run_records_generic_session_with_terminal_and_file_changes() {
         .unwrap();
     assert!(terminal_count >= 1, "expected terminal_output events");
 
-    // File changes were captured (FR-1.4): fixture_output.txt with an after_hash.
+    // File changes were captured: fixture_output.txt with an after_hash.
     let (path, change_kind, after_hash): (String, String, Option<String>) = conn
         .query_row(
             "SELECT path, change_kind, after_hash FROM file_changes
@@ -366,7 +366,7 @@ fn run_records_generic_session_with_terminal_and_file_changes() {
 
 #[test]
 fn run_marks_stale_recording_sessions_interrupted_on_next_open() {
-    // FR-1.7: a session left in 'recording' (e.g. hh crashed) must be marked
+    // A session left in 'recording' (e.g. hh crashed) must be marked
     // 'interrupted' the next time hh opens the store. We simulate a crashed
     // session by inserting a 'recording' row with no ended_at directly, then
     // run a fresh `hh run` and assert the stale row flipped to 'interrupted'.
@@ -555,7 +555,7 @@ fn python3_available() -> bool {
 }
 
 /// Reassemble all `terminal_output` events of a session into the captured byte
-/// stream (FR-1.3): UTF-8 chunks carry `body_json.text`; binary chunks are
+/// stream: UTF-8 chunks carry `body_json.text`; binary chunks are
 /// fetched from the blob store via `blob_hash`. Ordered by timestamp.
 fn reassemble_terminal(conn: &Connection, blobs: &hh_core::BlobStore) -> String {
     let mut stmt = conn
@@ -645,7 +645,7 @@ fn assert_lifecycle_changes(conn: &Connection, blobs: &hh_core::BlobStore) {
     );
 }
 
-/// End-to-end FR-1 recording of a generic agent: ANSI terminal output, file
+/// End-to-end recording of a generic agent: ANSI terminal output, file
 /// create/modify/delete with correct before/after hashes and blob round-trips,
 /// ignored paths producing no events, and `exit_code=3`/`status=error`.
 #[test]
@@ -706,7 +706,7 @@ fn run_records_fake_agent_with_full_capture() {
         "ignored paths (target/, .git/) must produce no file_change events"
     );
 
-    // Terminal chunks reassemble to the full agent output (FR-1.3).
+    // Terminal chunks reassemble to the full agent output.
     let reassembled = reassemble_terminal(&conn, blobs);
     assert!(
         reassembled.contains("agent-start"),
@@ -722,7 +722,7 @@ fn run_records_fake_agent_with_full_capture() {
     );
 }
 
-/// FR-1.1 transparency: the wrapped program runs in a real PTY, so `tput cols`
+/// PTY transparency: the wrapped program runs in a real PTY, so `tput cols`
 /// succeeds (80 columns, the PTY default), ANSI bytes pass through verbatim, and
 /// stdin is forwarded to the child.
 #[test]
@@ -766,7 +766,7 @@ fn run_provides_a_real_pty_to_the_child() {
     );
 }
 
-/// AC-4 / FR-1.7: SIGKILL of `hh` mid-recording leaves a readable session that
+/// SIGKILL of `hh` mid-recording leaves a readable session that
 /// the next `hh` invocation reconciles to `interrupted` (no `ended_at`).
 #[cfg(unix)]
 #[test]
@@ -807,7 +807,7 @@ fn sigkill_of_hh_mid_run_leaves_interrupted_session() {
     }
 
     // Opening the store again (here via `hh list`) reconciles the stale
-    // `recording` row to `interrupted` (FR-1.7).
+    // `recording` row to `interrupted`.
     let out = hh()
         .args(["list"])
         .env("HH_DATA_DIR", temp.data.path())
@@ -832,7 +832,7 @@ fn sigkill_of_hh_mid_run_leaves_interrupted_session() {
     );
 }
 
-/// FR-5.1: `hh list` prints an aligned plain table (default) and a stable JSON
+/// `hh list` prints an aligned plain table (default) and a stable JSON
 /// array with `--json`, and honors `--limit`.
 #[test]
 fn list_shows_aligned_table_and_json() {
@@ -894,7 +894,7 @@ fn list_shows_aligned_table_and_json() {
 }
 
 // ---------------------------------------------------------------------------
-// `hh mcp-proxy` (FR-2) end-to-end
+// `hh mcp-proxy` end-to-end
 // ---------------------------------------------------------------------------
 
 /// Run `hh mcp-proxy -- <server>` in `work` with `HH_DATA_DIR=data`, feeding
@@ -944,7 +944,7 @@ fn count_events(conn: &Connection, kind: &str) -> i64 {
     .unwrap()
 }
 
-/// FR-2: a standalone `hh mcp-proxy` run creates an `mcp-only` session, forwards
+/// A standalone `hh mcp-proxy` run creates an `mcp-only` session, forwards
 /// responses verbatim, records paired `mcp_request`/`mcp_response` events with
 /// `correlates` + `latency_ms`, and records notifications. Finalized `ok`.
 #[test]
@@ -967,7 +967,7 @@ fn mcp_proxy_standalone_creates_mcp_only_session() {
         String::from_utf8_lossy(&out.stderr)
     );
 
-    // Verbatim responses forwarded to the client (FR-2.1). The echo server
+    // Verbatim responses forwarded to the client. The echo server
     // returns `{"result": <request>}`, so the echoed method names prove each
     // response came back; asserting on method names is robust to the JSON
     // whitespace the server emits.
@@ -1006,7 +1006,7 @@ fn mcp_proxy_standalone_creates_mcp_only_session() {
     assert_eq!(count_events(&conn, "mcp_response"), 2);
 
     // Each response correlates to an mcp_request and carries a non-negative
-    // latency_ms in its body (FR-2 correlation + latency).
+    // latency_ms in its body (correlation + latency).
     let mut stmt = conn
         .prepare(
             "SELECT correlates, body_json FROM events
@@ -1037,7 +1037,7 @@ fn mcp_proxy_standalone_creates_mcp_only_session() {
     }
 }
 
-/// FR-2 spillover: a notification whose serialized body is ≥ 256 KiB is stored
+/// MCP spillover: a notification whose serialized body is ≥ 256 KiB is stored
 /// in the blob store; the event body becomes the overflow envelope and
 /// `blob_hash` is set (mirrors the adapter + PTY capture contract).
 #[test]
@@ -1093,7 +1093,7 @@ fn mcp_proxy_over_256kib_spills_to_blob() {
     );
 }
 
-/// FR-2.3 attached mode: with `HH_SESSION_ID` set to a pre-existing session, the
+/// Attached mode: with `HH_SESSION_ID` set to a pre-existing session, the
 /// proxy records MCP events into it but does **not** finalize it (`ended_at`
 /// stays NULL; status is not `ok`/`error`). The parent `hh run` owns lifecycle.
 #[test]
@@ -1193,7 +1193,7 @@ fn mcp_proxy_attaches_to_existing_session() {
     );
 }
 
-/// FR-2.3: a bogus `HH_SESSION_ID` is an actionable error — the proxy does not
+/// A bogus `HH_SESSION_ID` is an actionable error — the proxy does not
 /// create an orphan session. Nonzero exit + a message naming the missing id.
 #[test]
 fn mcp_proxy_attached_missing_session_errors() {
@@ -1232,7 +1232,7 @@ fn mcp_proxy_attached_missing_session_errors() {
     assert_eq!(n, 0, "a failed attach must not create a session row");
 }
 
-/// NFR-1 latency safety net: 50 proxied round-trips' recorded `latency_ms` has a
+/// Proxy latency safety net: 50 proxied round-trips' recorded `latency_ms` has a
 /// median well under the absolute bound. (The plan's tighter `proxied − direct`
 /// comparison needs a direct echo baseline; the absolute bound is the CI-safe
 /// guard against the proxy adding meaningful overhead.)
@@ -1300,7 +1300,7 @@ fn unix_ms_now() -> i64 {
 }
 
 // ---------------------------------------------------------------------------
-// Claude Code adapter (FR-1.5) end-to-end through `hh run`
+// Claude Code adapter end-to-end through `hh run`
 // ---------------------------------------------------------------------------
 
 /// Make a path executable (Unix only). Used to install a `claude` shim on PATH.
@@ -1353,8 +1353,8 @@ sys.exit(0)
     make_executable(path);
 }
 
-/// Record a session via a `claude` shim on PATH (shared by the FR-1.5 e2e and
-/// the AC-1 read-side test). Installs a shim that writes a three-record
+/// Record a session via a `claude` shim on PATH (shared by the adapter e2e and
+/// the real-`claude` read-side test). Installs a shim that writes a three-record
 /// transcript into a temp `$HOME/.claude/projects/<slug>/`, pre-creates the
 /// slug dir, runs `hh run -- claude`, and asserts the run exited 0. The shim's
 /// temp HOME/bin drop when this returns (the run is complete), but the
@@ -1425,7 +1425,7 @@ fn record_claude_shim_session(temp: &Temp) -> std::process::Output {
     out
 }
 
-/// FR-1.5: `hh run -- claude` tails `~/.claude/projects/<slug>/*.jsonl` and
+/// `hh run -- claude` tails `~/.claude/projects/<slug>/*.jsonl` and
 /// records structured `user_message` / `tool_call` / `tool_result` events with
 /// `correlates`, and persists the assistant record's `model` + `usage_json` +
 /// `adapter_status=active` on the session row. A `claude` shim on PATH writes a
@@ -1505,18 +1505,18 @@ fn claude_adapter_e2e() {
     assert_eq!(kind, "tool_call");
 }
 
-/// AC-1 (automatable read-side): after a structured `claude` session is
+/// Real `claude` run (automatable read-side): after a structured `claude` session is
 /// recorded, the read-side commands surface it correctly — `hh list --json`
 /// reports `agent_kind=claude-code`, and `hh inspect last --json` emits the
 /// structured events as NDJSON conforming to `docs/json.md` (`schema:2`), with
 /// at least one `tool_call`/`tool_result` pair. The live-API-key smoke against
-/// the genuine `claude` binary is the manual part of AC-1
+/// the genuine `claude` binary is the manual part of that check
 /// (`docs/manual-qa.md`); this test covers everything else.
 #[cfg(unix)]
 #[test]
 fn inspect_and_list_on_claude_code_session() {
     if !python3_available() {
-        eprintln!("skipping AC-1 read-side test: python3 not on PATH");
+        eprintln!("skipping real-`claude` read-side test: python3 not on PATH");
         return;
     }
     let temp = Temp::new();
@@ -1705,7 +1705,7 @@ fn claude_adapter_tool_result_escapes_decode_in_inspect_step() {
     );
 }
 
-/// FR-1.5 failure mode: with no `~/.claude/projects` directory, the adapter
+/// Adapter failure mode: with no `~/.claude/projects` directory, the adapter
 /// degrades (`adapter_status=degraded`) but the PTY session is still recorded
 /// (`status=ok`). Uses `--adapter claude-code` to force the adapter on a
 /// trivial command so no `claude` shim is needed.
@@ -1728,7 +1728,7 @@ fn claude_adapter_degrades_on_missing_projects_dir() {
         String::from_utf8_lossy(&out.stderr)
     );
     let stderr = String::from_utf8_lossy(&out.stderr);
-    // FR-1.5: the degrade reason is surfaced as exactly one stderr warning
+    // The degrade reason is surfaced as exactly one stderr warning
     // *after* the child exits (terminal restored), not from the tailer thread
     // mid-session. The reason text names the failure ("projects directory does
     // not exist") and points the user at `hh doctor`.
@@ -1762,7 +1762,7 @@ fn claude_adapter_degrades_on_missing_projects_dir() {
         "PTY session should still be recorded + finalized ok"
     );
 
-    // FR-1.5 (step 1): the degrade reason is also persisted as an `error` event
+    // The degrade reason is also persisted as an `error` event
     // so a degraded session self-documents in the DB (queryable as kind='error'),
     // not just on stderr. Previously `SELECT … WHERE kind IN ('lifecycle','error')`
     // for a degraded session returned empty — the silent-mystery symptom that
@@ -1790,7 +1790,7 @@ fn claude_adapter_degrades_on_missing_projects_dir() {
     );
 }
 
-/// FR-1.5 best-effort (regression for the "recording failed" abort): when the
+/// Best-effort watcher (regression for the "recording failed" abort): when the
 /// cwd itself is unwatchable (`notify` rejects the watch, e.g. `EACCES`), `hh
 /// run` must NOT abort with "recording failed". It degrades: prints a watcher
 /// warning pointing at `hh doctor` and still records the PTY session
@@ -1846,10 +1846,10 @@ fn run_warns_and_continues_when_cwd_unwatchable() {
 }
 
 // ---------------------------------------------------------------------------
-// `hh inspect` (FR-4) end-to-end
+// `hh inspect` end-to-end
 // ---------------------------------------------------------------------------
 
-/// True if `jq` is on PATH (AC-5 validates `--json` through jq). Tests that
+/// True if `jq` is on PATH (the jq contract test validates `--json` through jq). Tests that
 /// need it skip gracefully when absent rather than failing the suite.
 fn jq_available() -> bool {
     std::process::Command::new("jq")
@@ -1860,7 +1860,7 @@ fn jq_available() -> bool {
         .is_ok_and(|s| s.success())
 }
 
-/// FR-4: `hh inspect <session>` prints a summary (header + step table), and
+/// `hh inspect <session>` prints a summary (header + step table), and
 /// `--step N`/`--json`/`--diff` switch views. The summary lists every step with
 /// a badge and timestamp; the step detail shows the event bodies.
 #[test]
@@ -1916,8 +1916,8 @@ fn inspect_summary_lists_steps_and_step_detail_shows_body() {
     }
 }
 
-/// AC-5: `hh inspect --json` produces output that `jq` can parse and that
-/// conforms to the documented schema (FR-4 / docs/json.md). Skips if jq is
+/// `hh inspect --json` produces output that `jq` can parse and that
+/// conforms to the documented schema (docs/json.md). Skips if jq is
 /// absent.
 #[test]
 fn inspect_json_is_valid_against_jq() {
@@ -1990,7 +1990,7 @@ fn inspect_json_is_valid_against_jq() {
     );
 }
 
-/// FR-4 `--diff`: prints a unified diff for the session's file changes.
+/// `--diff` prints a unified diff for the session's file changes.
 #[test]
 fn inspect_diff_prints_unified_diff() {
     let temp = Temp::new();
@@ -2017,7 +2017,7 @@ fn inspect_diff_prints_unified_diff() {
     );
 }
 
-/// FR-4 `--json` and `--diff` are mutually exclusive → actionable error.
+/// `--json` and `--diff` are mutually exclusive → actionable error.
 #[test]
 fn inspect_json_and_diff_are_mutually_exclusive() {
     let temp = Temp::new();
@@ -2043,7 +2043,7 @@ fn inspect_json_and_diff_are_mutually_exclusive() {
 }
 
 // ---------------------------------------------------------------------------
-// `hh delete` (FR-6.1) end-to-end
+// `hh delete` end-to-end
 // ---------------------------------------------------------------------------
 
 /// Count `.zst` blob files on disk under `<data_dir>/blobs`.
@@ -2125,7 +2125,7 @@ fn blob_refcount(conn: &Connection, hash: &str) -> i64 {
     .unwrap_or(0)
 }
 
-/// FR-6.1: `hh delete <id> --yes` removes the session and prints an epilogue.
+/// `hh delete <id> --yes` removes the session and prints an epilogue.
 #[test]
 fn delete_with_yes_removes_session() {
     let temp = Temp::new();
@@ -2168,7 +2168,7 @@ fn delete_with_yes_removes_session() {
     );
 }
 
-/// FR-6.1: `hh delete` without `--yes` refuses when stdin is not a TTY (the
+/// `hh delete` without `--yes` refuses when stdin is not a TTY (the
 /// test harness pipes stdin), pointing the user at `--yes`. The session
 /// survives.
 #[test]
@@ -2201,7 +2201,7 @@ fn delete_refuses_without_yes_on_piped_stdin() {
     assert_eq!(n, 1, "the session must survive a refused delete");
 }
 
-/// FR-6.1: a blob shared across two sessions survives deleting one session
+/// A blob shared across two sessions survives deleting one session
 /// (refcount goes 2 → 1, file stays), and is garbage-collected only when the
 /// last referencing session is deleted (refcount 1 → 0, file removed).
 #[test]
@@ -2265,7 +2265,7 @@ fn delete_shared_blob_survives_deleting_one_session() {
 }
 
 // ---------------------------------------------------------------------------
-// `hh gc` + `hh stats` (Area 3) end-to-end
+// `hh gc` + `hh stats` end-to-end
 // ---------------------------------------------------------------------------
 
 /// `hh gc` prunes an orphaned blob file (a file written to disk but never
@@ -3055,7 +3055,7 @@ fn at_record_redaction_keeps_secrets_off_disk_entirely() {
 }
 
 // ---------------------------------------------------------------------------
-// Claude Desktop adapter (SRS v1.1.0): end-to-end over the committed fixture
+// Claude Desktop adapter: end-to-end over the committed fixture
 // ---------------------------------------------------------------------------
 
 /// The `sessionId` every record in the Desktop fixture carries; Desktop names
@@ -3251,7 +3251,7 @@ fn claude_desktop_adapter_e2e_over_fixture() {
     assert_eq!(count("tool_call"), 17, "17 tool_use blocks: {kinds:?}");
     assert_eq!(count("tool_result"), 17, "17 tool_result blocks: {kinds:?}");
     assert_eq!(count("error"), 0, "no degrade error event: {kinds:?}");
-    // Steps (FR-3.4): each prompt, text block and thinking block is a step;
+    // Steps: each prompt, text block and thinking block is a step;
     // each tool_call + its correlated tool_result collapse into one.
     assert_eq!(
         session["steps"], 34,
@@ -3302,7 +3302,7 @@ fn inspect_claude_desktop_session_snapshot() {
     insta::assert_snapshot!(normalized);
 }
 
-/// BUG-1: `--adapter claude-desktop` with no Desktop session anywhere does
+/// `--adapter claude-desktop` with no Desktop session anywhere does
 /// not silently record `active` with 0 steps. The session degrades through
 /// `AdapterError`: `adapter_status=degraded`, the machine-readable code
 /// `jsonl_not_found` persisted in `adapter_degrade_reason`, and a one-line

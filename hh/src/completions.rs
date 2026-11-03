@@ -1,4 +1,4 @@
-//! `hh completions <shell>` — print a shell completion script (FR-6.2).
+//! `hh completions <shell>` — print a shell completion script.
 //!
 //! Emits the completion script for the requested shell to stdout via
 //! [`clap_complete`]. The output is plain text and pipe-safe (respects
