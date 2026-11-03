@@ -21,7 +21,39 @@ expression: "serde_json::to_string_pretty(&serde_json::json!({\n    \"events\": 
       "blob_hash": null,
       "blob_size": null,
       "body_json": {
-        "text": "lorem ipsum dolor sit amet consectetur adipiscing elit sed do eiusmod tempor incididunt ut labore et dolore magna aliqua u"
+        "message_id": "msg_000000000000000000000001",
+        "model": "claude-sonnet-5",
+        "text": "lorem ipsum dolor sit amet consectetur adipiscing elit sed do eiusmod tempor incididunt ut labore et dolore magna aliqua u",
+        "usage": {
+          "cache_creation": {
+            "ephemeral_1h_input_tokens": 53038,
+            "ephemeral_5m_input_tokens": 0
+          },
+          "cache_creation_input_tokens": 53038,
+          "cache_read_input_tokens": 0,
+          "inference_geo": "not_available",
+          "input_tokens": 2,
+          "iterations": [
+            {
+              "cache_creation": {
+                "ephemeral_1h_input_tokens": 53038,
+                "ephemeral_5m_input_tokens": 0
+              },
+              "cache_creation_input_tokens": 53038,
+              "cache_read_input_tokens": 0,
+              "input_tokens": 2,
+              "output_tokens": 221,
+              "type": "message"
+            }
+          ],
+          "output_tokens": 221,
+          "server_tool_use": {
+            "web_fetch_requests": 0,
+            "web_search_requests": 0
+          },
+          "service_tier": "standard",
+          "speed": "standard"
+        }
       },
       "correlates": null,
       "kind": "thinking",
@@ -38,7 +70,39 @@ expression: "serde_json::to_string_pretty(&serde_json::json!({\n    \"events\": 
         "input": {
           "command": "lorem ipsum dolor sit amet consectetur adipiscing elit sed do eiusmod tempor incididunt ut labore et dolore magna aliqua ut enim ad minim veniam lorem ipsum dolor sit amet consectetur adipiscing elit sed do eiusmod tempor incididunt ut labore et dolore magna aliqua u"
         },
-        "name": "Bash"
+        "message_id": "msg_000000000000000000000001",
+        "model": "claude-sonnet-5",
+        "name": "Bash",
+        "usage": {
+          "cache_creation": {
+            "ephemeral_1h_input_tokens": 53038,
+            "ephemeral_5m_input_tokens": 0
+          },
+          "cache_creation_input_tokens": 53038,
+          "cache_read_input_tokens": 0,
+          "inference_geo": "not_available",
+          "input_tokens": 2,
+          "iterations": [
+            {
+              "cache_creation": {
+                "ephemeral_1h_input_tokens": 53038,
+                "ephemeral_5m_input_tokens": 0
+              },
+              "cache_creation_input_tokens": 53038,
+              "cache_read_input_tokens": 0,
+              "input_tokens": 2,
+              "output_tokens": 221,
+              "type": "message"
+            }
+          ],
+          "output_tokens": 221,
+          "server_tool_use": {
+            "web_fetch_requests": 0,
+            "web_search_requests": 0
+          },
+          "service_tier": "standard",
+          "speed": "standard"
+        }
       },
       "correlates": null,
       "kind": "tool_call",
@@ -67,7 +131,39 @@ expression: "serde_json::to_string_pretty(&serde_json::json!({\n    \"events\": 
       "blob_hash": null,
       "blob_size": null,
       "body_json": {
-        "text": "lorem ipsum dolor sit amet consectetur adipiscing elit sed do eiusmod tempor incididunt ut labore et dolore magna aliqua ut"
+        "message_id": "msg_000000000000000000000002",
+        "model": "claude-sonnet-5",
+        "text": "lorem ipsum dolor sit amet consectetur adipiscing elit sed do eiusmod tempor incididunt ut labore et dolore magna aliqua ut",
+        "usage": {
+          "cache_creation": {
+            "ephemeral_1h_input_tokens": 720,
+            "ephemeral_5m_input_tokens": 0
+          },
+          "cache_creation_input_tokens": 720,
+          "cache_read_input_tokens": 53038,
+          "inference_geo": "not_available",
+          "input_tokens": 2,
+          "iterations": [
+            {
+              "cache_creation": {
+                "ephemeral_1h_input_tokens": 720,
+                "ephemeral_5m_input_tokens": 0
+              },
+              "cache_creation_input_tokens": 720,
+              "cache_read_input_tokens": 53038,
+              "input_tokens": 2,
+              "output_tokens": 186,
+              "type": "message"
+            }
+          ],
+          "output_tokens": 186,
+          "server_tool_use": {
+            "web_fetch_requests": 0,
+            "web_search_requests": 0
+          },
+          "service_tier": "standard",
+          "speed": "standard"
+        }
       },
       "correlates": null,
       "kind": "thinking",
@@ -84,7 +180,39 @@ expression: "serde_json::to_string_pretty(&serde_json::json!({\n    \"events\": 
         "input": {
           "command": "lorem ipsum dolor sit amet consectetur adipiscing elit sed do eiusmod tempor incididunt ut labore et dolore magna aliqua ut enim ad minim veniam lorem ipsum dolor sit amet con"
         },
-        "name": "Bash"
+        "message_id": "msg_000000000000000000000002",
+        "model": "claude-sonnet-5",
+        "name": "Bash",
+        "usage": {
+          "cache_creation": {
+            "ephemeral_1h_input_tokens": 720,
+            "ephemeral_5m_input_tokens": 0
+          },
+          "cache_creation_input_tokens": 720,
+          "cache_read_input_tokens": 53038,
+          "inference_geo": "not_available",
+          "input_tokens": 2,
+          "iterations": [
+            {
+              "cache_creation": {
+                "ephemeral_1h_input_tokens": 720,
+                "ephemeral_5m_input_tokens": 0
+              },
+              "cache_creation_input_tokens": 720,
+              "cache_read_input_tokens": 53038,
+              "input_tokens": 2,
+              "output_tokens": 186,
+              "type": "message"
+            }
+          ],
+          "output_tokens": 186,
+          "server_tool_use": {
+            "web_fetch_requests": 0,
+            "web_search_requests": 0
+          },
+          "service_tier": "standard",
+          "speed": "standard"
+        }
       },
       "correlates": null,
       "kind": "tool_call",
@@ -113,7 +241,39 @@ expression: "serde_json::to_string_pretty(&serde_json::json!({\n    \"events\": 
       "blob_hash": null,
       "blob_size": null,
       "body_json": {
-        "text": "lorem ipsum dolor sit amet consectetur adipiscing elit sed do eiusmod tempor incididunt ut labore et dolore magna aliqua ut enim ad minim veniam lorem ipsum dolor sit amet consectetur adipiscing elit sed do eiusmod tempor incididunt ut labore et dolore magna aliqua ut enim ad minim veniam lorem ipsum dolor sit amet consectetur a"
+        "message_id": "msg_000000000000000000000003",
+        "model": "claude-sonnet-5",
+        "text": "lorem ipsum dolor sit amet consectetur adipiscing elit sed do eiusmod tempor incididunt ut labore et dolore magna aliqua ut enim ad minim veniam lorem ipsum dolor sit amet consectetur adipiscing elit sed do eiusmod tempor incididunt ut labore et dolore magna aliqua ut enim ad minim veniam lorem ipsum dolor sit amet consectetur a",
+        "usage": {
+          "cache_creation": {
+            "ephemeral_1h_input_tokens": 1912,
+            "ephemeral_5m_input_tokens": 0
+          },
+          "cache_creation_input_tokens": 1912,
+          "cache_read_input_tokens": 53758,
+          "inference_geo": "not_available",
+          "input_tokens": 2,
+          "iterations": [
+            {
+              "cache_creation": {
+                "ephemeral_1h_input_tokens": 1912,
+                "ephemeral_5m_input_tokens": 0
+              },
+              "cache_creation_input_tokens": 1912,
+              "cache_read_input_tokens": 53758,
+              "input_tokens": 2,
+              "output_tokens": 1490,
+              "type": "message"
+            }
+          ],
+          "output_tokens": 1490,
+          "server_tool_use": {
+            "web_fetch_requests": 0,
+            "web_search_requests": 0
+          },
+          "service_tier": "standard",
+          "speed": "standard"
+        }
       },
       "correlates": null,
       "kind": "thinking",
@@ -126,7 +286,39 @@ expression: "serde_json::to_string_pretty(&serde_json::json!({\n    \"events\": 
       "blob_hash": null,
       "blob_size": null,
       "body_json": {
-        "text": "lorem ipsum dolor sit amet consectetur adipiscing elit sed do eiusmod tempor incididunt ut labore et dolore magna aliqua ut enim ad minim veniam lorem ipsum dolor sit amet consectetur adipiscing e"
+        "message_id": "msg_000000000000000000000003",
+        "model": "claude-sonnet-5",
+        "text": "lorem ipsum dolor sit amet consectetur adipiscing elit sed do eiusmod tempor incididunt ut labore et dolore magna aliqua ut enim ad minim veniam lorem ipsum dolor sit amet consectetur adipiscing e",
+        "usage": {
+          "cache_creation": {
+            "ephemeral_1h_input_tokens": 1912,
+            "ephemeral_5m_input_tokens": 0
+          },
+          "cache_creation_input_tokens": 1912,
+          "cache_read_input_tokens": 53758,
+          "inference_geo": "not_available",
+          "input_tokens": 2,
+          "iterations": [
+            {
+              "cache_creation": {
+                "ephemeral_1h_input_tokens": 1912,
+                "ephemeral_5m_input_tokens": 0
+              },
+              "cache_creation_input_tokens": 1912,
+              "cache_read_input_tokens": 53758,
+              "input_tokens": 2,
+              "output_tokens": 1490,
+              "type": "message"
+            }
+          ],
+          "output_tokens": 1490,
+          "server_tool_use": {
+            "web_fetch_requests": 0,
+            "web_search_requests": 0
+          },
+          "service_tier": "standard",
+          "speed": "standard"
+        }
       },
       "correlates": null,
       "kind": "agent_message",
@@ -144,7 +336,39 @@ expression: "serde_json::to_string_pretty(&serde_json::json!({\n    \"events\": 
           "content": "lorem ipsum dolor sit amet conse\n\nadipiscing elit sed do eiusmod t\nincididunt\nut labore et dolore magna aliqua ut enim ad minim veniam lorem ipsum dolor sit amet \nconsectetur adipiscing elit sed do eiusmod tempor incididunt u\nlabore et dolore magna aliqua ut enim ad minim veniam lorem ipsum dolor sit amet consectetur adipiscing \nelit sed do eiusmod tempor incididun\nut labore et \n\ndolore magna aliqua ut enim ad minim veniam lorem ipsum dolor sit amet consectetu\nadipiscing elit sed do eiusmod tempor incididunt ut labore et\ndolore magna aliqua ut enim ad minim veniam lorem ipsum dolor sit amet conse\nadipiscing eli\nsed do eiusmod tempor incididunt ut\nlabore et dolo\nmagna aliqua ut enim ad minim veniam lorem ips\ndolor sit amet consectetur ad\nelit sed do eiusmod tempor incididunt u\nlabore et dolore magna aliqua ut enim ad minim veniam l\nipsum dolor s\namet consectetur adipiscing elit se\ndo eiusmod tempo\nincididunt ut labore et dolore magna aliqua ut enim ad minim v\nlorem ipsum dolor sit amet co\nadipiscing elit \nsed do eiusmod tempor incididunt ut labore et dolore magna aliqua\nut enim ad minim veniam lorem i\ndolor sit amet consectetur adipiscing eli\nsed do eiusmod tempor incididunt ut labore et dolore magna aliqua ut eni\nad minim veniam\nlorem ipsum dolor sit am\nconsectetur adipis\nelit sed do eiusmod \ntempor incididun\nut labore et dolore magna aliqua ut enim ad minim veniam lorem i\ndolor sit amet consectetur adip\nelit sed do eiusmod tempor incididunt ut \nlabore et dolore magna aliqua ut enim ad minim veniam lorem ipsum dolor \nsit amet consec\nadipiscing elit sed do \neiusmod tempor inc\nut labore et dolore \nmagna aliqua ut \nenim ad minim veniam lorem ipsum dolor sit amet consectetur adi\nelit sed do eiusmod tempor inci\nut labore et dolore magna aliqua ut enim \nad minim veniam lorem ipsum dolor sit amet consectetur adipiscing elit s\ndo eiusmod temp\nincididunt ut labore e\ndolore magna aliqua ut \nenim ad minim veniam lor\nipsum dolor sit \namet consectetur adipiscing elit sed do eiusmod tempor i\nut labore et dolore magna aliqu\nut enim ad minim veniam lorem ipsum dolor\nsit amet consectetur adipiscing elit sed do eiusmod tempor incididunt ut\nlabore et dolor\nmagna aliqua ut enim\nad minim veniam lo\nipsum dolor sit \namet consectetur\nadipiscing eli\nsed do eiusm\ntempor incidid\nut \nl\n",
           "file_path": "/home/user/proj/dir1/dir2/file1.tsx"
         },
-        "name": "Write"
+        "message_id": "msg_000000000000000000000003",
+        "model": "claude-sonnet-5",
+        "name": "Write",
+        "usage": {
+          "cache_creation": {
+            "ephemeral_1h_input_tokens": 1912,
+            "ephemeral_5m_input_tokens": 0
+          },
+          "cache_creation_input_tokens": 1912,
+          "cache_read_input_tokens": 53758,
+          "inference_geo": "not_available",
+          "input_tokens": 2,
+          "iterations": [
+            {
+              "cache_creation": {
+                "ephemeral_1h_input_tokens": 1912,
+                "ephemeral_5m_input_tokens": 0
+              },
+              "cache_creation_input_tokens": 1912,
+              "cache_read_input_tokens": 53758,
+              "input_tokens": 2,
+              "output_tokens": 1490,
+              "type": "message"
+            }
+          ],
+          "output_tokens": 1490,
+          "server_tool_use": {
+            "web_fetch_requests": 0,
+            "web_search_requests": 0
+          },
+          "service_tier": "standard",
+          "speed": "standard"
+        }
       },
       "correlates": null,
       "kind": "tool_call",
@@ -177,7 +401,39 @@ expression: "serde_json::to_string_pretty(&serde_json::json!({\n    \"events\": 
         "input": {
           "file_path": "/home/user/proj/dir1/dir2/file1.tsx"
         },
-        "name": "Read"
+        "message_id": "msg_000000000000000000000004",
+        "model": "claude-sonnet-5",
+        "name": "Read",
+        "usage": {
+          "cache_creation": {
+            "ephemeral_1h_input_tokens": 1533,
+            "ephemeral_5m_input_tokens": 0
+          },
+          "cache_creation_input_tokens": 1533,
+          "cache_read_input_tokens": 55670,
+          "inference_geo": "not_available",
+          "input_tokens": 2,
+          "iterations": [
+            {
+              "cache_creation": {
+                "ephemeral_1h_input_tokens": 1533,
+                "ephemeral_5m_input_tokens": 0
+              },
+              "cache_creation_input_tokens": 1533,
+              "cache_read_input_tokens": 55670,
+              "input_tokens": 2,
+              "output_tokens": 80,
+              "type": "message"
+            }
+          ],
+          "output_tokens": 80,
+          "server_tool_use": {
+            "web_fetch_requests": 0,
+            "web_search_requests": 0
+          },
+          "service_tier": "standard",
+          "speed": "standard"
+        }
       },
       "correlates": null,
       "kind": "tool_call",
@@ -206,7 +462,39 @@ expression: "serde_json::to_string_pretty(&serde_json::json!({\n    \"events\": 
       "blob_hash": null,
       "blob_size": null,
       "body_json": {
-        "text": "lorem ipsum dolor sit amet consectetur adipiscing elit sed do eiusmod tempor incididunt ut labore et dolore magn"
+        "message_id": "msg_000000000000000000000005",
+        "model": "claude-sonnet-5",
+        "text": "lorem ipsum dolor sit amet consectetur adipiscing elit sed do eiusmod tempor incididunt ut labore et dolore magn",
+        "usage": {
+          "cache_creation": {
+            "ephemeral_1h_input_tokens": 874,
+            "ephemeral_5m_input_tokens": 0
+          },
+          "cache_creation_input_tokens": 874,
+          "cache_read_input_tokens": 57203,
+          "inference_geo": "not_available",
+          "input_tokens": 2,
+          "iterations": [
+            {
+              "cache_creation": {
+                "ephemeral_1h_input_tokens": 874,
+                "ephemeral_5m_input_tokens": 0
+              },
+              "cache_creation_input_tokens": 874,
+              "cache_read_input_tokens": 57203,
+              "input_tokens": 2,
+              "output_tokens": 768,
+              "type": "message"
+            }
+          ],
+          "output_tokens": 768,
+          "server_tool_use": {
+            "web_fetch_requests": 0,
+            "web_search_requests": 0
+          },
+          "service_tier": "standard",
+          "speed": "standard"
+        }
       },
       "correlates": null,
       "kind": "agent_message",
@@ -226,7 +514,39 @@ expression: "serde_json::to_string_pretty(&serde_json::json!({\n    \"events\": 
           "old_string": "lorem ipsum dolo\nsit amet consectetur adipiscing elit sed do eiusmod te\nincididunt ut labore et dolore \nmagna aliqua ut enim ad minim veniam lore\nipsum dolor sit amet consectetur adipiscing elit sed do eiusmod tempor i\nut labore et do\nmagna aliqua ut enim ad \nminim veniam lorem\nipsum dolor sit amet\nconsectetur adip\nelit sed do eiusmod tempor incididunt ut labore et dolore magna \naliqua ut enim ad minim veniam \nlorem ipsum dolor sit amet consectetur ad\nelit sed do eiusmod tempor incididunt ut labore et dolore magna aliqua u\nenim ad minim v\nlorem ipsum dolor sit a\nconsectetur adipis\nelit sed do eiusmod \ntempor incididun\nut labore et dolore magna aliqua ut enim ad minim ven\nlorem ipsum dolor sit amet cons\nadipiscing elit sed do eiusmod tempor inc\nut labore et dolore magna aliqua ut enim ad minim veniam lorem ipsum dol\nsit amet consec\nadipiscing elit sed do\neiusmod tempor incididu\nut labore et dolore magn",
           "replace_all": false
         },
-        "name": "Edit"
+        "message_id": "msg_000000000000000000000005",
+        "model": "claude-sonnet-5",
+        "name": "Edit",
+        "usage": {
+          "cache_creation": {
+            "ephemeral_1h_input_tokens": 874,
+            "ephemeral_5m_input_tokens": 0
+          },
+          "cache_creation_input_tokens": 874,
+          "cache_read_input_tokens": 57203,
+          "inference_geo": "not_available",
+          "input_tokens": 2,
+          "iterations": [
+            {
+              "cache_creation": {
+                "ephemeral_1h_input_tokens": 874,
+                "ephemeral_5m_input_tokens": 0
+              },
+              "cache_creation_input_tokens": 874,
+              "cache_read_input_tokens": 57203,
+              "input_tokens": 2,
+              "output_tokens": 768,
+              "type": "message"
+            }
+          ],
+          "output_tokens": 768,
+          "server_tool_use": {
+            "web_fetch_requests": 0,
+            "web_search_requests": 0
+          },
+          "service_tier": "standard",
+          "speed": "standard"
+        }
       },
       "correlates": null,
       "kind": "tool_call",
@@ -255,7 +575,39 @@ expression: "serde_json::to_string_pretty(&serde_json::json!({\n    \"events\": 
       "blob_hash": null,
       "blob_size": null,
       "body_json": {
-        "text": "lorem ipsum dolor sit amet consectetur adipiscing elit sed do eiusmod "
+        "message_id": "msg_000000000000000000000006",
+        "model": "claude-sonnet-5",
+        "text": "lorem ipsum dolor sit amet consectetur adipiscing elit sed do eiusmod ",
+        "usage": {
+          "cache_creation": {
+            "ephemeral_1h_input_tokens": 857,
+            "ephemeral_5m_input_tokens": 0
+          },
+          "cache_creation_input_tokens": 857,
+          "cache_read_input_tokens": 58077,
+          "inference_geo": "not_available",
+          "input_tokens": 2,
+          "iterations": [
+            {
+              "cache_creation": {
+                "ephemeral_1h_input_tokens": 857,
+                "ephemeral_5m_input_tokens": 0
+              },
+              "cache_creation_input_tokens": 857,
+              "cache_read_input_tokens": 58077,
+              "input_tokens": 2,
+              "output_tokens": 254,
+              "type": "message"
+            }
+          ],
+          "output_tokens": 254,
+          "server_tool_use": {
+            "web_fetch_requests": 0,
+            "web_search_requests": 0
+          },
+          "service_tier": "standard",
+          "speed": "standard"
+        }
       },
       "correlates": null,
       "kind": "agent_message",
@@ -275,7 +627,39 @@ expression: "serde_json::to_string_pretty(&serde_json::json!({\n    \"events\": 
           "old_string": "lorem ipsum dolor sit amet consectetur adipiscing \nelit sed do eiusmod tempor incididunt ut labor",
           "replace_all": false
         },
-        "name": "Edit"
+        "message_id": "msg_000000000000000000000006",
+        "model": "claude-sonnet-5",
+        "name": "Edit",
+        "usage": {
+          "cache_creation": {
+            "ephemeral_1h_input_tokens": 857,
+            "ephemeral_5m_input_tokens": 0
+          },
+          "cache_creation_input_tokens": 857,
+          "cache_read_input_tokens": 58077,
+          "inference_geo": "not_available",
+          "input_tokens": 2,
+          "iterations": [
+            {
+              "cache_creation": {
+                "ephemeral_1h_input_tokens": 857,
+                "ephemeral_5m_input_tokens": 0
+              },
+              "cache_creation_input_tokens": 857,
+              "cache_read_input_tokens": 58077,
+              "input_tokens": 2,
+              "output_tokens": 254,
+              "type": "message"
+            }
+          ],
+          "output_tokens": 254,
+          "server_tool_use": {
+            "web_fetch_requests": 0,
+            "web_search_requests": 0
+          },
+          "service_tier": "standard",
+          "speed": "standard"
+        }
       },
       "correlates": null,
       "kind": "tool_call",
@@ -311,7 +695,39 @@ expression: "serde_json::to_string_pretty(&serde_json::json!({\n    \"events\": 
           "old_string": "lorem ipsum dolor si\namet consectetur a",
           "replace_all": false
         },
-        "name": "Edit"
+        "message_id": "msg_000000000000000000000007",
+        "model": "claude-sonnet-5",
+        "name": "Edit",
+        "usage": {
+          "cache_creation": {
+            "ephemeral_1h_input_tokens": 336,
+            "ephemeral_5m_input_tokens": 0
+          },
+          "cache_creation_input_tokens": 336,
+          "cache_read_input_tokens": 58934,
+          "inference_geo": "not_available",
+          "input_tokens": 2,
+          "iterations": [
+            {
+              "cache_creation": {
+                "ephemeral_1h_input_tokens": 336,
+                "ephemeral_5m_input_tokens": 0
+              },
+              "cache_creation_input_tokens": 336,
+              "cache_read_input_tokens": 58934,
+              "input_tokens": 2,
+              "output_tokens": 163,
+              "type": "message"
+            }
+          ],
+          "output_tokens": 163,
+          "server_tool_use": {
+            "web_fetch_requests": 0,
+            "web_search_requests": 0
+          },
+          "service_tier": "standard",
+          "speed": "standard"
+        }
       },
       "correlates": null,
       "kind": "tool_call",
@@ -340,7 +756,39 @@ expression: "serde_json::to_string_pretty(&serde_json::json!({\n    \"events\": 
       "blob_hash": null,
       "blob_size": null,
       "body_json": {
-        "text": "lorem ipsum dolor sit amet consectetur a"
+        "message_id": "msg_000000000000000000000008",
+        "model": "claude-sonnet-5",
+        "text": "lorem ipsum dolor sit amet consectetur a",
+        "usage": {
+          "cache_creation": {
+            "ephemeral_1h_input_tokens": 390,
+            "ephemeral_5m_input_tokens": 0
+          },
+          "cache_creation_input_tokens": 390,
+          "cache_read_input_tokens": 59270,
+          "inference_geo": "not_available",
+          "input_tokens": 2,
+          "iterations": [
+            {
+              "cache_creation": {
+                "ephemeral_1h_input_tokens": 390,
+                "ephemeral_5m_input_tokens": 0
+              },
+              "cache_creation_input_tokens": 390,
+              "cache_read_input_tokens": 59270,
+              "input_tokens": 2,
+              "output_tokens": 103,
+              "type": "message"
+            }
+          ],
+          "output_tokens": 103,
+          "server_tool_use": {
+            "web_fetch_requests": 0,
+            "web_search_requests": 0
+          },
+          "service_tier": "standard",
+          "speed": "standard"
+        }
       },
       "correlates": null,
       "kind": "agent_message",
@@ -357,7 +805,39 @@ expression: "serde_json::to_string_pretty(&serde_json::json!({\n    \"events\": 
         "input": {
           "command": "lorem ipsum dolor sit amet conse"
         },
-        "name": "Bash"
+        "message_id": "msg_000000000000000000000008",
+        "model": "claude-sonnet-5",
+        "name": "Bash",
+        "usage": {
+          "cache_creation": {
+            "ephemeral_1h_input_tokens": 390,
+            "ephemeral_5m_input_tokens": 0
+          },
+          "cache_creation_input_tokens": 390,
+          "cache_read_input_tokens": 59270,
+          "inference_geo": "not_available",
+          "input_tokens": 2,
+          "iterations": [
+            {
+              "cache_creation": {
+                "ephemeral_1h_input_tokens": 390,
+                "ephemeral_5m_input_tokens": 0
+              },
+              "cache_creation_input_tokens": 390,
+              "cache_read_input_tokens": 59270,
+              "input_tokens": 2,
+              "output_tokens": 103,
+              "type": "message"
+            }
+          ],
+          "output_tokens": 103,
+          "server_tool_use": {
+            "web_fetch_requests": 0,
+            "web_search_requests": 0
+          },
+          "service_tier": "standard",
+          "speed": "standard"
+        }
       },
       "correlates": null,
       "kind": "tool_call",
@@ -386,7 +866,39 @@ expression: "serde_json::to_string_pretty(&serde_json::json!({\n    \"events\": 
       "blob_hash": null,
       "blob_size": null,
       "body_json": {
-        "text": "lorem ipsum dolor sit amet consectetur adipiscing elit sed do eiusmod tempor incididunt ut labore et dolore magna aliqua ut enim ad minim veniam lorem ipsum dolor sit amet consectetur adipiscing elit sed do eiusmod tempor incididunt ut labore et dolore magna aliqua ut enim ad minim veni"
+        "message_id": "msg_000000000000000000000009",
+        "model": "claude-sonnet-5",
+        "text": "lorem ipsum dolor sit amet consectetur adipiscing elit sed do eiusmod tempor incididunt ut labore et dolore magna aliqua ut enim ad minim veniam lorem ipsum dolor sit amet consectetur adipiscing elit sed do eiusmod tempor incididunt ut labore et dolore magna aliqua ut enim ad minim veni",
+        "usage": {
+          "cache_creation": {
+            "ephemeral_1h_input_tokens": 97,
+            "ephemeral_5m_input_tokens": 0
+          },
+          "cache_creation_input_tokens": 97,
+          "cache_read_input_tokens": 59660,
+          "inference_geo": "not_available",
+          "input_tokens": 2,
+          "iterations": [
+            {
+              "cache_creation": {
+                "ephemeral_1h_input_tokens": 97,
+                "ephemeral_5m_input_tokens": 0
+              },
+              "cache_creation_input_tokens": 97,
+              "cache_read_input_tokens": 59660,
+              "input_tokens": 2,
+              "output_tokens": 114,
+              "type": "message"
+            }
+          ],
+          "output_tokens": 114,
+          "server_tool_use": {
+            "web_fetch_requests": 0,
+            "web_search_requests": 0
+          },
+          "service_tier": "standard",
+          "speed": "standard"
+        }
       },
       "correlates": null,
       "kind": "agent_message",
@@ -412,7 +924,39 @@ expression: "serde_json::to_string_pretty(&serde_json::json!({\n    \"events\": 
       "blob_hash": null,
       "blob_size": null,
       "body_json": {
-        "text": "lorem ipsum dolor sit amet consectetur adipiscing elit sed do eiusmod tempor incididunt"
+        "message_id": "msg_000000000000000000000010",
+        "model": "claude-sonnet-5",
+        "text": "lorem ipsum dolor sit amet consectetur adipiscing elit sed do eiusmod tempor incididunt",
+        "usage": {
+          "cache_creation": {
+            "ephemeral_1h_input_tokens": 31,
+            "ephemeral_5m_input_tokens": 0
+          },
+          "cache_creation_input_tokens": 31,
+          "cache_read_input_tokens": 59871,
+          "inference_geo": "not_available",
+          "input_tokens": 2,
+          "iterations": [
+            {
+              "cache_creation": {
+                "ephemeral_1h_input_tokens": 31,
+                "ephemeral_5m_input_tokens": 0
+              },
+              "cache_creation_input_tokens": 31,
+              "cache_read_input_tokens": 59871,
+              "input_tokens": 2,
+              "output_tokens": 120,
+              "type": "message"
+            }
+          ],
+          "output_tokens": 120,
+          "server_tool_use": {
+            "web_fetch_requests": 0,
+            "web_search_requests": 0
+          },
+          "service_tier": "standard",
+          "speed": "standard"
+        }
       },
       "correlates": null,
       "kind": "thinking",
@@ -429,7 +973,39 @@ expression: "serde_json::to_string_pretty(&serde_json::json!({\n    \"events\": 
         "input": {
           "command": "lorem ipsum dolor sit amet consectetur adipiscing elit sed do eiusmod tempor incididunt ut labore et d"
         },
-        "name": "Bash"
+        "message_id": "msg_000000000000000000000010",
+        "model": "claude-sonnet-5",
+        "name": "Bash",
+        "usage": {
+          "cache_creation": {
+            "ephemeral_1h_input_tokens": 31,
+            "ephemeral_5m_input_tokens": 0
+          },
+          "cache_creation_input_tokens": 31,
+          "cache_read_input_tokens": 59871,
+          "inference_geo": "not_available",
+          "input_tokens": 2,
+          "iterations": [
+            {
+              "cache_creation": {
+                "ephemeral_1h_input_tokens": 31,
+                "ephemeral_5m_input_tokens": 0
+              },
+              "cache_creation_input_tokens": 31,
+              "cache_read_input_tokens": 59871,
+              "input_tokens": 2,
+              "output_tokens": 120,
+              "type": "message"
+            }
+          ],
+          "output_tokens": 120,
+          "server_tool_use": {
+            "web_fetch_requests": 0,
+            "web_search_requests": 0
+          },
+          "service_tier": "standard",
+          "speed": "standard"
+        }
       },
       "correlates": null,
       "kind": "tool_call",
@@ -462,7 +1038,39 @@ expression: "serde_json::to_string_pretty(&serde_json::json!({\n    \"events\": 
         "input": {
           "command": "lorem ipsum dolor sit amet consectetur adipiscing elit sed do eiusmod tempor incididunt ut labore et dolore magna aliqua ut enim ad minim venia"
         },
-        "name": "Bash"
+        "message_id": "msg_000000000000000000000011",
+        "model": "claude-sonnet-5",
+        "name": "Bash",
+        "usage": {
+          "cache_creation": {
+            "ephemeral_1h_input_tokens": 135,
+            "ephemeral_5m_input_tokens": 0
+          },
+          "cache_creation_input_tokens": 135,
+          "cache_read_input_tokens": 59902,
+          "inference_geo": "not_available",
+          "input_tokens": 2,
+          "iterations": [
+            {
+              "cache_creation": {
+                "ephemeral_1h_input_tokens": 135,
+                "ephemeral_5m_input_tokens": 0
+              },
+              "cache_creation_input_tokens": 135,
+              "cache_read_input_tokens": 59902,
+              "input_tokens": 2,
+              "output_tokens": 115,
+              "type": "message"
+            }
+          ],
+          "output_tokens": 115,
+          "server_tool_use": {
+            "web_fetch_requests": 0,
+            "web_search_requests": 0
+          },
+          "service_tier": "standard",
+          "speed": "standard"
+        }
       },
       "correlates": null,
       "kind": "tool_call",
@@ -495,7 +1103,39 @@ expression: "serde_json::to_string_pretty(&serde_json::json!({\n    \"events\": 
         "input": {
           "file_path": "/home/user/proj/dir1/file3.tsx"
         },
-        "name": "Read"
+        "message_id": "msg_000000000000000000000012",
+        "model": "claude-sonnet-5",
+        "name": "Read",
+        "usage": {
+          "cache_creation": {
+            "ephemeral_1h_input_tokens": 334,
+            "ephemeral_5m_input_tokens": 0
+          },
+          "cache_creation_input_tokens": 334,
+          "cache_read_input_tokens": 60037,
+          "inference_geo": "not_available",
+          "input_tokens": 2,
+          "iterations": [
+            {
+              "cache_creation": {
+                "ephemeral_1h_input_tokens": 334,
+                "ephemeral_5m_input_tokens": 0
+              },
+              "cache_creation_input_tokens": 334,
+              "cache_read_input_tokens": 60037,
+              "input_tokens": 2,
+              "output_tokens": 74,
+              "type": "message"
+            }
+          ],
+          "output_tokens": 74,
+          "server_tool_use": {
+            "web_fetch_requests": 0,
+            "web_search_requests": 0
+          },
+          "service_tier": "standard",
+          "speed": "standard"
+        }
       },
       "correlates": null,
       "kind": "tool_call",
@@ -524,7 +1164,39 @@ expression: "serde_json::to_string_pretty(&serde_json::json!({\n    \"events\": 
       "blob_hash": null,
       "blob_size": null,
       "body_json": {
-        "text": "lorem ipsum dolor sit amet consectetur adipiscing elit sed do eiusmod tempor incididunt ut labore et dolore magna aliqua ut enim ad minim veniam lorem ipsum dolor sit amet consectetur adipiscing elit sed do eiusmod tempor inc"
+        "message_id": "msg_000000000000000000000013",
+        "model": "claude-sonnet-5",
+        "text": "lorem ipsum dolor sit amet consectetur adipiscing elit sed do eiusmod tempor incididunt ut labore et dolore magna aliqua ut enim ad minim veniam lorem ipsum dolor sit amet consectetur adipiscing elit sed do eiusmod tempor inc",
+        "usage": {
+          "cache_creation": {
+            "ephemeral_1h_input_tokens": 2488,
+            "ephemeral_5m_input_tokens": 0
+          },
+          "cache_creation_input_tokens": 2488,
+          "cache_read_input_tokens": 60371,
+          "inference_geo": "not_available",
+          "input_tokens": 2,
+          "iterations": [
+            {
+              "cache_creation": {
+                "ephemeral_1h_input_tokens": 2488,
+                "ephemeral_5m_input_tokens": 0
+              },
+              "cache_creation_input_tokens": 2488,
+              "cache_read_input_tokens": 60371,
+              "input_tokens": 2,
+              "output_tokens": 328,
+              "type": "message"
+            }
+          ],
+          "output_tokens": 328,
+          "server_tool_use": {
+            "web_fetch_requests": 0,
+            "web_search_requests": 0
+          },
+          "service_tier": "standard",
+          "speed": "standard"
+        }
       },
       "correlates": null,
       "kind": "agent_message",
@@ -544,7 +1216,39 @@ expression: "serde_json::to_string_pretty(&serde_json::json!({\n    \"events\": 
           "old_string": "lorem ipsum dolor sit amet consectetur adipiscing\nelit sed do eiusmod tempor incididunt ut labore et dolore magna aliqua ut enim a",
           "replace_all": false
         },
-        "name": "Edit"
+        "message_id": "msg_000000000000000000000013",
+        "model": "claude-sonnet-5",
+        "name": "Edit",
+        "usage": {
+          "cache_creation": {
+            "ephemeral_1h_input_tokens": 2488,
+            "ephemeral_5m_input_tokens": 0
+          },
+          "cache_creation_input_tokens": 2488,
+          "cache_read_input_tokens": 60371,
+          "inference_geo": "not_available",
+          "input_tokens": 2,
+          "iterations": [
+            {
+              "cache_creation": {
+                "ephemeral_1h_input_tokens": 2488,
+                "ephemeral_5m_input_tokens": 0
+              },
+              "cache_creation_input_tokens": 2488,
+              "cache_read_input_tokens": 60371,
+              "input_tokens": 2,
+              "output_tokens": 328,
+              "type": "message"
+            }
+          ],
+          "output_tokens": 328,
+          "server_tool_use": {
+            "web_fetch_requests": 0,
+            "web_search_requests": 0
+          },
+          "service_tier": "standard",
+          "speed": "standard"
+        }
       },
       "correlates": null,
       "kind": "tool_call",
@@ -573,7 +1277,39 @@ expression: "serde_json::to_string_pretty(&serde_json::json!({\n    \"events\": 
       "blob_hash": null,
       "blob_size": null,
       "body_json": {
-        "text": "lorem ipsum dolor sit amet consectetur adipiscing elit sed do eiusmod tempor incididunt ut labore et dolore magna aliqua ut enim ad minim veniam lo"
+        "message_id": "msg_000000000000000000000014",
+        "model": "claude-sonnet-5",
+        "text": "lorem ipsum dolor sit amet consectetur adipiscing elit sed do eiusmod tempor incididunt ut labore et dolore magna aliqua ut enim ad minim veniam lo",
+        "usage": {
+          "cache_creation": {
+            "ephemeral_1h_input_tokens": 411,
+            "ephemeral_5m_input_tokens": 0
+          },
+          "cache_creation_input_tokens": 411,
+          "cache_read_input_tokens": 62859,
+          "inference_geo": "not_available",
+          "input_tokens": 2,
+          "iterations": [
+            {
+              "cache_creation": {
+                "ephemeral_1h_input_tokens": 411,
+                "ephemeral_5m_input_tokens": 0
+              },
+              "cache_creation_input_tokens": 411,
+              "cache_read_input_tokens": 62859,
+              "input_tokens": 2,
+              "output_tokens": 122,
+              "type": "message"
+            }
+          ],
+          "output_tokens": 122,
+          "server_tool_use": {
+            "web_fetch_requests": 0,
+            "web_search_requests": 0
+          },
+          "service_tier": "standard",
+          "speed": "standard"
+        }
       },
       "correlates": null,
       "kind": "thinking",
@@ -590,7 +1326,39 @@ expression: "serde_json::to_string_pretty(&serde_json::json!({\n    \"events\": 
         "input": {
           "command": "lorem ipsum dolor sit amet conse"
         },
-        "name": "Bash"
+        "message_id": "msg_000000000000000000000014",
+        "model": "claude-sonnet-5",
+        "name": "Bash",
+        "usage": {
+          "cache_creation": {
+            "ephemeral_1h_input_tokens": 411,
+            "ephemeral_5m_input_tokens": 0
+          },
+          "cache_creation_input_tokens": 411,
+          "cache_read_input_tokens": 62859,
+          "inference_geo": "not_available",
+          "input_tokens": 2,
+          "iterations": [
+            {
+              "cache_creation": {
+                "ephemeral_1h_input_tokens": 411,
+                "ephemeral_5m_input_tokens": 0
+              },
+              "cache_creation_input_tokens": 411,
+              "cache_read_input_tokens": 62859,
+              "input_tokens": 2,
+              "output_tokens": 122,
+              "type": "message"
+            }
+          ],
+          "output_tokens": 122,
+          "server_tool_use": {
+            "web_fetch_requests": 0,
+            "web_search_requests": 0
+          },
+          "service_tier": "standard",
+          "speed": "standard"
+        }
       },
       "correlates": null,
       "kind": "tool_call",
@@ -619,7 +1387,39 @@ expression: "serde_json::to_string_pretty(&serde_json::json!({\n    \"events\": 
       "blob_hash": null,
       "blob_size": null,
       "body_json": {
-        "text": "lorem ipsum dolor sit amet consectetur adipiscing elit sed do eiusmod tempor incididunt ut labore et dolore magna aliqua ut enim ad minim veniam lorem ipsum dolor sit amet consectetur adipiscing elit sed do eiu"
+        "message_id": "msg_000000000000000000000015",
+        "model": "claude-sonnet-5",
+        "text": "lorem ipsum dolor sit amet consectetur adipiscing elit sed do eiusmod tempor incididunt ut labore et dolore magna aliqua ut enim ad minim veniam lorem ipsum dolor sit amet consectetur adipiscing elit sed do eiu",
+        "usage": {
+          "cache_creation": {
+            "ephemeral_1h_input_tokens": 117,
+            "ephemeral_5m_input_tokens": 0
+          },
+          "cache_creation_input_tokens": 117,
+          "cache_read_input_tokens": 63270,
+          "inference_geo": "not_available",
+          "input_tokens": 2,
+          "iterations": [
+            {
+              "cache_creation": {
+                "ephemeral_1h_input_tokens": 117,
+                "ephemeral_5m_input_tokens": 0
+              },
+              "cache_creation_input_tokens": 117,
+              "cache_read_input_tokens": 63270,
+              "input_tokens": 2,
+              "output_tokens": 84,
+              "type": "message"
+            }
+          ],
+          "output_tokens": 84,
+          "server_tool_use": {
+            "web_fetch_requests": 0,
+            "web_search_requests": 0
+          },
+          "service_tier": "standard",
+          "speed": "standard"
+        }
       },
       "correlates": null,
       "kind": "agent_message",
@@ -649,7 +1449,39 @@ expression: "serde_json::to_string_pretty(&serde_json::json!({\n    \"events\": 
         "input": {
           "command": "lorem ipsum dolor sit amet consectetur adipiscing elit sed do eiusmod tempor incididunt"
         },
-        "name": "Bash"
+        "message_id": "msg_000000000000000000000016",
+        "model": "claude-sonnet-5",
+        "name": "Bash",
+        "usage": {
+          "cache_creation": {
+            "ephemeral_1h_input_tokens": 168,
+            "ephemeral_5m_input_tokens": 0
+          },
+          "cache_creation_input_tokens": 168,
+          "cache_read_input_tokens": 63471,
+          "inference_geo": "not_available",
+          "input_tokens": 2,
+          "iterations": [
+            {
+              "cache_creation": {
+                "ephemeral_1h_input_tokens": 168,
+                "ephemeral_5m_input_tokens": 0
+              },
+              "cache_creation_input_tokens": 168,
+              "cache_read_input_tokens": 63471,
+              "input_tokens": 2,
+              "output_tokens": 103,
+              "type": "message"
+            }
+          ],
+          "output_tokens": 103,
+          "server_tool_use": {
+            "web_fetch_requests": 0,
+            "web_search_requests": 0
+          },
+          "service_tier": "standard",
+          "speed": "standard"
+        }
       },
       "correlates": null,
       "kind": "tool_call",
@@ -682,7 +1514,39 @@ expression: "serde_json::to_string_pretty(&serde_json::json!({\n    \"events\": 
         "input": {
           "command": "lorem ipsum dolor sit amet consectetur adipiscing elit sed do eiusmod tempor incididun"
         },
-        "name": "Bash"
+        "message_id": "msg_000000000000000000000017",
+        "model": "claude-sonnet-5",
+        "name": "Bash",
+        "usage": {
+          "cache_creation": {
+            "ephemeral_1h_input_tokens": 885,
+            "ephemeral_5m_input_tokens": 0
+          },
+          "cache_creation_input_tokens": 885,
+          "cache_read_input_tokens": 63639,
+          "inference_geo": "not_available",
+          "input_tokens": 2,
+          "iterations": [
+            {
+              "cache_creation": {
+                "ephemeral_1h_input_tokens": 885,
+                "ephemeral_5m_input_tokens": 0
+              },
+              "cache_creation_input_tokens": 885,
+              "cache_read_input_tokens": 63639,
+              "input_tokens": 2,
+              "output_tokens": 80,
+              "type": "message"
+            }
+          ],
+          "output_tokens": 80,
+          "server_tool_use": {
+            "web_fetch_requests": 0,
+            "web_search_requests": 0
+          },
+          "service_tier": "standard",
+          "speed": "standard"
+        }
       },
       "correlates": null,
       "kind": "tool_call",
@@ -715,7 +1579,39 @@ expression: "serde_json::to_string_pretty(&serde_json::json!({\n    \"events\": 
         "input": {
           "command": "lorem ipsum dolor sit amet c\nadipiscing elit sed do eiusmod tempor incid\n\nut labore et dolore magna aliqua ut enim ad minim veniam lorem ipsum \ndolor sit amet consectetur adipiscing elit sed do eiusmod\ntem\nin"
         },
-        "name": "Bash"
+        "message_id": "msg_000000000000000000000018",
+        "model": "claude-sonnet-5",
+        "name": "Bash",
+        "usage": {
+          "cache_creation": {
+            "ephemeral_1h_input_tokens": 184,
+            "ephemeral_5m_input_tokens": 0
+          },
+          "cache_creation_input_tokens": 184,
+          "cache_read_input_tokens": 64524,
+          "inference_geo": "not_available",
+          "input_tokens": 2,
+          "iterations": [
+            {
+              "cache_creation": {
+                "ephemeral_1h_input_tokens": 184,
+                "ephemeral_5m_input_tokens": 0
+              },
+              "cache_creation_input_tokens": 184,
+              "cache_read_input_tokens": 64524,
+              "input_tokens": 2,
+              "output_tokens": 128,
+              "type": "message"
+            }
+          ],
+          "output_tokens": 128,
+          "server_tool_use": {
+            "web_fetch_requests": 0,
+            "web_search_requests": 0
+          },
+          "service_tier": "standard",
+          "speed": "standard"
+        }
       },
       "correlates": null,
       "kind": "tool_call",
@@ -744,7 +1640,39 @@ expression: "serde_json::to_string_pretty(&serde_json::json!({\n    \"events\": 
       "blob_hash": null,
       "blob_size": null,
       "body_json": {
-        "text": "lorem ipsum dolor sit amet consectetur a"
+        "message_id": "msg_000000000000000000000019",
+        "model": "claude-sonnet-5",
+        "text": "lorem ipsum dolor sit amet consectetur a",
+        "usage": {
+          "cache_creation": {
+            "ephemeral_1h_input_tokens": 194,
+            "ephemeral_5m_input_tokens": 0
+          },
+          "cache_creation_input_tokens": 194,
+          "cache_read_input_tokens": 64708,
+          "inference_geo": "not_available",
+          "input_tokens": 2,
+          "iterations": [
+            {
+              "cache_creation": {
+                "ephemeral_1h_input_tokens": 194,
+                "ephemeral_5m_input_tokens": 0
+              },
+              "cache_creation_input_tokens": 194,
+              "cache_read_input_tokens": 64708,
+              "input_tokens": 2,
+              "output_tokens": 69,
+              "type": "message"
+            }
+          ],
+          "output_tokens": 69,
+          "server_tool_use": {
+            "web_fetch_requests": 0,
+            "web_search_requests": 0
+          },
+          "service_tier": "standard",
+          "speed": "standard"
+        }
       },
       "correlates": null,
       "kind": "agent_message",
@@ -761,7 +1689,39 @@ expression: "serde_json::to_string_pretty(&serde_json::json!({\n    \"events\": 
         "input": {
           "command": "lorem ipsum dolor si"
         },
-        "name": "Bash"
+        "message_id": "msg_000000000000000000000019",
+        "model": "claude-sonnet-5",
+        "name": "Bash",
+        "usage": {
+          "cache_creation": {
+            "ephemeral_1h_input_tokens": 194,
+            "ephemeral_5m_input_tokens": 0
+          },
+          "cache_creation_input_tokens": 194,
+          "cache_read_input_tokens": 64708,
+          "inference_geo": "not_available",
+          "input_tokens": 2,
+          "iterations": [
+            {
+              "cache_creation": {
+                "ephemeral_1h_input_tokens": 194,
+                "ephemeral_5m_input_tokens": 0
+              },
+              "cache_creation_input_tokens": 194,
+              "cache_read_input_tokens": 64708,
+              "input_tokens": 2,
+              "output_tokens": 69,
+              "type": "message"
+            }
+          ],
+          "output_tokens": 69,
+          "server_tool_use": {
+            "web_fetch_requests": 0,
+            "web_search_requests": 0
+          },
+          "service_tier": "standard",
+          "speed": "standard"
+        }
       },
       "correlates": null,
       "kind": "tool_call",
@@ -790,7 +1750,39 @@ expression: "serde_json::to_string_pretty(&serde_json::json!({\n    \"events\": 
       "blob_hash": null,
       "blob_size": null,
       "body_json": {
-        "text": "lorem ipsum dolor sit amet consectetur adipiscing elit sed do eiusmod tempor incidid"
+        "message_id": "msg_000000000000000000000020",
+        "model": "claude-sonnet-5",
+        "text": "lorem ipsum dolor sit amet consectetur adipiscing elit sed do eiusmod tempor incidid",
+        "usage": {
+          "cache_creation": {
+            "ephemeral_1h_input_tokens": 112,
+            "ephemeral_5m_input_tokens": 0
+          },
+          "cache_creation_input_tokens": 112,
+          "cache_read_input_tokens": 64902,
+          "inference_geo": "not_available",
+          "input_tokens": 2,
+          "iterations": [
+            {
+              "cache_creation": {
+                "ephemeral_1h_input_tokens": 112,
+                "ephemeral_5m_input_tokens": 0
+              },
+              "cache_creation_input_tokens": 112,
+              "cache_read_input_tokens": 64902,
+              "input_tokens": 2,
+              "output_tokens": 36,
+              "type": "message"
+            }
+          ],
+          "output_tokens": 36,
+          "server_tool_use": {
+            "web_fetch_requests": 0,
+            "web_search_requests": 0
+          },
+          "service_tier": "standard",
+          "speed": "standard"
+        }
       },
       "correlates": null,
       "kind": "agent_message",

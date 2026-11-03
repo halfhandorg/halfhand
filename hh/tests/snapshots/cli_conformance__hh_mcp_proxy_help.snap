@@ -14,7 +14,7 @@ Arguments:
 
 Options:
       --session-hint <SESSION_HINT>
-          A human-readable hint for a standalone mcp-only session. Accepted for forward compatibility but not yet persisted anywhere (no session-name column exists today) — it has no visible effect
+          A human-readable hint for a standalone mcp-only session. Accepted for forward compatibility but not yet persisted anywhere (it does not set the session name; use `hh rename`) — it has no visible effect
 
   -h, --help
           Print help (see a summary with '-h')

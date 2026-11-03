@@ -13,13 +13,17 @@
 //! - `--failed` — jump to the first error/failed step (acts like `--step N`
 //!   once found).
 //!
+//! - `--context` — the session context panel (model, provider, token usage,
+//!   message counts, times, durations, estimated cost); with `--json`, one
+//!   JSON object. See `docs/context.md`.
+//!
 //! `--json` and `--diff` are mutually exclusive output formats.
 
 use crate::cli;
 use crate::render;
 use hh_core::{
-    build_timeline, ChangeKind, EventDetail, EventIndexRow, EventKind, FileChange, SessionRow,
-    StepEntry, Store, TimelineRow,
+    build_timeline, ChangeKind, EventDetail, EventIndexRow, EventKind, FileChange, ModelSpan,
+    SessionContext, SessionRow, StepEntry, Store, TimelineRow,
 };
 use owo_colors::OwoColorize;
 use similar::{ChangeTag, TextDiff};
@@ -55,6 +59,24 @@ pub(crate) fn inspect_command(args: &cli::InspectArgs) -> anyhow::Result<std::pr
     let session = store
         .get_session(&id)
         .map_err(|e| anyhow::anyhow!("could not load session\n  why: {e}"))?;
+
+    if args.context {
+        let ctx = load_context(&store, &session)?;
+        if args.json {
+            let obj = context_json(&session, &ctx);
+            println!(
+                "{}",
+                serde_json::to_string_pretty(&obj)
+                    .map_err(|e| anyhow::anyhow!("could not serialize context JSON\n  why: {e}"))?
+            );
+        } else {
+            print!(
+                "{}",
+                render_context_panel(&session, &ctx, render::use_color())
+            );
+        }
+        return Ok(std::process::ExitCode::SUCCESS);
+    }
 
     // Fast path (Area 2 big-session hardening): `hh inspect --json` with no
     // `--step` and no `--failed` streams the whole session as NDJSON straight
@@ -115,9 +137,20 @@ pub(crate) fn inspect_command(args: &cli::InspectArgs) -> anyhow::Result<std::pr
         let entry = require_step(&timeline, n, &session)?;
         print_step_detail(&store, &entry, color);
     } else {
-        print_summary(&session, &timeline, color);
+        let ctx = load_context(&store, &session)?;
+        print_summary(&session, &ctx.models, &timeline, color);
     }
     Ok(std::process::ExitCode::SUCCESS)
+}
+
+/// Read the session's derived context, with an actionable error.
+fn load_context(store: &Store, session: &SessionRow) -> anyhow::Result<SessionContext> {
+    store.session_context(&session.id).map_err(|e| {
+        anyhow::anyhow!(
+            "could not read the context of session {sid}\n  why: {e}\n  hint: run `hh doctor` to check the database",
+            sid = session.short_id
+        )
+    })
 }
 
 /// Open the store with the same config/FR-1.7 reconciliation as every other
@@ -250,14 +283,19 @@ fn color_badge(label: &str, kind: EventKind) -> String {
 
 /// Render and print the summary view (FR-4): a header line (matching the
 /// replay header) followed by one aligned row per step.
-fn print_summary(session: &SessionRow, timeline: &[TimelineRow], color: bool) {
-    print!("{}", render_summary_header(session, color));
-    print!("{}", render_step_table(timeline, color));
+fn print_summary(
+    session: &SessionRow,
+    models: &[ModelSpan],
+    timeline: &[TimelineRow],
+    color: bool,
+) {
+    print!("{}", render_summary_header(session, models, color));
+    print!("{}", render_step_table(timeline, session, color));
 }
 
 /// The summary header: ` a1b2c3 ✓ ok · claude-code · 4m32s · 42 steps · 7 files changed`
 /// then a dimmed command line. Matches the replay TUI header (NFR-7).
-fn render_summary_header(session: &SessionRow, color: bool) -> String {
+fn render_summary_header(session: &SessionRow, models: &[ModelSpan], color: bool) -> String {
     let duration = match session.ended_at {
         Some(end) => render::humanize_ms((end - session.started_at).max(0)),
         None => "—".to_string(),
@@ -269,8 +307,13 @@ fn render_summary_header(session: &SessionRow, color: bool) -> String {
     } else {
         session.short_id.clone()
     };
+    let name = session
+        .name
+        .as_deref()
+        .map(|n| format!(" {n} ·"))
+        .unwrap_or_default();
     let line1 = format!(
-        " {id} {status} · {agent} · {dur} · {steps} steps · {files} files changed\n",
+        " {id}{name} {status} · {agent} · {dur} · {steps} steps · {files} files changed\n",
         agent = session.agent_kind,
         dur = duration,
         steps = session.step_count,
@@ -281,35 +324,87 @@ fn render_summary_header(session: &SessionRow, color: bool) -> String {
     } else {
         session.command.join(" ")
     };
-    format!("{line1} {command}\n\n")
+    let models_line = if models.is_empty() {
+        String::new()
+    } else {
+        let text = format!("models: {}", render_model_spans(models));
+        if color {
+            format!(" {}\n", text.dimmed())
+        } else {
+            format!(" {text}\n")
+        }
+    };
+    format!("{line1} {command}\n{models_line}\n")
+}
+
+/// Every model the transcript reported with its step range, in order:
+/// `claude-sonnet-4-6 (steps 1–40) → claude-opus-4-8 (steps 41–58)`.
+fn render_model_spans(models: &[ModelSpan]) -> String {
+    models
+        .iter()
+        .map(|m| match (m.first_step, m.last_step) {
+            (Some(a), Some(b)) if a == b => format!("{} (step {a})", m.model_id),
+            (Some(a), Some(b)) => format!("{} (steps {a}–{b})", m.model_id),
+            _ => m.model_id.clone(),
+        })
+        .collect::<Vec<_>>()
+        .join(" → ")
+}
+
+/// Per-step elapsed time, in step order: from a step's first event to the
+/// next step's first event; the last step runs to the session's last agent
+/// event. `None` when the end is unknown.
+fn step_elapsed(timeline: &[TimelineRow], session: &SessionRow) -> Vec<(i64, Option<i64>)> {
+    let starts: Vec<(i64, i64)> = timeline
+        .iter()
+        .filter_map(|r| match r {
+            TimelineRow::Step(s) => Some((s.step, s.ts_ms)),
+            TimelineRow::Terminal(_) => None,
+        })
+        .collect();
+    starts
+        .iter()
+        .enumerate()
+        .map(|(i, &(step, start))| {
+            let end = starts
+                .get(i + 1)
+                .map(|&(_, next)| next)
+                .or(session.last_agent_ts_ms);
+            (step, end.map(|e| (e - start).max(0)))
+        })
+        .collect()
 }
 
 /// The per-step table: a header row, a separator, and one row per step with a
 /// right-aligned step number, a padded badge, the summary, and an `HH:MM:SS`
 /// timestamp. Terminal/lifecycle rows are omitted (this view is steps-only).
-fn render_step_table(timeline: &[TimelineRow], color: bool) -> String {
+fn render_step_table(timeline: &[TimelineRow], session: &SessionRow, color: bool) -> String {
+    let elapsed: std::collections::HashMap<i64, Option<i64>> =
+        step_elapsed(timeline, session).into_iter().collect();
     let mut out = String::new();
     let header = format!(
-        " {step:<5} {badge:<5} {summary:<40} {time}\n",
+        " {step:<5} {badge:<5} {summary:<40} {time:<8} {elapsed}\n",
         step = "STEP",
         badge = "KIND",
         summary = "SUMMARY",
         time = "TIME",
+        elapsed = "ELAPSED",
     );
     out.push_str(&header);
     let _ = writeln!(
         out,
-        " ----- ----- ---------------------------------------- --------",
+        " ----- ----- ---------------------------------------- -------- -------",
     );
     for row in timeline {
         let TimelineRow::Step(s) = row else { continue };
-        out.push_str(&render_step_row(s, color));
+        let e = elapsed.get(&s.step).copied().flatten();
+        out.push_str(&render_step_row(s, e, color));
     }
     out
 }
 
 /// One row of the step table.
-fn render_step_row(s: &StepEntry, color: bool) -> String {
+fn render_step_row(s: &StepEntry, elapsed: Option<i64>, color: bool) -> String {
     let label = badge_label(s.kind);
     let badge = if color {
         color_badge(&format!("{label:<5}"), s.kind)
@@ -321,11 +416,215 @@ fn render_step_row(s: &StepEntry, color: bool) -> String {
     // is plain (no color) so it stays a stable, greppable anchor.
     let summary = render::truncate(&s.summary, 40);
     format!(
-        " {step:<5} {badge} {summary:<40} {time}\n",
+        " {step:<5} {badge} {summary:<40} {time} {elapsed}\n",
         step = s.step,
         badge = badge,
         time = render::format_hms(s.ts_ms),
+        elapsed = elapsed.map_or_else(|| "—".to_string(), render::humanize_ms),
     )
+}
+
+/// The em dash every surface uses for "unknown". Never `0`: zero asserts a
+/// known value, a dash admits ignorance.
+const DASH: &str = "—";
+
+/// Context used as a share of the limit, in tenths of a percent, when both
+/// are known.
+fn usage_permille(used: Option<u64>, limit: Option<i64>) -> Option<u64> {
+    let limit = u64::try_from(limit?).ok().filter(|l| *l > 0)?;
+    Some((used? * 1000 + limit / 2) / limit)
+}
+
+/// Render the `hh inspect --context` panel: aligned label/value rows, one
+/// accent colour (cyan, on the header id), labels dimmed, every unknown a
+/// dash. Self-reported and estimated token counts sit in separate,
+/// separately-labelled rows. Plain when `color` is false (NO_COLOR, pipes).
+#[allow(clippy::too_many_lines)] // one row per panel line; splitting would scatter the layout
+fn render_context_panel(session: &SessionRow, ctx: &SessionContext, color: bool) -> String {
+    const LABEL: usize = 15;
+    let mut out = String::new();
+    let label = |text: &str| {
+        let padded = format!("{text:<LABEL$}");
+        if color {
+            padded.dimmed().to_string()
+        } else {
+            padded
+        }
+    };
+    let id = if color {
+        session.short_id.cyan().to_string()
+    } else {
+        session.short_id.clone()
+    };
+    let _ = writeln!(out, " {id} · context");
+    out.push('\n');
+    let row = |out: &mut String, l: &str, v: &str| {
+        let _ = writeln!(out, " {} {v}", label(l));
+    };
+
+    row(&mut out, "name", session.name.as_deref().unwrap_or(DASH));
+    let model = match (&session.model_display, &session.model_id) {
+        (Some(d), Some(id)) => format!("{d} ({id})"),
+        (None, Some(id)) => format!("{id} (not in the model table)"),
+        _ => DASH.to_string(),
+    };
+    row(&mut out, "model", &model);
+    row(
+        &mut out,
+        "provider",
+        session.provider.as_deref().unwrap_or(DASH),
+    );
+    let limit = session.context_limit.map_or_else(
+        || DASH.to_string(),
+        |l| format!("{} tokens", render::thousands(l)),
+    );
+    row(&mut out, "context limit", &limit);
+    let used = ctx.last_turn_context_tokens;
+    let used_text = match used {
+        Some(u) => {
+            let pct = usage_permille(used, session.context_limit)
+                .map_or_else(|| DASH.to_string(), |p| format!("{}.{}%", p / 10, p % 10));
+            format!(
+                "{} tokens · {pct} of limit · latest turn, self-reported",
+                render::thousands(i64::try_from(u).unwrap_or(i64::MAX))
+            )
+        }
+        None => DASH.to_string(),
+    };
+    row(&mut out, "context used", &used_text);
+    let capture = match (&session.capture_tier, &session.adapter_id) {
+        (Some(t), Some(a)) => format!("{t} · {a}"),
+        (Some(t), None) => t.clone(),
+        (None, Some(a)) => a.clone(),
+        (None, None) => DASH.to_string(),
+    };
+    row(&mut out, "capture", &capture);
+    out.push('\n');
+
+    // Self-reported, accumulated: right-aligned in one column.
+    let counts = [
+        ("  input", session.input_tokens),
+        ("  output", session.output_tokens),
+        ("  cache read", session.cache_read_tokens),
+        ("  cache write", session.cache_write_tokens),
+        ("  reasoning", session.reasoning_tokens),
+        ("  total", session.total_tokens()),
+    ];
+    let cells: Vec<String> = counts
+        .iter()
+        .map(|(_, v)| v.map_or_else(|| DASH.to_string(), render::thousands))
+        .collect();
+    let width = cells.iter().map(|c| c.chars().count()).max().unwrap_or(1);
+    row(&mut out, "tokens", "self-reported, accumulated");
+    for ((l, _), cell) in counts.iter().zip(&cells) {
+        let pad = width - cell.chars().count();
+        let mut v = format!("{}{cell}", " ".repeat(pad));
+        if l.trim() == "total" {
+            v.push_str("  derived");
+        }
+        row(&mut out, l, &v);
+    }
+    let est = format!(
+        "≈ {} tokens · size-based (bytes ÷ 4), not self-reported",
+        render::thousands(i64::try_from(ctx.estimated_tokens).unwrap_or(i64::MAX))
+    );
+    row(&mut out, "estimated", &est);
+    out.push('\n');
+
+    row(
+        &mut out,
+        "messages",
+        &format!(
+            "{} user · {} agent · {} tool call{}",
+            ctx.user_messages,
+            ctx.agent_messages,
+            ctx.tool_calls,
+            if ctx.tool_calls == 1 { "" } else { "s" }
+        ),
+    );
+    row(&mut out, "created", &render::format_utc(session.started_at));
+    let last = session.last_event_ts_ms.map_or_else(
+        || DASH.to_string(),
+        |t| render::format_utc(session.started_at + t),
+    );
+    row(&mut out, "last activity", &last);
+    let wall = session
+        .duration_ms()
+        .map_or_else(|| DASH.to_string(), render::humanize_ms);
+    let active = session
+        .active_duration_ms()
+        .map_or_else(|| DASH.to_string(), render::humanize_ms);
+    row(
+        &mut out,
+        "duration",
+        &format!("{wall} wall · {active} active"),
+    );
+    let cost = ctx.cost_nano_usd.map_or_else(
+        || DASH.to_string(),
+        |c| format!("{} at list price", render::format_usd(c)),
+    );
+    row(&mut out, "est. cost", &cost);
+    if !ctx.models.is_empty() {
+        row(&mut out, "models", &render_model_spans(&ctx.models));
+    }
+    out
+}
+
+/// The `hh inspect --context --json` object (docs/context.md, docs/json.md).
+/// Self-reported counts live under `usage` (with `source:
+/// "self_reported"`), the size-based figure under `estimated` — never in the
+/// same field. Unknowns are `null`, never 0.
+fn context_json(session: &SessionRow, ctx: &SessionContext) -> serde_json::Value {
+    let used_percent = usage_permille(ctx.last_turn_context_tokens, session.context_limit)
+        .and_then(|p| u32::try_from(p).ok())
+        .map(|p| f64::from(p) / 10.0);
+    let duration_ms = session.duration_ms();
+    let active_ms = session.active_duration_ms();
+    let last_activity_at = session.last_event_ts_ms.map(|t| session.started_at + t);
+    serde_json::json!({
+        "schema": SCHEMA_VERSION,
+        "session": session_ref(session),
+        "name": session.name,
+        "model": {
+            "id": session.model_id,
+            "display": session.model_display,
+            "provider": session.provider,
+            "context_limit": session.context_limit,
+        },
+        "context_used": {
+            "source": "self_reported_latest_turn",
+            "tokens": ctx.last_turn_context_tokens,
+            "percent_of_limit": used_percent,
+        },
+        "usage": crate::usage_json(session),
+        "estimated": {
+            "source": "size_based",
+            "method": "bytes_div_4",
+            "tokens": ctx.estimated_tokens,
+        },
+        "messages": {
+            "user": ctx.user_messages,
+            "agent": ctx.agent_messages,
+            "tool_calls": ctx.tool_calls,
+        },
+        "capture_tier": session.capture_tier,
+        "adapter_id": session.adapter_id,
+        "created_at": session.started_at,
+        "created": render::rfc3339_utc(session.started_at),
+        "last_activity_at": last_activity_at,
+        "last_activity": last_activity_at.map(render::rfc3339_utc),
+        "duration_ms": duration_ms,
+        "duration": duration_ms.map(render::iso8601_duration),
+        "active_duration_ms": active_ms,
+        "active_duration": active_ms.map(render::iso8601_duration),
+        "estimated_cost_usd": ctx.cost_nano_usd.map(render::usd_decimal),
+        "cost_basis": "list_price",
+        "models": ctx.models.iter().map(|m| serde_json::json!({
+            "model_id": m.model_id,
+            "first_step": m.first_step,
+            "last_step": m.last_step,
+        })).collect::<Vec<_>>(),
+    })
 }
 
 /// Print the full human-readable detail of one step (FR-4 `--step N`).
@@ -894,6 +1193,10 @@ fn step_json_value(
     n: u64,
 ) -> anyhow::Result<serde_json::Value> {
     let entry = require_step(timeline, n, session)?;
+    let elapsed_ms = step_elapsed(timeline, session)
+        .into_iter()
+        .find(|&(step, _)| step == entry.step)
+        .and_then(|(_, e)| e);
     let events: Vec<serde_json::Value> = entry
         .event_ids
         .iter()
@@ -910,6 +1213,8 @@ fn step_json_value(
         "kind": entry.kind.to_string(),
         "summary": entry.summary,
         "ts_ms": entry.ts_ms,
+        "elapsed_ms": elapsed_ms,
+        "elapsed": elapsed_ms.map(render::iso8601_duration),
         "events": events,
     }))
 }
@@ -1180,8 +1485,8 @@ mod tests {
         let fx = Fixture::build();
         let out = format!(
             "{}{}",
-            render_summary_header(&fx.session, false),
-            render_step_table(&fx.timeline, false)
+            render_summary_header(&fx.session, &[], false),
+            render_step_table(&fx.timeline, &fx.session, false)
         );
         insta::assert_snapshot!(out);
     }
@@ -1403,6 +1708,105 @@ mod tests {
         let timeline = build_timeline(&index, false);
         let n = find_failed_step(&store, &timeline).unwrap();
         assert_eq!(n, Some(1));
+    }
+
+    /// The fixture plus a name and self-reported usage from `models` (one
+    /// response per entry, in order), re-read so the session row carries the
+    /// accumulated columns.
+    fn context_fixture(models: &[&str]) -> (Fixture, SessionContext) {
+        let mut fx = Fixture::build();
+        let sid = fx.session.id.clone();
+        fx.store
+            .set_session_name(&sid, Some("auth refactor"))
+            .unwrap();
+        let w = fx.store.event_writer().unwrap();
+        for (i, m) in models.iter().enumerate() {
+            let i = i64::try_from(i).unwrap();
+            w.append_event(Event {
+                session_id: sid.clone(),
+                ts_ms: 2_600 + i,
+                kind: EventKind::AgentMessage,
+                step: None,
+                summary: "answer".into(),
+                body_json: Some(serde_json::json!({
+                    "text": "answer", "model": m, "message_id": format!("msg_{i}"),
+                    "usage": {
+                        "input_tokens": 1_200, "output_tokens": 340,
+                        "cache_read_input_tokens": 48_000, "cache_creation_input_tokens": 2_000
+                    }
+                })),
+                blob_hash: None,
+                blob_size: None,
+                correlates: None,
+            })
+            .unwrap();
+        }
+        w.finish().unwrap();
+        fx.store.assign_steps(&sid).unwrap();
+        fx.session = fx.store.get_session(&sid).unwrap();
+        let index = fx.store.list_event_index(&sid).unwrap();
+        fx.timeline = build_timeline(&index, false);
+        let ctx = fx.store.session_context(&sid).unwrap();
+        (fx, ctx)
+    }
+
+    #[test]
+    fn snapshot_context_panel() {
+        let (fx, ctx) = context_fixture(&["claude-opus-4-8", "claude-opus-4-8"]);
+        insta::assert_snapshot!(render_context_panel(&fx.session, &ctx, false));
+    }
+
+    #[test]
+    fn snapshot_context_json() {
+        let (fx, ctx) = context_fixture(&["claude-opus-4-8", "claude-opus-4-8"]);
+        let pretty = serde_json::to_string_pretty(&context_json(&fx.session, &ctx)).unwrap();
+        insta::assert_snapshot!(pretty);
+    }
+
+    /// An unknown model renders as a dash everywhere a table value would
+    /// go — provider, limit, usage %, cost — and never as 0. Self-reported
+    /// token counts it did report still show.
+    #[test]
+    fn unknown_model_renders_dashes_not_zero() {
+        let (fx, ctx) = context_fixture(&["glm-5.2"]);
+        let panel = render_context_panel(&fx.session, &ctx, false);
+        let line = |label: &str| {
+            panel
+                .lines()
+                .find(|l| l.trim_start().starts_with(label))
+                .unwrap_or_else(|| panic!("no {label} line in\n{panel}"))
+                .to_string()
+        };
+        assert!(line("model").contains("glm-5.2 (not in the model table)"));
+        assert!(line("provider").ends_with('—'), "{panel}");
+        assert!(line("context limit").ends_with('—'), "{panel}");
+        assert!(line("context used").contains("— of limit"), "{panel}");
+        assert!(line("est. cost").ends_with('—'), "{panel}");
+        assert!(line("reasoning").ends_with('—'), "{panel}");
+        assert!(line("input").contains("1,200"), "{panel}");
+        assert!(!line("est. cost").contains('0'), "{panel}");
+        let json = context_json(&fx.session, &ctx);
+        assert!(json["estimated_cost_usd"].is_null());
+        assert!(json["model"]["context_limit"].is_null());
+        assert!(json["context_used"]["percent_of_limit"].is_null());
+        assert!(json["usage"]["reasoning_tokens"].is_null());
+        assert_eq!(json["usage"]["input_tokens"], 1_200);
+    }
+
+    /// A mid-session model change: the session row records the last model,
+    /// and the summary header lists every model with its step range.
+    #[test]
+    fn snapshot_summary_with_mid_session_model_change() {
+        let (fx, ctx) =
+            context_fixture(&["claude-sonnet-4-6", "claude-sonnet-4-6", "claude-opus-4-8"]);
+        assert_eq!(fx.session.model_id.as_deref(), Some("claude-opus-4-8"));
+        assert_eq!(ctx.models.len(), 2);
+        let out = format!(
+            "{}{}",
+            render_summary_header(&fx.session, &ctx.models, false),
+            render_step_table(&fx.timeline, &fx.session, false)
+        );
+        insta::assert_snapshot!(out);
     }
 
     #[test]

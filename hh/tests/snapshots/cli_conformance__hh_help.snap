@@ -16,6 +16,7 @@ Commands:
   replay       Faithfully play back a recorded session in an interactive TUI
   inspect      Print non-interactive detail about a session
   list         List recorded sessions, newest first
+  rename       Name or rename a recorded session
   delete       Delete a session and garbage-collect its blobs
   doctor       Diagnose the recording stack and report pass/fail per check
   gc           Reclaim disk space: prune orphaned blobs and vacuum the database

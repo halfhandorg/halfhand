@@ -78,6 +78,7 @@ fn run(cli: Cli) -> anyhow::Result<ExitCode> {
         Command::Replay(args) => replay_command(&args),
         Command::Inspect(args) => inspect::inspect_command(&args),
         Command::List(args) => list_command(&args),
+        Command::Rename(args) => rename_command(&args),
         Command::Delete(args) => delete_command(&args),
         Command::McpProxy(args) => mcp_proxy_command(args),
         Command::Doctor(args) => doctor_command(&args),
@@ -228,6 +229,19 @@ fn run_command(args: cli::RunArgs) -> anyhow::Result<ExitCode> {
 
     let outcome = hh_record::run(&store, &opts)
         .map_err(|e| anyhow::anyhow!("recording failed\n  why: {e}\n  hint: a session may still have been recorded — run `hh list` to check, then `hh inspect <id>` for details"))?;
+
+    // `--name` is applied once the session row exists. Doing it here rather
+    // than inside the recorder keeps `hh_record::RunOptions` unchanged. A
+    // failure only warns: the recording itself succeeded.
+    if let Some(name) = args.name.as_deref() {
+        if let Err(e) = store.set_session_name(&outcome.session_id, Some(name)) {
+            eprintln!(
+                "hh: warning: could not name session {sid}: {e}; \
+                 run `hh rename {sid} \"{name}\"` to retry",
+                sid = outcome.short_id
+            );
+        }
+    }
 
     print_epilogue(&outcome);
     // Propagate the child's exit code so `hh run -- make` behaves like `make`.
@@ -991,6 +1005,44 @@ fn list_command(args: &cli::ListArgs) -> anyhow::Result<ExitCode> {
     Ok(ExitCode::SUCCESS)
 }
 
+/// `hh rename` (migration 0007): set or clear a session's name.
+fn rename_command(args: &cli::RenameArgs) -> anyhow::Result<ExitCode> {
+    let (store, _paths, _config) = open_store()?;
+    let id = resolve_session_arg(&store, &args.session)?;
+    let name = if args.clear {
+        None
+    } else {
+        args.name.as_deref()
+    };
+    let session = store
+        .get_session(&id)
+        .map_err(|e| anyhow::anyhow!("could not load session\n  why: {e}"))?;
+    store.set_session_name(&id, name).map_err(|e| {
+        anyhow::anyhow!(
+            "could not rename session `{}`\n  why: {e}\n  hint: check that the data directory is writable",
+            session.short_id
+        )
+    })?;
+    print!(
+        "{}",
+        render_rename(&session.short_id, name, render::use_color())
+    );
+    Ok(ExitCode::SUCCESS)
+}
+
+/// The one-line confirmation `hh rename` prints.
+fn render_rename(short_id: &str, name: Option<&str>, color: bool) -> String {
+    let check = if color {
+        "✓".green().to_string()
+    } else {
+        "✓".to_string()
+    };
+    match name {
+        Some(n) => format!("{check} Renamed session {short_id} → {n}\n"),
+        None => format!("{check} Cleared the name of session {short_id}\n"),
+    }
+}
+
 /// `hh delete` (FR-6.1): delete a session and garbage-collect its blobs.
 /// Prompts for confirmation unless `--yes`; refuses non-interactively (piped
 /// stdin) without `--yes` so a stray `hh delete last` in a script never
@@ -1234,6 +1286,34 @@ fn session_to_json(r: &hh_core::SessionRow) -> serde_json::Value {
         "command": r.command,
         "cwd": r.cwd.to_string_lossy(),
         "imported_from": r.imported_from,
+        // Migration 0007 (additive; docs/json.md, docs/context.md).
+        "name": r.name,
+        "model_id": r.model_id,
+        "model_display": r.model_display,
+        "provider": r.provider,
+        "context_limit": r.context_limit,
+        "capture_tier": r.capture_tier,
+        "adapter_id": r.adapter_id,
+        "usage": usage_json(r),
+        "duration": duration_ms.map(render::iso8601_duration),
+        "active_duration_ms": r.active_duration_ms(),
+        "active_duration": r.active_duration_ms().map(render::iso8601_duration),
+    })
+}
+
+/// The `usage` object: self-reported, accumulated token counts (`null` =
+/// not reported, never 0) and the derived `total_tokens`. Size-based
+/// estimates are deliberately absent here; they live under `estimated` in
+/// `hh inspect --context --json` so the two families never share a field.
+pub(crate) fn usage_json(r: &hh_core::SessionRow) -> serde_json::Value {
+    serde_json::json!({
+        "source": "self_reported",
+        "input_tokens": r.input_tokens,
+        "output_tokens": r.output_tokens,
+        "cache_read_tokens": r.cache_read_tokens,
+        "cache_write_tokens": r.cache_write_tokens,
+        "reasoning_tokens": r.reasoning_tokens,
+        "total_tokens": r.total_tokens(),
     })
 }
 

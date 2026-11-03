@@ -358,6 +358,43 @@ pub struct SessionRow {
     /// (no structured error — a `hh doctor` diagnostic, not a stale code).
     /// See SRS BUG-1.1 for the code table.
     pub adapter_degrade_reason: Option<String>,
+    /// User-chosen session name (`hh run --name`, `hh rename`; migration 0007).
+    pub name: Option<String>,
+    /// The last model id the transcript self-reported (migration 0007).
+    /// `None` when the transcript never reported one.
+    pub model_id: Option<String>,
+    /// Display name of [`Self::model_id`] from the compiled-in model table
+    /// ([`crate::models`]); `None` when the model is not in the table.
+    pub model_display: Option<String>,
+    /// Provider of [`Self::model_id`] from the model table; `None` when unknown.
+    pub provider: Option<String>,
+    /// Context window of [`Self::model_id`] in tokens; `None` when unknown.
+    pub context_limit: Option<i64>,
+    /// Self-reported uncached input tokens, accumulated over the session.
+    /// `None` when the transcript never reported this count.
+    pub input_tokens: Option<i64>,
+    /// Self-reported output tokens, accumulated.
+    pub output_tokens: Option<i64>,
+    /// Self-reported cache-read input tokens, accumulated.
+    pub cache_read_tokens: Option<i64>,
+    /// Self-reported cache-write input tokens, accumulated.
+    pub cache_write_tokens: Option<i64>,
+    /// Self-reported reasoning tokens, accumulated, when the provider reports
+    /// them separately (a breakdown of output, not added to the total).
+    pub reasoning_tokens: Option<i64>,
+    /// How the session was captured: `transcript` (a structured adapter tailed
+    /// the agent's transcript), `terminal` (PTY and file system only) or `mcp`
+    /// (MCP proxy traffic). `None` for a session not yet finalized.
+    pub capture_tier: Option<String>,
+    /// The adapter that ran (`claude-code`, …), or `None` for none.
+    pub adapter_id: Option<String>,
+    /// `ts_ms` of the first agent event (any event except `terminal_output`
+    /// and `lifecycle`), or `None` if there is none.
+    pub first_agent_ts_ms: Option<i64>,
+    /// `ts_ms` of the last agent event.
+    pub last_agent_ts_ms: Option<i64>,
+    /// `ts_ms` of the last event of any kind (last activity).
+    pub last_event_ts_ms: Option<i64>,
     /// Number of events the recorder failed to write to the database
     /// (`sessions.dropped_events`). Non-zero marks the session degraded: its
     /// timeline has gaps, so it is never shown as a clean `ok`. `0` for a
@@ -366,6 +403,48 @@ pub struct SessionRow {
     /// The first write failure's cause (what failed and why) when
     /// [`Self::dropped_events`] is non-zero; `None` otherwise.
     pub dropped_events_reason: Option<String>,
+}
+
+impl SessionRow {
+    /// Wall-clock duration, `ended_at - started_at` clamped non-negative;
+    /// `None` until the session is finalized.
+    #[must_use]
+    pub fn duration_ms(&self) -> Option<i64> {
+        self.ended_at.map(|end| (end - self.started_at).max(0))
+    }
+
+    /// Active duration: first to last agent event. `None` when the session
+    /// has no agent events.
+    #[must_use]
+    pub fn active_duration_ms(&self) -> Option<i64> {
+        match (self.first_agent_ts_ms, self.last_agent_ts_ms) {
+            (Some(a), Some(b)) => Some((b - a).max(0)),
+            _ => None,
+        }
+    }
+
+    /// Total self-reported tokens, derived at read time and never stored:
+    /// input + output + cache read + cache write. Reasoning tokens are a
+    /// breakdown of output and are not added again. `None` when none of the
+    /// four was reported.
+    #[must_use]
+    pub fn total_tokens(&self) -> Option<i64> {
+        let parts = [
+            self.input_tokens,
+            self.output_tokens,
+            self.cache_read_tokens,
+            self.cache_write_tokens,
+        ];
+        if parts.iter().all(Option::is_none) {
+            return None;
+        }
+        Some(
+            parts
+                .iter()
+                .flatten()
+                .fold(0i64, |a, b| a.saturating_add(*b)),
+        )
+    }
 }
 
 impl Default for SessionRow {
@@ -391,6 +470,21 @@ impl Default for SessionRow {
             files_changed: 0,
             imported_from: None,
             adapter_degrade_reason: None,
+            name: None,
+            model_id: None,
+            model_display: None,
+            provider: None,
+            context_limit: None,
+            input_tokens: None,
+            output_tokens: None,
+            cache_read_tokens: None,
+            cache_write_tokens: None,
+            reasoning_tokens: None,
+            capture_tier: None,
+            adapter_id: None,
+            first_agent_ts_ms: None,
+            last_agent_ts_ms: None,
+            last_event_ts_ms: None,
             dropped_events: 0,
             dropped_events_reason: None,
         }

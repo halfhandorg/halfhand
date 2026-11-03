@@ -466,6 +466,25 @@ fn session_to_bundle_json(row: &SessionRow) -> serde_json::Value {
         "command": row.command,
         "cwd": row.cwd.to_string_lossy(),
         "imported_from": row.imported_from,
+        // Migration 0007 (additive): the stored session-context fields, so an
+        // export → import round-trip keeps name, model and token usage.
+        // `total_tokens` is derived, not carried.
+        "name": row.name,
+        "model_id": row.model_id,
+        "model_display": row.model_display,
+        "provider": row.provider,
+        "context_limit": row.context_limit,
+        "capture_tier": row.capture_tier,
+        "adapter_id": row.adapter_id,
+        "usage": {
+            "source": "self_reported",
+            "input_tokens": row.input_tokens,
+            "output_tokens": row.output_tokens,
+            "cache_read_tokens": row.cache_read_tokens,
+            "cache_write_tokens": row.cache_write_tokens,
+            "reasoning_tokens": row.reasoning_tokens,
+            "total_tokens": row.total_tokens(),
+        },
     })
 }
 
@@ -905,6 +924,52 @@ mod tests {
         // The original session is untouched.
         let original_still_ok = store.get_session(&sid).unwrap();
         assert_eq!(original_still_ok.imported_from, None);
+    }
+
+    /// A bundle round-trip preserves migration 0007's stored session
+    /// context (name, model, token usage) and does not double-count usage:
+    /// import restores the stored totals instead of re-accumulating events.
+    #[test]
+    fn bundle_round_trip_preserves_session_context() {
+        let (_tmp, store, sid) = fixture();
+        store.set_session_name(&sid, Some("auth refactor")).unwrap();
+        let w = store.event_writer().unwrap();
+        w.append_event(Event {
+            session_id: sid.clone(),
+            ts_ms: 3_000,
+            kind: EventKind::AgentMessage,
+            step: None,
+            summary: "done".into(),
+            body_json: Some(serde_json::json!({
+                "text": "done", "model": "claude-opus-4-8", "message_id": "m1",
+                "usage": {"input_tokens": 40, "output_tokens": 2}
+            })),
+            blob_hash: None,
+            blob_size: None,
+            correlates: None,
+        })
+        .unwrap();
+        w.finish().unwrap();
+        let bytes = export(&store, &sid, "v", None).unwrap();
+        let bundle = parse(&bytes).unwrap();
+        let target_tmp = TempDir::new().unwrap();
+        let target = Store::open(
+            &target_tmp.path().join("hh.db"),
+            &target_tmp.path().join("blobs"),
+        )
+        .unwrap();
+        let created = target.import(&bundle).unwrap();
+        let (a, b) = (
+            store.get_session(&sid).unwrap(),
+            target.get_session(&created.id).unwrap(),
+        );
+        assert_eq!(b.name.as_deref(), Some("auth refactor"));
+        assert_eq!(b.model_id, a.model_id);
+        assert_eq!(b.model_display.as_deref(), Some("Claude Opus 4.8"));
+        assert_eq!(b.input_tokens, Some(40));
+        assert_eq!(b.output_tokens, Some(2));
+        assert_eq!(b.reasoning_tokens, None);
+        assert_eq!(b.total_tokens(), a.total_tokens());
     }
 
     /// A bundle round-trip preserves the `adapter_degrade_reason` code

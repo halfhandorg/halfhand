@@ -1,0 +1,28 @@
+---
+source: hh/src/inspect.rs
+expression: "render_context_panel(&fx.session, &ctx, false)"
+---
+ a1b2c3 · context
+
+ name            auth refactor
+ model           Claude Opus 4.8 (claude-opus-4-8)
+ provider        Anthropic
+ context limit   1,000,000 tokens
+ context used    51,200 tokens · 5.1% of limit · latest turn, self-reported
+ capture         transcript · claude-code
+
+ tokens          self-reported, accumulated
+   input           2,400
+   output            680
+   cache read     96,000
+   cache write     4,000
+   reasoning           —
+   total         103,080  derived
+ estimated       ≈ 140 tokens · size-based (bytes ÷ 4), not self-reported
+
+ messages        1 user · 3 agent · 1 tool call
+ created         2023-11-14 22:13:20 UTC
+ last activity   2023-11-14 22:13:23 UTC
+ duration        3s wall · 3s active
+ est. cost       $0.10 at list price
+ models          claude-opus-4-8 (steps 5–6)

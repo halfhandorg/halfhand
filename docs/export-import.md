@@ -46,7 +46,8 @@ and the manifest carries no wall-clock field.
 {
   "format_version": 1,
   "hh_version": "0.1.0-beta.1 (abc1234)",
-  "session": { /* the hh list --json session object, see docs/json.md */ },
+  "session": { /* the hh list --json session object, see docs/json.md;
+                 an import restores its name, model and usage fields */ },
   "integrity": {
     "events_blake3": "<hex>",       // BLAKE3 of events.ndjson's bytes
     "event_count": 12,

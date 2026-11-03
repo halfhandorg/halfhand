@@ -40,6 +40,21 @@ hh inspect a1b2c3 --step 7       # full detail of step 7
 hh inspect last --json | jq      # stable JSON (single object with --step)
 hh inspect last --diff           # concatenated unified diff of file changes
 hh inspect last --failed         # jump to the first error/failed step
+hh inspect last --context        # model, provider, tokens, durations, cost
+```
+
+The summary header shows the session's name (if any) and, when the transcript
+reported one, every model the session used with its step range. The step
+table's ELAPSED column is the time from each step to the next (the last step
+runs to the last agent event). `--context` prints the session context panel —
+see [Session context](./context.md).
+
+Name a session when you record it, or later:
+
+```bash
+hh run --name "auth refactor" -- claude
+hh rename last "auth refactor, take 2"
+hh rename a1b2c3 --clear
 ```
 
 The `--json` shape is documented and frozen as of 1.0 (additive-only); see

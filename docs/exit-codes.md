@@ -20,7 +20,7 @@ of them would itself be a breaking change.
 | `0` | Success | Every command, when it succeeds. `hh run` / `hh mcp-proxy`: see [pass-through](#hh-run-and-hh-mcp-proxy-pass-the-wrapped-commands-code-through). |
 | `1` | Generic error | Any command, for any failure not listed below. |
 | `2` | Usage error | Any command, when the command line itself is invalid (clap). |
-| `3` | Session not found | `inspect`, `replay`, `export`, `delete`, `scan <session>`, `redact` |
+| `3` | Session not found | `inspect`, `replay`, `export`, `delete`, `rename`, `scan <session>`, `redact` |
 | `4` | Redaction/policy block | `hh scan` when it finds secrets |
 | other | The wrapped command's own code | `hh run`, `hh mcp-proxy` |
 
@@ -68,7 +68,10 @@ argument parser (clap), before any subcommand logic:
 - a flag value of the wrong type (`hh list --limit many`);
 - a missing required argument (`hh delete` with no session);
 - flags that conflict (`hh export --html --bundle`,
-  `hh scan <session> --all`);
+  `hh scan <session> --all`, `hh inspect --context --step 1`);
+- an invalid session name: empty or blank, longer than 100 characters, or
+  containing control characters (`hh rename last ""`, `hh run --name "" -- …`),
+  or `hh rename` with neither a name nor `--clear`;
 - `hh` with no subcommand at all (help is printed to stderr).
 
 ## `3` — session not found
@@ -83,6 +86,7 @@ that takes a session argument:
 | `hh replay [<session>]` | `--web`, or in a terminal; without a terminal the TTY check fails first (`1`) |
 | `hh export [<session>]` | default `last` |
 | `hh delete <session>` | |
+| `hh rename <session>` | |
 | `hh scan [<session>]` | default `last`; `--all` on an empty store is clean (`0`) |
 | `hh redact <session>` | |
 

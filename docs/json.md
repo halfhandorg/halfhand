@@ -75,6 +75,17 @@ One object per recorded session, newest-first.
 | `command` | array of strings | yes | The recorded command line as an argv vector. |
 | `cwd` | string | yes | The session's working directory. |
 | `imported_from` | string \| null | yes | The original session id, if this session was created by `hh import` (see [`docs/export-import.md`](export-import.md)). `null` for a locally-recorded session. Added additively — older clients that don't read it are unaffected. |
+| `name` | string \| null | yes | The session's name (`hh run --name`, `hh rename`), or `null`. Added additively (migration 0007). |
+| `model_id` | string \| null | yes | The last model id the transcript self-reported. `null` when it never reported one (any non-adapter session). Added additively (migration 0007). |
+| `model_display` | string \| null | yes | Display name of `model_id` from Halfhand's compiled-in model table; `null` when the model is not in the table. Added additively. |
+| `provider` | string \| null | yes | Provider of `model_id` from the table, or `null`. Added additively. |
+| `context_limit` | integer \| null | yes | Context window of `model_id` in tokens, from the table, or `null`. Added additively. |
+| `capture_tier` | string \| null | yes | `transcript` (a structured adapter tailed the transcript), `terminal` (PTY and file system only) or `mcp` (MCP proxy). `null` until finalized. Added additively. |
+| `adapter_id` | string \| null | yes | The adapter that ran (`claude-code`, `claude-desktop`, …), or `null`. Added additively. |
+| `usage` | object | yes | Self-reported token usage, accumulated over the session: `{ "source": "self_reported", "input_tokens", "output_tokens", "cache_read_tokens", "cache_write_tokens", "reasoning_tokens", "total_tokens" }`. Each count is an integer or `null` — `null` means not reported, never 0. `total_tokens` is derived (input + output + cache read + cache write; reasoning is a breakdown of output) and never stored. Size-based estimates are never in this object; see [Session context](./context.md). Added additively. |
+| `duration` | string \| null | yes | `duration_ms` as an ISO-8601 duration (`PT1H49M40S`). Added additively. |
+| `active_duration_ms` | integer \| null | yes | First to last agent event (any event except `terminal_output` and `lifecycle`). `null` when there are none. Added additively. |
+| `active_duration` | string \| null | yes | `active_duration_ms` as an ISO-8601 duration. Added additively. |
 
 ---
 
@@ -116,6 +127,14 @@ the built-in adapters emit today:
 | `file_change` | `{ "path", "change_kind", "before_source" }` — the structured change is in `file_change`; `before_source` (one of `live`, `git`, `baseline`, `none`; absent on sessions recorded before it was introduced) says where the before-side came from (see [Recording](./recording.md#file-changes-where-the-before-side-comes-from)). A rename adds `"renamed_from": "<old path>"`. |
 | `lifecycle` | `null`; `{ "event": "start" | "exit" }`; or (added in `schema:2`, produced by `hh redact`) `{ "redaction_audit": { "secrets": [{ "type", "hash8", "count" }], "events_rewritten", "blobs_rewritten" } }` — the session self-documenting what a redaction removed, never the secret material itself. |
 
+Response metadata (added additively, migration 0007): the first event an
+adapter emits for a model response — usually its `agent_message`, `thinking`
+or first `tool_call` — also carries `"model"` (the self-reported model id),
+`"message_id"` (the response id) and `"usage"` (the response's usage object,
+verbatim). A transcript writes one response's usage on each of its content
+blocks; Halfhand counts a `message_id` once. Today the Claude Code and Claude
+Desktop adapters emit these keys.
+
 Future adapter bodies are additive: new keys may appear within `body` without
 bumping `schema`.
 
@@ -143,6 +162,8 @@ A single JSON object describing one step.
 | `kind` | string | The step's badge kind — the "opening" side of a correlated pair (a `tool_call` over its `tool_result`; an `mcp_request` over its `mcp_response`). |
 | `summary` | string | The primary event's one-line summary. |
 | `ts_ms` | integer | The earliest `ts_ms` among the step's events. |
+| `elapsed_ms` | integer \| null | Time from this step's `ts_ms` to the next step's (the last step runs to the session's last agent event). `null` when the end is unknown. Added additively. |
+| `elapsed` | string \| null | `elapsed_ms` as an ISO-8601 duration. Added additively. |
 | `events` | array of event objects | The events sharing this step, in `id` order. Usually one entry; two for a correlated call+result or request+response pair. |
 
 ---
@@ -165,6 +186,7 @@ They are documented in full on their own pages:
 
 | Command | Shape | Docs |
 |---|---|---|
+| `hh inspect --context --json` | `{ schema, session, name, model: {…}, context_used: {…}, usage: {…}, estimated: {…}, messages: {…}, …, estimated_cost_usd, models: […] }` | [`docs/context.md`](context.md) |
 | `hh doctor --json` | `{ schema, status, checks: [{ name, status, detail }] }` | [`docs/doctor.md`](doctor.md) |
 | `hh gc --json` | `{ schema, orphan_files_removed, orphan_bytes_reclaimed, orphan_rows_removed, vacuumed }` | [`docs/gc.md`](gc.md) |
 | `hh stats --json` | `{ schema, sessions, events, blobs: {…}, disk: {…}, largest_sessions: [{ id, short_id, events }] }` | [`docs/stats.md`](stats.md) |

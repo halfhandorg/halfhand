@@ -1,0 +1,63 @@
+---
+source: hh/src/inspect.rs
+expression: pretty
+---
+{
+  "active_duration": "PT3S",
+  "active_duration_ms": 3000,
+  "adapter_id": "claude-code",
+  "capture_tier": "transcript",
+  "context_used": {
+    "percent_of_limit": 5.1,
+    "source": "self_reported_latest_turn",
+    "tokens": 51200
+  },
+  "cost_basis": "list_price",
+  "created": "2023-11-14T22:13:20.000Z",
+  "created_at": 1700000000000,
+  "duration": "PT3.2S",
+  "duration_ms": 3200,
+  "estimated": {
+    "method": "bytes_div_4",
+    "source": "size_based",
+    "tokens": 140
+  },
+  "estimated_cost_usd": "0.102000",
+  "last_activity": "2023-11-14T22:13:23.000Z",
+  "last_activity_at": 1700000003000,
+  "messages": {
+    "agent": 3,
+    "tool_calls": 1,
+    "user": 1
+  },
+  "model": {
+    "context_limit": 1000000,
+    "display": "Claude Opus 4.8",
+    "id": "claude-opus-4-8",
+    "provider": "Anthropic"
+  },
+  "models": [
+    {
+      "first_step": 5,
+      "last_step": 6,
+      "model_id": "claude-opus-4-8"
+    }
+  ],
+  "name": "auth refactor",
+  "schema": 2,
+  "session": {
+    "adapter_degrade_reason": null,
+    "adapter_status": "active",
+    "id": "018e2c5a-4a00-7000-8000-000000a1b2c3",
+    "short_id": "a1b2c3"
+  },
+  "usage": {
+    "cache_read_tokens": 96000,
+    "cache_write_tokens": 4000,
+    "input_tokens": 2400,
+    "output_tokens": 680,
+    "reasoning_tokens": null,
+    "source": "self_reported",
+    "total_tokens": 103080
+  }
+}

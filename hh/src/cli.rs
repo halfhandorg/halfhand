@@ -57,6 +57,7 @@ pub enum Command {
     #[command(after_help = examples(&[
         ("hh run -- claude", "record a Claude Code session"),
         ("hh run --record-input -- python3 my_agent.py", "also record your keystrokes"),
+        ("hh run --name \"auth refactor\" -- claude", "record and name the session"),
         (
             "hh run --adapter claude-desktop -- $SHELL",
             "record the Claude Desktop session open in this dir; exit to finish",
@@ -81,6 +82,8 @@ pub enum Command {
         ("hh inspect a1b2c3 --step 7", "show the full detail of step 7"),
         ("hh inspect last --json | jq", "stream the session as JSON"),
         ("hh inspect last --diff", "print the file changes as a unified diff"),
+        ("hh inspect last --context", "model, provider, token usage, cost, durations"),
+        ("hh inspect last --context --json", "the same panel as one JSON object"),
     ]))]
     Inspect(InspectArgs),
 
@@ -92,6 +95,18 @@ pub enum Command {
         ("hh list --json", "machine-readable output"),
     ]))]
     List(ListArgs),
+
+    // Migration 0007 (session context).
+    /// Name or rename a recorded session.
+    ///
+    /// The name shows in `hh inspect` and in `--json` output. Names are
+    /// trimmed, must not be empty, and are at most 100 characters.
+    #[command(after_help = examples(&[
+        ("hh rename last \"auth refactor\"", "name the most recent session"),
+        ("hh rename a1b2c3 \"retry with opus\"", "rename a session by short id"),
+        ("hh rename a1b2c3 --clear", "remove a session's name"),
+    ]))]
+    Rename(RenameArgs),
 
     // SRS FR-6.1.
     /// Delete a session and garbage-collect its blobs.
@@ -415,6 +430,11 @@ pub struct RunArgs {
     #[arg(long)]
     pub adapter: Option<String>,
 
+    /// Name the recorded session (shown by `hh inspect`; change it later
+    /// with `hh rename`).
+    #[arg(long, value_parser = parse_session_name)]
+    pub name: Option<String>,
+
     /// The command to run and its arguments, after `--`.
     #[arg(last = true, num_args = 1.., required = true)]
     pub command: Vec<String>,
@@ -450,6 +470,9 @@ pub struct ReplayArgs {
 
 /// Arguments for `hh inspect`.
 #[derive(Args, Debug)]
+// Each bool is an independent clap flag (`--json`, `--diff`, `--failed`,
+// `--context`); a state enum would not map to the CLI surface.
+#[allow(clippy::struct_excessive_bools)]
 pub struct InspectArgs {
     /// Session short id, full id, or `last`.
     pub session: Option<String>,
@@ -469,6 +492,57 @@ pub struct InspectArgs {
     /// Jump to the first error/failed step.
     #[arg(long)]
     pub failed: bool,
+
+    /// Show the context panel: model, tokens, durations, estimated cost.
+    ///
+    /// Name, model, provider, context limit and usage, self-reported token
+    /// counts (and a separate size-based estimate), message counts, created
+    /// and last-activity times, wall and active duration, and estimated
+    /// cost. Unknown values print as `—`. With --json, one JSON object.
+    #[arg(long, conflicts_with_all = ["step", "diff", "failed"])]
+    pub context: bool,
+}
+
+/// Arguments for `hh rename`.
+#[derive(Args, Debug)]
+pub struct RenameArgs {
+    /// Session short id, full id, or `last`.
+    pub session: String,
+
+    /// The new name.
+    #[arg(value_parser = parse_session_name, required_unless_present = "clear")]
+    pub name: Option<String>,
+
+    /// Remove the session's name instead of setting one.
+    #[arg(long, conflicts_with = "name")]
+    pub clear: bool,
+}
+
+/// Longest accepted session name, in characters.
+const MAX_SESSION_NAME_CHARS: usize = 100;
+
+/// clap value parser for a session name: trimmed, non-empty, at most
+/// [`MAX_SESSION_NAME_CHARS`] characters, no control characters (a name is
+/// printed to the terminal, so an escape sequence must not get through).
+/// A rejection is a usage error (exit 2).
+pub(crate) fn parse_session_name(raw: &str) -> Result<String, String> {
+    let name = raw.trim();
+    if name.is_empty() {
+        return Err(
+            "a session name cannot be empty; use `hh rename <id> --clear` to remove one".into(),
+        );
+    }
+    if name.chars().count() > MAX_SESSION_NAME_CHARS {
+        return Err(format!(
+            "a session name is at most {MAX_SESSION_NAME_CHARS} characters; shorten it"
+        ));
+    }
+    if name.chars().any(char::is_control) {
+        return Err(
+            "a session name cannot contain control characters (newlines, tabs, escapes)".into(),
+        );
+    }
+    Ok(name.to_string())
 }
 
 /// Arguments for `hh list`.
@@ -498,8 +572,8 @@ pub struct DeleteArgs {
 #[derive(Args, Debug)]
 pub struct McpProxyArgs {
     /// A human-readable hint for a standalone mcp-only session. Accepted for
-    /// forward compatibility but not yet persisted anywhere (no session-name
-    /// column exists today) — it has no visible effect.
+    /// forward compatibility but not yet persisted anywhere (it does not set
+    /// the session name; use `hh rename`) — it has no visible effect.
     #[arg(long)]
     pub session_hint: Option<String>,
 
