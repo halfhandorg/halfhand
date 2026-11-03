@@ -1,0 +1,30 @@
+-- Migration 0008: recorder identity — which process is recording a session.
+--
+-- Adds two nullable columns to `sessions` (see
+-- `migrations::RECORDER_IDENTITY_COLUMNS`):
+--
+--   recorder_pid         INTEGER  -- OS process id of the recording `hh`
+--   recorder_start_time  INTEGER  -- that process's platform start-time token
+--
+-- `Store::create_session` fills both from the creating process. The pair, not
+-- the pid alone, identifies the recorder: pids are reused, so a crashed
+-- recorder's pid can later belong to an unrelated process. On every `hh`
+-- invocation `Store::mark_stale_interrupted` flips a `recording` session to
+-- `interrupted` only when no process holds `recorder_pid`, or the process that
+-- does has a different start time. When liveness cannot be determined it
+-- leaves the session `recording` (fail safe). Rows from before 0008 have both
+-- columns NULL and keep the pre-0008 behaviour (reconciled to `interrupted`).
+--
+-- The start-time token is opaque and platform-specific (Linux: ticks since
+-- boot from /proc/<pid>/stat; macOS: microseconds since the epoch; Windows:
+-- FILETIME creation time); it is only ever compared for equality on the
+-- machine that wrote it.
+--
+-- As with 0007, the columns are added by Rust code in `Store::open`
+-- (`add_recorder_identity_columns`), each behind a `PRAGMA table_info` check,
+-- because SQLite has no `ALTER TABLE ADD COLUMN IF NOT EXISTS`; that check is
+-- what makes the migration idempotent (DR-4). Nothing is dropped, renamed or
+-- retyped.
+--
+-- This SQL half has no statements; it exists so `schema_migrations` records
+-- version 8 and the runner's MAX(version) ordering stays append-only.

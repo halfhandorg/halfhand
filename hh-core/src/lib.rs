@@ -16,6 +16,7 @@ pub mod config;
 pub mod deprecation;
 pub mod error;
 pub mod event;
+mod liveness;
 pub mod migrations;
 pub mod models;
 pub mod redact;

@@ -11,6 +11,23 @@ in CI rather than tracking `latest` until 1.0.
 
 ## [Unreleased]
 
+### Fixed — a second `hh` command interrupted the live recording
+
+- Running any `hh` command (for example `hh list`) while `hh run` was
+  recording in another terminal flipped the live session to `interrupted`.
+  Every invocation marked all `recording` sessions interrupted without
+  checking whether their recorder was still running.
+- Sessions now record the recording process's id and start time
+  (migration 0008: nullable `sessions.recorder_pid` and
+  `sessions.recorder_start_time`, added idempotently). A session is marked
+  `interrupted` only when no process has that id, or the process that has it
+  started at a different time (the id was reused). Liveness is checked on
+  Linux, macOS and Windows without shelling out. Where it cannot be
+  determined, the session stays `recording` rather than being wrongly
+  marked `interrupted`.
+- Sessions recorded before this release have no recorder identity and are
+  reconciled as before. See `docs/recording.md` (Session status).
+
 ### Added — session context: model, provider, duration and token cost
 
 - **`hh inspect --context`** prints a panel with the session's name, model,

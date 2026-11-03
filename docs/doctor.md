@@ -69,5 +69,6 @@ usage error. See [Exit codes](./exit-codes.md).)
 - `hh doctor` reuses the same `notify` backend the recorder uses, so a watcher
   failure here explains a session that recorded `0 files changed`.
 - Running `hh doctor` opens the store the same way `hh run` does (including the
-  best-effort reconcile of stale `recording` sessions into `interrupted`), so it
+  best-effort reconcile of stale `recording` sessions — those whose recorder
+  process is gone — into `interrupted`), so it
   exercises the same config-resolution path that a real recording would.

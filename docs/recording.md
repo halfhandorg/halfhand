@@ -159,8 +159,41 @@ hh doctor
 hh doctor --json | jq
 ```
 
-See [Doctor](./doctor.md). If a recording is interrupted (e.g. you kill `hh`),
-the session is marked `interrupted` on the next open and is still inspectable.
+See [Doctor](./doctor.md).
+
+## Session status
+
+A session's `status` (shown by `hh list`, `hh inspect` and `--json`) is one of:
+
+| Status | Meaning |
+|---|---|
+| `recording` | The recording is still running. |
+| `ok` | The recorded command exited 0. |
+| `error` | The recorded command exited non-zero. |
+| `interrupted` | The `hh` process recording the session stopped before finalizing it (it was killed, crashed, or the machine went down). The session is still inspectable up to the last event written. |
+
+### How a crashed recording becomes `interrupted`
+
+When `hh run` starts, the session records which process is recording it: the
+`hh` process's id **and** its start time. Every `hh` command (`hh list`,
+`hh inspect`, another `hh run`, …) checks each `recording` session and marks it
+`interrupted` only when that recorder is gone:
+
+- no process has the recorded id, or
+- a process has it, but with a different start time. Process ids are reused,
+  so a crashed recorder's id can later belong to an unrelated program; the
+  start time tells them apart.
+
+So you can run `hh list` or `hh inspect` in another terminal while
+`hh run` is recording, and the live session keeps showing `recording`.
+
+Liveness is checked on Linux (`/proc`), macOS and Windows. When it cannot be
+determined (an unsupported platform, no permission to see the process,
+`/proc` not mounted, or a data dir shared between machines), Halfhand leaves
+the session `recording` rather than risk marking a live recording
+`interrupted`. A session stuck in `recording` this way is still fully
+inspectable. Sessions recorded by Halfhand versions before this check have no
+recorder recorded; they are marked `interrupted` as before.
 
 ## Exit code
 
